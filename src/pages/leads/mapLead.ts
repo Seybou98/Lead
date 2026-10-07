@@ -40,6 +40,7 @@ export function toListItem(id: string, d: DocumentData): LeadListItem | null {
     documentsState: str(d.documents?.state, 'none') as DocumentState,
     duplicate: !!d.quality?.duplicateOf,
     excluded: d.quality?.excluded === true,
+    nr: { attempt: Number(d.nr?.attempt ?? 0) || 0, cycle: Number(d.nr?.cycle ?? 1) || 1 },
   };
 }
 

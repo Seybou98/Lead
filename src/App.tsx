@@ -13,6 +13,7 @@ import { SettingsHome } from './pages/settings/SettingsHome';
 import { JournalPage } from './pages/journal/JournalPage';
 import { LeadsListPage } from './pages/leads/LeadsListPage';
 import { LeadFilePage } from './pages/leads/LeadFilePage';
+import { MyDayPage } from './pages/myday/MyDayPage';
 
 function Home() {
   const { user } = useAuth();
@@ -39,7 +40,7 @@ export default function App() {
         <Route index element={<Home />} />
 
         {/* Télépro */}
-        <Route path="/ma-journee" element={page('Ma journée', 'Votre prochaine action, calculée pour vous.', '§6, §12.1, §25.3', 'Phase 2')} />
+        <Route path="/ma-journee" element={<MyDayPage />} />
         <Route path="/mes-leads" element={<LeadsListPage basePath="/mes-leads" />} />
         <Route path="/mes-leads/:leadId" element={<LeadFilePage listPath="/mes-leads" />} />
         <Route path="/messages" element={page('Messages', 'Chronologie des échanges avec vos clients.', '§24.5', 'Phase 6')} />

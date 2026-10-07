@@ -69,9 +69,37 @@ Rejouer la même commande : le lead doit être **rattaché** au premier, pas dup
 
 La donnée brute reçue est écrite **avant** tout traitement (`cl_rawLeads`) : un lead n'est pas perdu si la suite échoue.
 
+## Qualification de fin d'appel (Ma journée)
+Deuxième fonction du site : `netlify/functions/qualify-call.ts`, adresse `/api/qualify-call`.
+- **Pas de secret partagé** : l'application envoie le jeton Firebase du télépro connecté ; la fonction le vérifie,
+  lit son rôle dans `users/{uid}` et n'accepte que le propriétaire du lead (ou un administrateur).
+- **Même clé Firebase** que la réception des leads : aucune variable de plus.
+- Le télépro n'a aucun droit d'écriture direct sur les leads (règles Firestore inchangées) : tout passe par cette
+  fonction, qui écrit le lead, l'historique, la tentative, les actions et les compteurs en une transaction.
+- **En local** : lancer UNIQUEMENT `npx netlify-cli dev` (il démarre lui-même Vite) et ouvrir
+  http://localhost:8888. Ne pas lancer `npm run dev` à côté : le port serait déjà pris.
+- Codes : 200 enregistré (ou déjà enregistré) · 401 non connecté · 403 sans droit · 404 lead introuvable ·
+  409 lead clôturé / modifié entre-temps · 422 saisie incomplète · 500 erreur interne.
+- Réglages (facultatifs) dans le document `cl_config/callRules` : `nrDelaysMinutes`, `recycleAfterDays`,
+  `documentFollowUpDays`, `promisedMarginMinutes`, `schedule`. Sans lui : valeurs du cahier des charges
+  (NR2 après 3 h, puis J+1, J+1, J+2 ; horaires lundi-vendredi 9 h-19 h, Europe/Paris).
+
 ## Données de départ
 Sans elles, un lead reçu va en **file tampon** (comportement voulu, pas une panne). Voir
 [FONCTIONS.md](FONCTIONS.md) : comptes, équipe, configuration du télépro, campagne active, télépro connecté.
+
+## Envoyer plusieurs leads de test
+```powershell
+cd Lead
+node scripts/send-test-leads.mjs --url https://VOTRE-SITE.netlify.app --secret VOTRE_SECRET --count 10
+node scripts/send-test-leads.mjs --url https://VOTRE-SITE.netlify.app --secret VOTRE_SECRET --count 10 --scenario mix
+```
+- `--scenario mix` ajoute des cas limites vérifiés (rejeu, doublon de téléphone, sans contact, mauvais secret,
+  source inconnue, corps illisible) et affiche OK / ÉCHEC pour chacun.
+- `--parallel` envoie tout en même temps ; `--campaign`, `--zone`, `--product`, `--source` adaptent les leads
+  à votre campagne ; `--help` liste tout.
+- Faux leads : « Test Lead 001… », emails `@example.com`, numéros 06 39 98 XX XX (plage fictive).
+- Le secret peut aussi venir de la variable `CL_INGEST_SECRET` (évite de le laisser dans l'historique).
 
 ## Ce qui n'est pas testé automatiquement
 Les 37 tests de `functions/src/http.test.ts` couvrent toute la couche HTTP (secret, méthode, corps, codes de

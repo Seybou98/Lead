@@ -27,6 +27,8 @@ export interface LeadListItem {
   documentsState: DocumentState;
   duplicate: boolean;
   excluded: boolean;
+  /** Cycle NR en cours (§8.1) ; absent = aucun NR enregistré. */
+  nr?: { attempt: number; cycle: number };
 }
 
 export interface LeadNames {

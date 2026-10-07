@@ -85,3 +85,28 @@ export function localDateString(atMs: number, timezone: string): string {
     day: '2-digit',
   }).format(new Date(atMs));
 }
+
+/**
+ * Premier instant de travail à partir de `atMs` (inclus) : `atMs` lui-même s'il est dans un créneau, sinon
+ * l'ouverture du prochain créneau. Sert à ne JAMAIS programmer une tentative hors horaires (§8.1, §5.3).
+ * Renvoie null si aucun créneau n'existe dans les 14 jours (planning vide) : l'appelant décide quoi faire.
+ */
+export function nextWorkingTime(
+  schedule: ScheduleLike,
+  atMs: number,
+  closedDates: readonly string[] = []
+): number | null {
+  if (schedule.weekly.length === 0) return null;
+  if (isWithinSchedule(schedule, atMs, closedDates)) return atMs;
+  const STEP = 5 * 60_000;
+  const LIMIT = 14 * 24 * 60 * 60_000;
+  for (let t = atMs + STEP; t <= atMs + LIMIT; t += STEP) {
+    if (isWithinSchedule(schedule, t, closedDates)) {
+      // On a dépassé l'ouverture de quelques minutes au plus : on revient à la minute exacte.
+      let exact = t;
+      while (exact - 60_000 > atMs && isWithinSchedule(schedule, exact - 60_000, closedDates)) exact -= 60_000;
+      return exact;
+    }
+  }
+  return null;
+}

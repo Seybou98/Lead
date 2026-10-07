@@ -11,10 +11,25 @@
   # Module volumineux, chargé depuis node_modules plutôt qu'embarqué dans le paquet de la fonction.
   external_node_modules = ["firebase-admin"]
 
+# `netlify dev` démarre lui-même Vite (npm run dev, port 5180) et sert l'application ET les fonctions sur
+# http://localhost:8888. Il ne faut donc PAS lancer `npm run dev` à côté (port déjà pris).
+[dev]
+  framework = "#custom"
+  command = "npm run dev"
+  targetPort = 5180
+  port = 8888
+
 # Adresse publique de réception des leads (à donner à la source : Pabbly, Meta, agence…)
 [[redirects]]
   from = "/api/leads"
   to = "/.netlify/functions/ingest-lead"
+  status = 200
+  force = true
+
+# Qualification de fin d'appel (appelée par l'application, authentifiée par le jeton Firebase de l'utilisateur)
+[[redirects]]
+  from = "/api/qualify-call"
+  to = "/.netlify/functions/qualify-call"
   status = 200
   force = true
 

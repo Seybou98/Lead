@@ -12,6 +12,6 @@
     "skipLibCheck": true,
     "isolatedModules": true
   },
-  "include": ["functions", "../functions/src"],
+  "include": ["functions", "lib", "../functions/src", "../src/config/roles.ts"],
   "exclude": ["../functions/src/**/*.test.ts", "**/*.test.ts"]
 }

@@ -12,3 +12,8 @@ dist
 deploy-bundle/*.zip
 functions/node_modules
 functions/lib
+
+# Clés de compte de service : ne jamais versionner
+service-account*.json
+*-firebase-adminsdk-*.json
+serviceAccountKey*.json

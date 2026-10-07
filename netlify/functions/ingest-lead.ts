@@ -12,46 +12,9 @@
 //
 // Toute la logique est dans functions/src (ingest.ts, http.ts), partagée avec la fonction Firebase de secours.
 
-import { cert, getApps, initializeApp } from 'firebase-admin/app';
-import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { ingestLead } from '../../functions/src/ingest';
 import { handleIngestHttp, resolveSourceId } from '../../functions/src/http';
-import { parseServiceAccount } from '../../functions/src/serviceAccount';
-
-interface NetlifyEvent {
-  httpMethod: string;
-  headers: Record<string, string | undefined>;
-  queryStringParameters?: Record<string, string | undefined> | null;
-  body: string | null;
-  isBase64Encoded?: boolean;
-}
-
-interface NetlifyResponse {
-  statusCode: number;
-  headers: Record<string, string>;
-  body: string;
-}
-
-// Réutilisé tant que le conteneur reste chaud : on n'initialise Firebase qu'une fois.
-let db: Firestore | undefined;
-
-function getDb(): Firestore {
-  if (db) return db;
-  if (!getApps().length) {
-    const svc = parseServiceAccount(process.env as Record<string, string | undefined>);
-    initializeApp({ credential: cert({ projectId: svc.project_id, clientEmail: svc.client_email, privateKey: svc.private_key }), projectId: svc.project_id });
-  }
-  db = getFirestore();
-  // Les champs `undefined` (ex. une raison absente) sont ignorés au lieu de faire échouer l'écriture.
-  db.settings({ ignoreUndefinedProperties: true });
-  return db;
-}
-
-const json = (statusCode: number, body: unknown): NetlifyResponse => ({
-  statusCode,
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(body),
-});
+import { getDb, jsonResponse as json, type NetlifyEvent, type NetlifyResponse } from '../lib/admin';
 
 export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => {
   const rawBody = event.isBase64Encoded && event.body ? Buffer.from(event.body, 'base64').toString('utf8') : (event.body ?? '');
