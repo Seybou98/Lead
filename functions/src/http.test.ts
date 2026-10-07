@@ -145,6 +145,19 @@ describe('parseServiceAccount', () => {
   it('base64 (recommandé)', () => {
     expect(parseServiceAccount({ FIREBASE_SERVICE_ACCOUNT_JSON_BASE64: b64(svc) })).toMatchObject({ project_id: 'crm-pose-dev' });
   });
+  it("JSON brut collé dans la variable « _BASE64 » (erreur fréquente) : reconnu, la fonction marche quand même", () => {
+    expect(parseServiceAccount({ FIREBASE_SERVICE_ACCOUNT_JSON_BASE64: JSON.stringify(svc) }).project_id).toBe('crm-pose-dev');
+    expect(parseServiceAccount({ FIREBASE_SERVICE_ACCOUNT_JSON_BASE64: `  ${JSON.stringify(svc, null, 2)}  ` }).client_email).toBe(svc.client_email);
+  });
+  it("JSON brut dans « _BASE64 » avec des « \n » littéraux dans la clé : restaurée", () => {
+    // Antislash + « n » (deux caractères), tel qu'une variable d'environnement le transporte souvent.
+    const backslashN = String.fromCharCode(92) + 'n';
+    const literal = svc.private_key.split(String.fromCharCode(10)).join(backslashN);
+    expect(literal).toContain(backslashN);
+    expect(literal).not.toContain(String.fromCharCode(10));
+    const flat = JSON.stringify({ ...svc, private_key: literal });
+    expect(parseServiceAccount({ FIREBASE_SERVICE_ACCOUNT_JSON_BASE64: flat }).private_key).toBe(svc.private_key);
+  });
   it('JSON brut', () => {
     expect(parseServiceAccount({ FIREBASE_SERVICE_ACCOUNT_JSON: JSON.stringify(svc) }).client_email).toBe(svc.client_email);
   });

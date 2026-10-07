@@ -30,7 +30,10 @@ export function parseServiceAccount(env: Record<string, string | undefined>): Se
 
   if (b64) {
     try {
-      return fix(Buffer.from(b64, 'base64').toString('utf8'));
+      // Erreur fréquente : coller le JSON brut dans la variable « _BASE64 ». Le JSON commence toujours
+      // par « { » alors qu'un base64 n'en contient jamais : on le reconnaît sans ambiguïté.
+      const json = b64.startsWith('{') ? b64 : Buffer.from(b64, 'base64').toString('utf8');
+      return fix(json);
     } catch (e) {
       throw new Error(`FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 illisible : ${(e as Error).message}`);
     }
