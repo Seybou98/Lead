@@ -1,16 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, BellRing, Check, ChevronRight, Copy, FileText, MapPin, Phone, PhoneCall, Trophy, UserRound, Users, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronRight, Copy, Pause, FileText, MapPin, Phone, PhoneCall, Trophy, UserRound, Users, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../auth/AuthProvider';
 import type { Role } from '../../domain/enums';
 import { formatCounter, formatPhoneDisplay, slaAgeMs, slaLevel, type LeadListItem } from '../../domain/leads/leadList';
 import { buildDayQueue, buildDayStats, dueTone, firstName, NEW_LEADS_CAP, type DayAction, type DueTone } from '../../domain/leads/myDay';
 import { useLeadsList, useNow, type LeadsListData } from '../leads/useLeadsData';
+import { callbackLevel, isCallbackAction } from '../../domain/alerts/engine';
+import { useQualifiedToday } from './useQualifiedToday';
 import { newRequestId, sendQualification, type QualifyRequest, type QualifyResponse } from '../../lib/qualifyApi';
 import type { CallOutcomeInput } from '../../domain/call/outcomes';
 import { QualificationPanel } from './QualificationPanel';
-import { callDurationSeconds, copyText, formatDuration, loadSession, saveSession, type CallSession } from './callSession';
+import { buildCallSession, CALL_SESSION_EVENT, callDurationSeconds, copyText, formatDuration, loadSession, saveSession, type CallSession } from './callSession';
+import { sendStatus, type StatusResponse } from '../../lib/statusApi';
+import { StatusMenu } from './StatusMenu';
+import { capacityInfo, statusAfterCall } from '../../domain/availability/status';
+import type { OperationalStatus } from '../../domain/enums';
+import type { Profile } from '../../domain/models';
 
 const hm = (ms: number) => new Date(ms).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
@@ -47,10 +54,22 @@ function PriorityCard({ action, now, campaign, basePath, onCall }: { action: Day
   const { lead } = action;
   const age = slaAgeMs(lead, now);
   const tel = lead.phone ? `tel:${lead.phone}` : null;
-  const badge = action.isNewLead ? 'Nouveau lead — prioritaire' : action.late ? `${action.title} — en retard` : action.title;
+  // Rappel client : le palier (§8.2) donne la couleur et le libellé — bleu à l'heure, orange à +5 min, rouge à +15 min.
+  const cb = isCallbackAction(lead) && action.dueAtMs !== null ? callbackLevel(action.dueAtMs, now) : null;
+  const lateMin = action.dueAtMs !== null ? Math.max(0, Math.floor((now - action.dueAtMs) / 60_000)) : 0;
+  const badge = action.isNewLead
+    ? 'Nouveau lead — prioritaire'
+    : cb === 'due'
+      ? 'Rappel client — maintenant'
+      : cb === 'orange' || cb === 'red'
+        ? `Rappel client — en retard de ${lateMin} min`
+        : action.late
+          ? `${action.title} — en retard`
+          : action.title;
+  const badgeStyle = cb === 'red' || (action.late && cb === null) ? 'bg-red-50 text-red-600' : cb === 'orange' ? 'bg-amber-100 text-amber-800' : 'bg-blue-50 text-blue-700';
   return (
     <section className="rounded-xl border-2 border-blue-200 bg-white p-6" aria-label="Action prioritaire maintenant">
-      <span className={cn('inline-block rounded-md px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide', action.late ? 'bg-red-50 text-red-600' : 'bg-blue-50 text-blue-700')}>{badge}</span>
+      <span className={cn('inline-block rounded-md px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide', badgeStyle)}>{badge}</span>
 
       <div className="mt-4 flex flex-wrap items-start justify-between gap-6">
         <div className="flex items-start gap-4">
@@ -94,7 +113,19 @@ function PriorityCard({ action, now, campaign, basePath, onCall }: { action: Day
 export function MyDayPage() {
   const { user } = useAuth();
   const role: Role = user?.role ?? 'telepro';
-  return <MyDayView data={useLeadsList(role, user?.uid ?? '')} uid={user?.uid ?? ''} userName={user?.name ?? ''} basePath="/mes-leads" onQualify={sendQualification} />;
+  const uid = user?.uid ?? '';
+  return (
+    <MyDayView
+      data={useLeadsList(role, uid)}
+      uid={uid}
+      userName={user?.name ?? ''}
+      basePath="/mes-leads"
+      onQualify={sendQualification}
+      onSetStatus={sendStatus}
+      profile={user?.profile ?? null}
+      qualifiedToday={useQualifiedToday(uid)}
+    />
+  );
 }
 
 export function MyDayView({
@@ -104,7 +135,10 @@ export function MyDayView({
   basePath,
   nowOverride,
   onQualify,
+  onSetStatus,
+  profile = null,
   initialSession,
+  qualifiedToday = null,
 }: {
   data: LeadsListData;
   uid: string;
@@ -112,7 +146,13 @@ export function MyDayView({
   basePath: string;
   nowOverride?: number;
   onQualify: (req: QualifyRequest) => Promise<QualifyResponse>;
+  /** Change le statut opérationnel (menu Disponible / Pause, « En appel » au démarrage d'un appel). */
+  onSetStatus: (status: OperationalStatus) => Promise<StatusResponse>;
+  /** Profil CRM Leads (statut, plafond) ; null = pas encore rattaché à une équipe. */
+  profile?: Profile | null;
   initialSession?: CallSession | null;
+  /** Appels qualifiés aujourd'hui (actions terminées) ; null = inconnu, affiché « — » plutôt qu'un faux zéro. */
+  qualifiedToday?: number | null;
 }) {
   const liveNow = useNow(1000);
   const now = nowOverride ?? liveNow;
@@ -125,6 +165,13 @@ export function MyDayView({
     saveSession(uid, s);
   };
 
+  // Un appel démarré depuis une barre d'alerte alors que cet écran est déjà ouvert : on relit la session enregistrée.
+  useEffect(() => {
+    const reload = () => setSessionState(loadSession(uid, Date.now()));
+    window.addEventListener(CALL_SESSION_EVENT, reload);
+    return () => window.removeEventListener(CALL_SESSION_EVENT, reload);
+  }, [uid]);
+
   // Le message de confirmation est bref (§25.9) : il se retire seul.
   useEffect(() => {
     if (!done) return;
@@ -136,7 +183,9 @@ export function MyDayView({
   const stats = useMemo(() => buildDayStats(data.items, uid, now), [data.items, uid, now]);
   const name = firstName(userName);
   const campaignOf = (id: string | null) => (id ? (data.names.campaigns.get(id) ?? null) : null);
-  const capacityPct = Math.min(100, Math.round((stats.newLeads / NEW_LEADS_CAP) * 100));
+  const cap = capacityInfo(stats.newLeads, profile?.capacity, now, NEW_LEADS_CAP);
+  const status: OperationalStatus = profile?.operationalStatus ?? 'available';
+  const statusSinceMs = (profile?.operationalStatusSince as { toMillis?: () => number } | undefined)?.toMillis?.() ?? null;
 
   const sessionLead = session ? (data.items.find((l) => l.id === session.leadId) ?? null) : null;
 
@@ -153,7 +202,14 @@ export function MyDayView({
     setDone(null);
     // Téléphonie native hors périmètre V1 (cahier §1.2) : les appels se font depuis le téléphone du télépro.
     // « Appeler » DÉCLARE donc le début de l'appel (statut En appel, durée, §12.1.2) sans lancer d'application.
-    setSession({ leadId: lead.id, startedAtMs: Date.now(), phase: 'calling', endedAtMs: null, requestId: newRequestId() });
+    setSession(buildCallSession(lead.id, Date.now(), newRequestId(), status));
+    // Statut « En appel » (§12.1.2) : sans bloquer l'appel si le serveur ne répond pas.
+    if (profile && status !== 'on_call') void onSetStatus('on_call');
+  };
+  /** Appel abandonné sans résultat : on rétablit le statut d'avant l'appel (sinon il resterait « En appel »). */
+  const cancelCall = () => {
+    if (session && status === 'on_call') void onSetStatus(statusAfterCall(session.resumeStatus));
+    setSession(null);
   };
   const copyPhone = async (phone: string | null) => {
     if (!phone) return;
@@ -169,6 +225,7 @@ export function MyDayView({
       requestId: session.requestId,
       expectedStatus: sessionLead.status,
       durationSeconds: callDurationSeconds(session, Date.now()),
+      resumeStatus: session.resumeStatus,
       input,
     });
     if (res.ok) {
@@ -202,15 +259,37 @@ export function MyDayView({
           <h1 className="text-3xl font-bold text-slate-900">{name ? `Bonjour ${name}` : 'Bonjour'}</h1>
           <p className="mt-1 text-slate-500">{queue.current ? 'Voici votre prochaine action' : 'Aucune action en attente'}</p>
         </div>
-        <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700">
-          <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" /> Disponible
-        </span>
+        {profile ? (
+          <StatusMenu status={status} sinceMs={statusSinceMs} suspended={profile.distributionSuspended === true} onChange={onSetStatus} />
+        ) : (
+          <span className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-500" title="Aucune équipe : un administrateur doit vous rattacher à une équipe.">
+            <span className="h-2 w-2 rounded-full bg-slate-400" aria-hidden="true" /> Non rattaché
+          </span>
+        )}
       </div>
 
       {done && (
         <div role="status" className="mt-5 flex items-start justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
           <span className="flex items-start gap-2"><Check className="mt-0.5 h-4 w-4 flex-shrink-0" /> {done}</span>
           <button type="button" onClick={() => setDone(null)} aria-label="Fermer" className="text-emerald-700 hover:text-emerald-900"><X className="h-4 w-4" /></button>
+        </div>
+      )}
+
+      {profile && status === 'paused' && (
+        <div role="status" className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <span className="flex items-start gap-2"><Pause className="mt-0.5 h-4 w-4 flex-shrink-0" /> Vous êtes en pause : aucun nouveau lead ne vous est attribué. Vos leads en cours restent à traiter.</span>
+          <button type="button" onClick={() => void onSetStatus('available')} className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-bold uppercase tracking-wide text-white hover:bg-blue-700">Reprendre</button>
+        </div>
+      )}
+      {profile && cap.full && (
+        <div role="status" className="mt-5 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+          <span>Plafond atteint : {cap.used} / {cap.cap} leads Nouveaux. Plus aucun lead ne vous est attribué tant que vous n'êtes pas repassé à {cap.cap - 1} : traitez encore {cap.toFree} lead{cap.toFree > 1 ? 's' : ''}.</span>
+        </div>
+      )}
+      {profile?.distributionSuspended === true && (
+        <div role="status" className="mt-5 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" /> Votre distribution est suspendue par votre manager : aucun nouveau lead ne vous est attribué, quel que soit votre statut.
         </div>
       )}
 
@@ -221,10 +300,10 @@ export function MyDayView({
       )}
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <Tile icon={<Users className="h-5 w-5 text-blue-600" />} tone="bg-blue-50" value={<>{stats.newLeads}<span className="text-base font-semibold text-slate-400"> / {NEW_LEADS_CAP}</span></>} label="nouveaux leads" />
+        <Tile icon={<PhoneCall className="h-5 w-5 text-blue-600" />} tone="bg-blue-50" value={qualifiedToday ?? '—'} label="appels qualifiés aujourd'hui" />
+        <Tile icon={<Users className="h-5 w-5 text-blue-600" />} tone="bg-blue-50" value={<span className={cap.full ? 'text-red-600' : undefined}>{cap.used}<span className="text-base font-semibold text-slate-400"> / {cap.cap}</span></span>} label={cap.full ? 'nouveaux leads : plafond atteint' : 'nouveaux leads'} />
         <Tile icon={<FileText className="h-5 w-5 text-emerald-600" />} tone="bg-emerald-50" value={stats.documentsInProgress} label="dossiers en documents" />
         <Tile icon={<Trophy className="h-5 w-5 text-amber-500" />} tone="bg-amber-50" value={stats.converted} label="ventes (leads convertis)" />
-        <Tile icon={<BellRing className="h-5 w-5 text-red-500" />} tone="bg-red-50" value={stats.lateActions} label="rappels et relances en retard" />
       </div>
 
       <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -252,7 +331,7 @@ export function MyDayView({
               <button type="button" onClick={endCall} className="inline-flex w-full max-w-md items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-blue-700">
                 <PhoneCall className="h-4 w-4" /> Terminer l'appel
               </button>
-              <button type="button" onClick={() => setSession(null)} className="text-sm font-medium text-slate-500 hover:text-slate-800 hover:underline">Annuler (aucun appel passé)</button>
+              <button type="button" onClick={cancelCall} className="text-sm font-medium text-slate-500 hover:text-slate-800 hover:underline">Annuler (aucun appel passé)</button>
             </div>
           </section>
         ) : queue.current ? (
@@ -301,16 +380,16 @@ export function MyDayView({
       <section className="mt-6 grid items-center gap-6 rounded-xl border border-slate-200 bg-white px-6 py-4 md:grid-cols-[auto_1fr_1fr_1fr]" aria-label="Aujourd'hui">
         <h2 className="text-base font-bold text-slate-900">Aujourd'hui</h2>
         <div>
-          <p className="text-sm text-slate-700"><span className="font-semibold">{stats.newLeads}</span> / {NEW_LEADS_CAP} nouveaux leads</p>
-          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuemin={0} aria-valuemax={NEW_LEADS_CAP} aria-valuenow={Math.min(stats.newLeads, NEW_LEADS_CAP)} aria-label="Capacité de leads nouveaux">
-            <div className={cn('h-full rounded-full', stats.newLeads >= NEW_LEADS_CAP ? 'bg-red-500' : 'bg-blue-600')} style={{ width: `${capacityPct}%` }} />
+          <p className="text-sm text-slate-700"><span className="font-semibold">{cap.used}</span> / {cap.cap} nouveaux leads{cap.full && <span className="ml-2 rounded bg-red-600 px-1.5 py-0.5 text-[11px] font-bold uppercase text-white">Plafond atteint</span>}</p>
+          <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuemin={0} aria-valuemax={cap.cap} aria-valuenow={Math.min(cap.used, cap.cap)} aria-label="Capacité de leads nouveaux">
+            <div className={cn('h-full rounded-full', cap.full ? 'bg-red-500' : 'bg-blue-600')} style={{ width: `${cap.percent}%` }} />
           </div>
         </div>
         <p className="text-sm text-slate-700"><span className="font-semibold">{stats.receivedToday}</span> lead(s) reçu(s) aujourd'hui</p>
         <p className="text-sm text-slate-700"><span className={cn('font-semibold', stats.lateActions > 0 && 'text-red-600')}>{stats.lateActions}</span> action(s) en retard</p>
       </section>
 
-      <p className="mt-4 text-xs text-slate-400">Les nombres d'appels, de documents obtenus et les objectifs du jour s'afficheront dès que la qualification de fin d'appel et le lot Documents les enregistreront.</p>
+      <p className="mt-4 text-xs text-slate-400">Les documents obtenus du jour et les objectifs s'afficheront avec le lot Documents et la configuration des objectifs.</p>
     </div>
   );
 }

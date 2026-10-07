@@ -33,6 +33,13 @@
   status = 200
   force = true
 
+# Statut opérationnel du télépro (menu Disponible / Pause), authentifié par le jeton Firebase de l'utilisateur
+[[redirects]]
+  from = "/api/set-status"
+  to = "/.netlify/functions/set-status"
+  status = 200
+  force = true
+
 # Application Vite : toute autre adresse retombe sur index.html
 [[redirects]]
   from = "/*"

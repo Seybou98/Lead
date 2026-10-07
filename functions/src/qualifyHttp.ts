@@ -66,7 +66,7 @@ export async function handleQualifyHttp(req: QualifyHttpInput, deps: QualifyHttp
   }
   const b = parsed as Record<string, unknown> | null;
   if (!b || typeof b !== 'object' || Array.isArray(b)) return { status: 400, body: { ok: false, error: 'invalid_body' } };
-  const { leadId, requestId, input, expectedStatus, durationSeconds } = b;
+  const { leadId, requestId, input, expectedStatus, durationSeconds, resumeStatus } = b;
   const inputObj = input as Record<string, unknown> | null;
   if (
     typeof leadId !== 'string' || !LEAD_ID.test(leadId) ||
@@ -94,6 +94,7 @@ export async function handleQualifyHttp(req: QualifyHttpInput, deps: QualifyHttp
       expectedStatus: typeof expectedStatus === 'string' ? expectedStatus : null,
       input: inputObj as unknown as CallOutcomeInput,
       durationSeconds: duration,
+      resumeStatus: typeof resumeStatus === 'string' ? resumeStatus : undefined,
     });
     if (result.ok) return { status: 200, body: result };
     return { status: STATUS_BY_CODE[result.code], body: { ok: false, error: result.code, message: result.message, errors: result.errors } };

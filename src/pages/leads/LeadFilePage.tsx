@@ -14,8 +14,9 @@ import {
   type TimelineKind,
 } from '../../domain/leads/leadFile';
 import { useLeadFile, useNow, type LeadFileState } from './useLeadsData';
-import { saveSession } from '../myday/callSession';
+import { buildCallSession, saveSession } from '../myday/callSession';
 import { newRequestId } from '../../lib/qualifyApi';
+import { sendStatus } from '../../lib/statusApi';
 
 type Tab = 'summary' | 'exchanges' | 'documents' | 'sale';
 const TABS: { key: Tab; label: string }[] = [
@@ -140,7 +141,10 @@ export function LeadFilePage({ listPath }: { listPath: string }) {
   const canCall = !!user && !!lead && !!lead.phone && (lead.ownerId === user.uid || user.role === 'admin') && !!lead.ownerId;
   const onCall = canCall && user && lead
     ? () => {
-        saveSession(user.uid, { leadId: lead.id, startedAtMs: Date.now(), phase: 'calling', endedAtMs: null, requestId: newRequestId() });
+        const current = user.profile?.operationalStatus ?? 'available';
+        saveSession(user.uid, buildCallSession(lead.id, Date.now(), newRequestId(), current));
+        // Statut « En appel » (§12.1.2), sans bloquer l'appel si le serveur ne répond pas.
+        if (user.profile && current !== 'on_call') void sendStatus('on_call');
         navigate('/ma-journee');
       }
     : undefined;

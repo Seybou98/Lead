@@ -1,18 +1,14 @@
 /// <reference types="vitest" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { devFunctionsPlugin } from './scripts/devFunctions';
 
 export default defineConfig({
-  plugins: [react()],
+  // devFunctionsPlugin : sert /api/qualify-call et /api/leads en développement, sans Netlify CLI (voir le fichier).
+  plugins: [react(), devFunctionsPlugin()],
   // Port dédié : une origine différente du CRM principal (5173 ; l'ancien CRM : 5174) évite de partager sa session
   // Firebase Auth, qui est stockée par origine dans le navigateur.
-  server: {
-    port: 5180,
-    strictPort: true,
-    // Les fonctions (/api/...) tournent sous `netlify dev` (port 8888) : on y renvoie les appels pour pouvoir
-    // rester sur http://localhost:5180. Sans `netlify dev`, l'écran affiche que le service est injoignable.
-    proxy: { '/api': { target: 'http://localhost:8888', changeOrigin: false } },
-  },
+  server: { port: 5180, strictPort: true },
   optimizeDeps: {
     exclude: ['lucide-react'],
   },

@@ -5,7 +5,6 @@ import { Link, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   BarChart3,
-  Bell,
   CalendarCheck,
   ChevronLeft,
   ChevronRight,
@@ -28,6 +27,8 @@ import { useAuth } from '../../auth/AuthProvider';
 import { usePresence } from '../../auth/usePresence';
 import { getNavigation, type NavIconName, type NavItem } from '../../config/navigation';
 import { ROLE_LABELS } from '../../domain/labels';
+import { AlertsProvider } from '../alerts/AlertsProvider';
+import { AlertBars, AlertBell, AlertToasts } from '../alerts/AlertUI';
 
 const ICONS: Record<NavIconName, ComponentType<{ className?: string }>> = {
   'calendar-check': CalendarCheck,
@@ -101,6 +102,7 @@ export function AppLayout() {
   const sidebarWidth = collapsed ? 80 : 280;
 
   return (
+    <AlertsProvider uid={user.uid} enabled={user.role === 'telepro'}>
     <div className="flex h-screen bg-slate-50">
       <AnimatePresence>
         {!isDesktop && mobileOpen && (
@@ -197,10 +199,7 @@ export function AppLayout() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Cloche : branchée sur cl_notifications en Phase 2 (alertes SLA sonores) */}
-            <button className="relative rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Notifications">
-              <Bell size={20} />
-            </button>
+            <AlertBell />
             <div className="flex items-center gap-2 rounded-lg p-2">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-sm font-medium text-white">
                 {initials || 'U'}
@@ -213,10 +212,14 @@ export function AppLayout() {
           </div>
         </header>
 
+        <AlertBars />
+
         <main className="flex-1 overflow-auto p-3 sm:p-4 lg:p-6">
           <Outlet />
         </main>
       </div>
+      <AlertToasts />
     </div>
+    </AlertsProvider>
   );
 }

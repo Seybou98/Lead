@@ -3,6 +3,9 @@
 // reste verrouillée tant qu'aucun résultat valide n'est enregistré »). L'état survit à un rechargement de
 // page (§25.9 : une opération longue peut être quittée et reprise) grâce au stockage de session.
 
+import { OPERATIONAL_STATUSES } from '../../domain/enums';
+import { statusAfterCall } from '../../domain/availability/status';
+
 export interface CallSession {
   leadId: string;
   startedAtMs: number;
@@ -11,6 +14,8 @@ export interface CallSession {
   endedAtMs: number | null;
   /** Identifiant d'idempotence du résultat : il survit aux nouveaux essais après une erreur réseau. */
   requestId: string;
+  /** Statut du menu Disponible / Pause d'avant l'appel : rétabli à la fin de l'appel. */
+  resumeStatus?: string;
 }
 
 /** Au-delà, une session oubliée (onglet laissé ouvert) est abandonnée plutôt que reprise à tort. */
@@ -28,7 +33,8 @@ export function parseSession(raw: string | null, nowMs: number): CallSession | n
     if (nowMs - s.startedAtMs > SESSION_MAX_AGE_MS) return null;
     if (s.phase !== 'calling' && s.phase !== 'qualifying') return null;
     const endedAtMs = typeof s.endedAtMs === 'number' && Number.isFinite(s.endedAtMs) ? s.endedAtMs : null;
-    return { leadId: s.leadId, startedAtMs: s.startedAtMs, phase: s.phase, endedAtMs, requestId: s.requestId };
+    const resumeStatus = (OPERATIONAL_STATUSES as readonly unknown[]).includes(s.resumeStatus) ? s.resumeStatus : undefined;
+    return { leadId: s.leadId, startedAtMs: s.startedAtMs, phase: s.phase, endedAtMs, requestId: s.requestId, ...(resumeStatus ? { resumeStatus } : {}) };
   } catch {
     return null;
   }
@@ -49,6 +55,13 @@ export function saveSession(uid: string, s: CallSession | null): void {
   } catch {
     /* sans stockage : l'état reste en mémoire pour cette page */
   }
+}
+
+/** Évènement envoyé quand une session d'appel est démarrée depuis ailleurs que de Ma journée (barres d'alerte). */
+export const CALL_SESSION_EVENT = 'cl-call-session';
+
+export function announceCallSession(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(CALL_SESSION_EVENT));
 }
 
 /** Durée de l'appel en secondes (jusqu'à la fin déclarée, sinon jusqu'à maintenant). */
@@ -107,4 +120,9 @@ export async function copyText(text: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Nouvelle session d'appel : le statut en cours (hors « En appel ») est retenu pour être rétabli ensuite. */
+export function buildCallSession(leadId: string, startedAtMs: number, requestId: string, currentStatus: string | null | undefined): CallSession {
+  return { leadId, startedAtMs, phase: 'calling', endedAtMs: null, requestId, resumeStatus: statusAfterCall(currentStatus) };
 }

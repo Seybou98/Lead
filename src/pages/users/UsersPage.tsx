@@ -18,6 +18,7 @@ import { errorMessage, saveProfile } from '../../lib/adminApi';
 import { useUsersData, type UsersData } from './useUsersData';
 import { ProfileModal } from './ProfileModal';
 import { TeamModal } from './TeamModal';
+import { KebabMenu } from '../../components/ui/KebabMenu';
 
 const PAGE_SIZES = [10, 25, 50];
 
@@ -295,21 +296,15 @@ export function UsersView({ data }: { data: UsersData }) {
                     <td className={cn('whitespace-nowrap px-3 py-3 font-medium', DISTRIBUTION_STYLE[r.distribution])}>{DISTRIBUTION_LABELS[r.distribution]}</td>
                     <td className="whitespace-nowrap px-3 py-3">
                       {r.role === 'telepro' && r.accountActive ? (
-                        <div className="flex items-center gap-3">
-                          <button type="button" onClick={() => setProfileRow(r)} className="text-sm font-medium text-blue-600 hover:underline">
-                            {r.hasProfile ? 'Modifier' : 'Configurer'}
-                          </button>
-                          {r.hasProfile && (
-                            <button
-                              type="button"
-                              disabled={busyUid === r.uid}
-                              onClick={() => toggleDistribution(r)}
-                              className="text-sm text-slate-600 hover:underline disabled:opacity-50"
-                            >
-                              {r.distribution === 'suspended' ? 'Réactiver' : 'Suspendre'}
-                            </button>
-                          )}
-                        </div>
+                        <KebabMenu
+                          ariaLabel={`Actions pour ${r.name}`}
+                          items={[
+                            { label: r.hasProfile ? 'Modifier le profil' : 'Configurer le profil', onSelect: () => setProfileRow(r) },
+                            ...(r.hasProfile
+                              ? [{ label: r.distribution === 'suspended' ? 'Réactiver la distribution' : 'Suspendre la distribution', onSelect: () => toggleDistribution(r), disabled: busyUid === r.uid, separator: true }]
+                              : []),
+                          ]}
+                        />
                       ) : (
                         <span className="text-slate-300">—</span>
                       )}

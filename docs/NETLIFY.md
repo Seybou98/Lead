@@ -76,13 +76,26 @@ Deuxième fonction du site : `netlify/functions/qualify-call.ts`, adresse `/api/
 - **Même clé Firebase** que la réception des leads : aucune variable de plus.
 - Le télépro n'a aucun droit d'écriture direct sur les leads (règles Firestore inchangées) : tout passe par cette
   fonction, qui écrit le lead, l'historique, la tentative, les actions et les compteurs en une transaction.
-- **En local** : lancer UNIQUEMENT `npx netlify-cli dev` (il démarre lui-même Vite) et ouvrir
-  http://localhost:8888. Ne pas lancer `npm run dev` à côté : le port serait déjà pris.
+- **En local** : `npm run dev` suffit (http://localhost:5180). Un plugin de développement (`scripts/devFunctions.ts`)
+  sert `/api/qualify-call` et `/api/leads` avec exactement les mêmes fonctions que Netlify, sans Netlify CLI
+  (dont l'étape « Edge Functions » peut bloquer son port 8888 pendant plusieurs minutes). Les variables
+  non `VITE_` (CRM_SHARED_SECRET, GOOGLE_APPLICATION_CREDENTIALS…) sont lues dans `.env`. La clé du compte de
+  service de la base de DEV doit être dans `Lead/service-account.json` (fichier ignoré par git).
 - Codes : 200 enregistré (ou déjà enregistré) · 401 non connecté · 403 sans droit · 404 lead introuvable ·
   409 lead clôturé / modifié entre-temps · 422 saisie incomplète · 500 erreur interne.
 - Réglages (facultatifs) dans le document `cl_config/callRules` : `nrDelaysMinutes`, `recycleAfterDays`,
   `documentFollowUpDays`, `promisedMarginMinutes`, `schedule`. Sans lui : valeurs du cahier des charges
   (NR2 après 3 h, puis J+1, J+1, J+2 ; horaires lundi-vendredi 9 h-19 h, Europe/Paris).
+
+## Statut Disponible / Pause (Ma journée)
+Troisième fonction du site : `netlify/functions/set-status.ts`, adresse `/api/set-status` (jeton Firebase, même clé).
+- Le télépro choisit : Disponible, En pause, Relance documentaire, Montage dossier. « En appel » est posé au clic sur
+  « Appeler » et rétabli (statut d'avant l'appel) à l'enregistrement du résultat, dans la même transaction que la
+  qualification. « Absent » / « Indisponible » ne se changent pas soi-même (absence, manager).
+- Le moteur de distribution exclut déjà les profils en pause, absents, indisponibles ou à plafond atteint
+  (`newLeads >= plafond`) : à 10 le télépro sort du pool, à 9 il revient.
+- Chaque changement est historisé dans `cl_audit` (`operational_status_changed`).
+- Codes : 200 · 401 · 404 profil absent · 409 statut verrouillé · 422 statut refusé · 500.
 
 ## Données de départ
 Sans elles, un lead reçu va en **file tampon** (comportement voulu, pas une panne). Voir

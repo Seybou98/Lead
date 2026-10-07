@@ -77,6 +77,48 @@ describe("buildDayActions", () => {
   });
 });
 
+describe("lead Nouveau proche du SLA (§6)", () => {
+  it("devient P0 quand il approche ou dépasse les 5 minutes, reste P1 tout frais", () => {
+    const prio = (age: number) => buildDayActions([newLead('n', age)], ME, NOW)[0].priority;
+    expect(prio(1)).toBe('P1');
+    expect(prio(2.9)).toBe('P1');
+    expect(prio(3.1)).toBe('P0');
+    expect(prio(9)).toBe('P0');
+  });
+  it("DÉPARTAGE à priorité égale (P0) : un rappel client échu passe devant un lead Nouveau en retard", () => {
+    const due = lead('cb', { status: 'callback', nextAction: { type: 'client_callback', dueAtMs: NOW - 2 * MIN, priority: 'P0', reason: 'x' } });
+    const q = buildDayQueue([newLead('n', 4), due], ME, NOW);
+    expect(q.current?.lead.id).toBe('cb');
+    expect(q.upcoming.map((a) => a.lead.id)).toEqual(['n']);
+  });
+  it("un rappel échu remonte même quand de nombreux leads Nouveaux en retard s'accumulent (pas de famine)", () => {
+    const due = lead('cb', { status: 'callback', nextAction: { type: 'client_callback', dueAtMs: NOW - MIN, priority: 'P0', reason: 'x' } });
+    const many = Array.from({ length: 7 }, (_, i) => newLead(`n${i}`, 90 * MIN + i * 1000));
+    const q = buildDayQueue([...many, due], ME, NOW);
+    expect(q.current?.lead.id).toBe('cb');
+    expect(q.upcoming).toHaveLength(4);
+    expect(q.upcoming.every((a) => a.isNewLead)).toBe(true);
+  });
+  it("le rappel rapide « mauvais moment » (P1) passe devant un lead Nouveau tout frais (P1)", () => {
+    const short = lead('sc', { status: 'callback', nextAction: { type: 'short_callback', dueAtMs: NOW - MIN, priority: 'P1', reason: 'x' } });
+    expect(buildDayQueue([newLead('n', 1), short], ME, NOW).current?.lead.id).toBe('sc');
+  });
+  it("un rappel client échu passe devant un lead Nouveau tout frais (P1)", () => {
+    const due = lead('cb', { status: 'callback', nextAction: { type: 'client_callback', dueAtMs: NOW - MIN, priority: 'P0', reason: 'x' } });
+    expect(buildDayQueue([due, newLead('n', 1)], ME, NOW).current?.lead.id).toBe('cb');
+  });
+  it("un rappel programmé plus tard reste dans « Ensuite » jusqu'à son heure, puis passe en carte principale", () => {
+    const cb = lead('cb', { status: 'callback', nextAction: { type: 'client_callback', dueAtMs: NOW + 30 * MIN, priority: 'P0', reason: 'x' } });
+    const other = lead('o', { nextAction: { type: 'interested_followup', dueAtMs: NOW - MIN, priority: 'P2', reason: 'x' } });
+    const before = buildDayQueue([cb, other], ME, NOW);
+    expect(before.current?.lead.id).toBe('o');
+    expect(before.upcoming.map((a) => a.lead.id)).toEqual(['cb']);
+    const atDue = buildDayQueue([cb, other], ME, NOW + 30 * MIN);
+    expect(atDue.current?.lead.id).toBe('cb');
+    expect(atDue.upcoming.map((a) => a.lead.id)).toEqual(['o']);
+  });
+});
+
 describe("sortDayActions / buildDayQueue", () => {
   it("la priorité métier passe avant l'heure", () => {
     const early = lead('early', { nextAction: { type: 'interested_followup', dueAtMs: NOW + MIN, priority: 'P3', reason: 'x' } });

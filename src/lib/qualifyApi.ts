@@ -10,6 +10,8 @@ export interface QualifyRequest {
   requestId: string;
   expectedStatus: string | null;
   durationSeconds: number | null;
+  /** Statut d'avant l'appel, rétabli par le serveur quand le résultat est enregistré. */
+  resumeStatus?: string;
   input: CallOutcomeInput;
 }
 

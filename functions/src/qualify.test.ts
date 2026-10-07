@@ -241,6 +241,43 @@ describe('qualifyCall — autres résultats', () => {
   });
 });
 
+describe('qualifyCall — statut « En appel » rétabli', () => {
+  const withStatus = (status: string) => {
+    const db = seed();
+    (db.data.get('cl_profiles/u1') as Doc).operationalStatus = status;
+    return db;
+  };
+  const status = (db: FakeDb) => (db.data.get('cl_profiles/u1') as Doc).operationalStatus;
+
+  it('à l’enregistrement du résultat, le statut d’avant l’appel est rétabli et historisé', async () => {
+    const db = withStatus('on_call');
+    await run(db, { ...args(), resumeStatus: 'doc_followup' });
+    expect(status(db)).toBe('doc_followup');
+    expect(db.data.get(`cl_audit/status_u1_${NOW}`)).toMatchObject({ before: { operationalStatus: 'on_call' }, after: { operationalStatus: 'doc_followup' }, entityId: 'u1' });
+  });
+
+  it('sans statut d’origine valide : Disponible (jamais « rester en appel »)', async () => {
+    for (const resume of [undefined, 'on_call', 'absent', 'constructor', 42]) {
+      const db = withStatus('on_call');
+      await run(db, { ...args(), resumeStatus: resume });
+      expect(status(db)).toBe('available');
+    }
+  });
+
+  it('un statut choisi entre-temps (pause) n’est pas écrasé', async () => {
+    const db = withStatus('paused');
+    await run(db, { ...args(), resumeStatus: 'available' });
+    expect(status(db)).toBe('paused');
+    expect([...db.data.keys()].some((k) => k.startsWith('cl_audit/'))).toBe(false);
+  });
+
+  it('un résultat refusé ne touche pas au statut', async () => {
+    const db = withStatus('on_call');
+    await run(db, { ...args(), input: { kind: 'callback', atMs: NOW - 3600_000, reason: 'other', comment: '', confirmed: false } });
+    expect(status(db)).toBe('on_call');
+  });
+});
+
 describe('parseCallRules', () => {
   it('absent ou invalide : valeurs par défaut', () => {
     expect(parseCallRules(undefined)).toEqual(DEFAULT_CALL_RULES);

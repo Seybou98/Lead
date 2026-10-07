@@ -10,6 +10,7 @@ import { COL, SUB } from '../../src/domain/collections';
 import type { Role } from '../../src/domain/enums';
 import type { CallOutcomeInput } from '../../src/domain/call/outcomes';
 import { DEFAULT_CALL_RULES, planCallOutcome, type CallRules } from '../../src/domain/call/plan';
+import { statusAfterCall } from '../../src/domain/availability/status';
 
 export interface QualifyArgs {
   uid: string;
@@ -21,6 +22,8 @@ export interface QualifyArgs {
   expectedStatus: string | null;
   input: CallOutcomeInput;
   durationSeconds: number | null;
+  /** Statut d'avant l'appel (menu Disponible / Pause) : rétabli quand le résultat est enregistré. */
+  resumeStatus?: unknown;
   nowMs: number;
 }
 
@@ -104,7 +107,7 @@ export async function qualifyCall(db: Firestore, args: QualifyArgs): Promise<Qua
     // Lecture du profil propriétaire avant toute écriture (compteurs de charge).
     const profileRef = db.collection(COL.profiles).doc(ownerId);
     const hasLoad = Object.keys(plan.loadDelta).length > 0;
-    const profileSnap = hasLoad ? await tx.get(profileRef) : null;
+    const profileSnap = await tx.get(profileRef);
 
     // ── écritures ──
     const at = d(nowMs);
@@ -217,10 +220,18 @@ export async function qualifyCall(db: Firestore, args: QualifyArgs): Promise<Qua
       }
     }
 
-    if (hasLoad && profileSnap?.exists) {
-      const upd: Record<string, unknown> = { updatedAt: at };
-      for (const [k, v] of Object.entries(plan.loadDelta)) upd[`load.${k}`] = FieldValue.increment(v as number);
-      tx.update(profileRef, upd);
+    if (profileSnap.exists) {
+      const upd: Record<string, unknown> = {};
+      if (hasLoad) for (const [k, v] of Object.entries(plan.loadDelta)) upd[`load.${k}`] = FieldValue.increment(v as number);
+      // Fin d'appel : le statut « En appel » posé au démarrage est rétabli (celui d'avant l'appel, sinon Disponible).
+      if (profileSnap.get('operationalStatus') === 'on_call') {
+        const back = statusAfterCall(args.resumeStatus);
+        upd.operationalStatus = back;
+        upd.operationalStatusSince = at;
+        const audit = db.collection(COL.audit).doc(`status_${ownerId}_${nowMs}`);
+        tx.set(audit, { id: audit.id, at, actorId: args.uid, action: 'operational_status_changed', entityType: 'profile', entityId: ownerId, before: { operationalStatus: 'on_call' }, after: { operationalStatus: back }, reason: 'fin d\'appel' });
+      }
+      if (Object.keys(upd).length > 0) tx.update(profileRef, { ...upd, updatedAt: at });
     }
 
     if (plan.notifyManagers && managerIds.length > 0) {

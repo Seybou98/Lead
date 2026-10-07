@@ -9,7 +9,7 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  CircleDollarSign,
+  Euro,
   Download,
   FileCheck2,
   Megaphone,
@@ -343,7 +343,7 @@ export function CampaignsView({
       </div>
 
       <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-        <Kpi icon={<CircleDollarSign className="h-6 w-6" />} label="Dépenses" value={formatEuros(totals.spendCents, 0)} tone="bg-blue-50 text-blue-600" />
+        <Kpi icon={<Euro className="h-6 w-6" />} label="Dépenses" value={formatEuros(totals.spendCents, 0)} tone="bg-blue-50 text-blue-600" />
         <Kpi
           icon={<Users className="h-6 w-6" />}
           label="Leads reçus"
@@ -354,10 +354,10 @@ export function CampaignsView({
         <Kpi icon={<TrendingUp className="h-6 w-6" />} label="Coût par lead" value={formatEuros(totals.cplCents)} tone="bg-violet-50 text-violet-600" />
         <Kpi icon={<FileCheck2 className="h-6 w-6" />} label="Dossiers complets" value={String(totals.docsComplete)} tone="bg-amber-50 text-amber-600" />
         <Kpi icon={<ShoppingCart className="h-6 w-6" />} label="Ventes" value={String(totals.sales)} tone="bg-emerald-50 text-emerald-600" />
-        <Kpi icon={<CircleDollarSign className="h-6 w-6" />} label="Coût par vente" value={formatEuros(totals.costPerSaleCents)} tone="bg-rose-50 text-rose-600" />
+        <Kpi icon={<Euro className="h-6 w-6" />} label="Coût par vente" value={formatEuros(totals.costPerSaleCents)} tone="bg-rose-50 text-rose-600" />
       </div>
 
-      <div className="mt-5 grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="mt-5 grid items-start gap-4 2xl:grid-cols-[minmax(0,1fr)_340px]">
         <section className="rounded-xl border border-slate-200 bg-white">
           <div className="flex items-center justify-between px-5 py-4">
             <h2 className="text-base font-semibold text-slate-900">Toutes les campagnes</h2>

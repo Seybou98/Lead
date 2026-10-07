@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { callbackPresets, callDurationSeconds, formatDuration, fromLocalFields, parseSession, SESSION_MAX_AGE_MS, toLocalFields } from './callSession';
+import { buildCallSession, callbackPresets, callDurationSeconds, formatDuration, fromLocalFields, parseSession, SESSION_MAX_AGE_MS, toLocalFields } from './callSession';
 
 const NOW = new Date(2026, 9, 7, 14, 40).getTime();
 const good = { leadId: 'L1', startedAtMs: NOW - 60_000, phase: 'calling', endedAtMs: null, requestId: 'q12345678' };
@@ -66,5 +66,22 @@ describe('callbackPresets', () => {
   });
   it('tous les créneaux proposés sont dans le futur', () => {
     for (const x of callbackPresets(NOW)) expect(x.atMs).toBeGreaterThan(NOW);
+  });
+});
+
+describe('statut d’avant l’appel (menu Disponible / Pause)', () => {
+  it('buildCallSession retient le statut en cours, jamais « En appel »', () => {
+    expect(buildCallSession('L1', NOW, 'q12345678', 'paused')).toMatchObject({ phase: 'calling', resumeStatus: 'paused', endedAtMs: null });
+    expect(buildCallSession('L1', NOW, 'q12345678', 'doc_followup').resumeStatus).toBe('doc_followup');
+    expect(buildCallSession('L1', NOW, 'q12345678', 'on_call').resumeStatus).toBe('available');
+    expect(buildCallSession('L1', NOW, 'q12345678', undefined).resumeStatus).toBe('available');
+    expect(buildCallSession('L1', NOW, 'q12345678', 'absent').resumeStatus).toBe('available');
+  });
+  it('parseSession relit un statut valide et ignore un statut inconnu ou hostile', () => {
+    expect(parseSession(JSON.stringify({ ...good, resumeStatus: 'paused' }), NOW)?.resumeStatus).toBe('paused');
+    for (const bad of ['dormir', 'constructor', 42, null]) {
+      expect(parseSession(JSON.stringify({ ...good, resumeStatus: bad }), NOW)).not.toHaveProperty('resumeStatus');
+    }
+    expect(parseSession(JSON.stringify(good), NOW)).not.toHaveProperty('resumeStatus');
   });
 });

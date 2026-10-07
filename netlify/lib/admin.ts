@@ -27,7 +27,14 @@ export function getDb(): Firestore {
   ensureApp();
   db = getFirestore();
   // Les champs `undefined` (ex. une raison absente) sont ignorés au lieu de faire échouer l'écriture.
-  db.settings({ ignoreUndefinedProperties: true });
+  // `settings()` ne peut être appelé qu'UNE fois par instance : en développement, la fonction est recompilée à
+  // chaque appel mais firebase-admin (externe) garde son instance, d'où ce garde-fou. Sur Netlify, le module
+  // reste en mémoire et l'appel n'a lieu qu'une fois.
+  try {
+    db.settings({ ignoreUndefinedProperties: true });
+  } catch (e) {
+    if (!/already been initialized/i.test((e as Error).message)) throw e;
+  }
   return db;
 }
 

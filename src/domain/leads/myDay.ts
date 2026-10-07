@@ -4,7 +4,8 @@
 
 import { CLOSED_LEAD_STATUSES, PRIORITY_CLASSES, type PriorityClass } from '../enums';
 import { ACTION_TYPE_LABELS } from '../labels';
-import { slaAgeMs, type LeadListItem } from './leadList';
+import { isCallbackAction } from '../alerts/engine';
+import { slaAgeMs, slaLevel, type LeadListItem } from './leadList';
 
 /** Nombre d'actions montrées dans « Ensuite » (§25.3 : quatre au maximum). */
 export const UPCOMING_LIMIT = 4;
@@ -23,6 +24,8 @@ export interface DayAction {
   /** À traiter maintenant : lead Nouveau, ou échéance atteinte. Une action future ne passe pas devant. */
   ready: boolean;
   isNewLead: boolean;
+  /** Rappel client promis (ou rappel rapide « mauvais moment ») : un engagement pris auprès du client. */
+  isCallback: boolean;
 }
 
 const rankOf = (p: PriorityClass) => PRIORITY_CLASSES.indexOf(p);
@@ -35,33 +38,45 @@ export function buildDayActions(items: readonly LeadListItem[], uid: string, now
     const isNewLead = lead.status === 'new' && lead.slaStoppedAtMs === null;
     if (lead.nextAction) {
       const a = lead.nextAction;
+      // §6 : « Nouveau lead proche ou au-delà du SLA » est P0 ; un lead tout frais reste P1.
+      const age = slaAgeMs(lead, nowMs);
+      const nearSla = isNewLead && age !== null && slaLevel(age) !== 'ok';
       out.push({
         lead,
-        priority: a.priority,
+        priority: nearSla ? 'P0' : a.priority,
         title: ACTION_TYPE_LABELS[a.type] ?? a.type,
         dueAtMs: a.dueAtMs,
         late: a.dueAtMs < nowMs || (isNewLead && slaAgeMs(lead, nowMs) !== null),
         ready: isNewLead || a.dueAtMs <= nowMs,
         isNewLead,
+        isCallback: isCallbackAction(lead),
       });
     } else if (isNewLead) {
-      out.push({ lead, priority: 'P1', title: ACTION_TYPE_LABELS.take_new_lead, dueAtMs: null, late: true, ready: true, isNewLead });
+      out.push({ lead, priority: 'P1', title: ACTION_TYPE_LABELS.take_new_lead, dueAtMs: null, late: true, ready: true, isNewLead, isCallback: false });
     }
   }
   return out;
 }
 
 /**
- * File d'action (§12.1.1) : ce qui est à faire maintenant d'abord (un rappel promis à 15 h ne passe pas
- * devant un lead qui attend), puis la priorité métier, pas l'heure seule. À priorité égale : les leads
- * Nouveaux avant le reste (leur compteur tourne), puis l'échéance la plus proche, puis le plus ancien reçu.
- * L'ordre est déterministe : l'identifiant départage les égalités.
+ * File d'action (§6, §12.1.1). Ordre :
+ *   1. ce qui est à faire MAINTENANT (lead Nouveau, ou échéance atteinte) : un rappel promis à 15 h ne passe
+ *      pas devant un lead qui attend à 14 h 40 ;
+ *   2. la priorité métier P0 à P4 (le cahier classe en P0 aussi bien « Nouveau lead proche ou au-delà du SLA »
+ *      que « Rappel client promis arrivé à échéance ») ;
+ *   3. DÉPARTAGE à priorité égale : un rappel client échu passe AVANT un lead Nouveau. Le cahier ne tranche pas
+ *      (« règles de départage » : paramètre de l'administrateur, §21) ; ce choix suit son esprit : le rappel est
+ *      un engagement horaire pris auprès d'une personne précise (§6, §8.2), alors qu'un lead en retard reste
+ *      actif et alerté. Sans cela, quelques leads en retard empêcheraient indéfiniment un rappel de remonter ;
+ *   4. puis les leads Nouveaux avant le reste, l'échéance la plus proche, le plus ancien reçu, l'identifiant
+ *      (ordre déterministe).
  */
 export function sortDayActions(actions: readonly DayAction[]): DayAction[] {
   return [...actions].sort(
     (a, b) =>
       Number(b.ready) - Number(a.ready) ||
       rankOf(a.priority) - rankOf(b.priority) ||
+      Number(b.isCallback) - Number(a.isCallback) ||
       Number(b.isNewLead) - Number(a.isNewLead) ||
       (a.dueAtMs ?? a.lead.receivedAtMs) - (b.dueAtMs ?? b.lead.receivedAtMs) ||
       a.lead.receivedAtMs - b.lead.receivedAtMs ||
