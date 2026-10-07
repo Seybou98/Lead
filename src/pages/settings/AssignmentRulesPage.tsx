@@ -66,6 +66,16 @@ export function AssignmentRulesView({ data }: { data: AssignmentData }) {
     setSimZone(campaign?.zones[0] ?? '');
   }, [campaign?.id, campaign?.productCode, campaign?.zones[0]]);
   const [simNow, setSimNow] = useState(() => Date.now());
+  // Heure du dernier clic sur « Tester » : sert à confirmer visiblement que le test a bien été relancé.
+  const [testedAt, setTestedAt] = useState<number | null>(null);
+  const [flash, setFlash] = useState(false);
+  const runTest = () => {
+    const now = Date.now();
+    setSimNow(now);
+    setTestedAt(now);
+    setFlash(true);
+    window.setTimeout(() => setFlash(false), 900);
+  };
 
   const result = useMemo(
     () =>
@@ -238,7 +248,7 @@ export function AssignmentRulesView({ data }: { data: AssignmentData }) {
                   ) : (
                     <span className="text-right text-xs font-medium text-red-600" title={r.exclusions.map((x) => EXCLUSION_LABELS[x]).join(', ')}>
                       Indisponible
-                      <span className="block font-normal text-slate-500">{r.exclusions.map((x) => EXCLUSION_LABELS[x]).slice(0, 2).join(', ')}</span>
+                      <span className="block font-normal text-slate-500">{r.exclusions.map((x) => EXCLUSION_LABELS[x]).join(', ')}</span>
                     </span>
                   )}
                 </li>
@@ -246,7 +256,7 @@ export function AssignmentRulesView({ data }: { data: AssignmentData }) {
             </ul>
 
             {result && (
-              <div className={cn('mt-4 flex items-start gap-3 rounded-lg border p-4', result.recommendedName ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50')}>
+              <div aria-live="polite" className={cn('mt-4 flex items-start gap-3 rounded-lg border p-4 transition-shadow duration-300', result.recommendedName ? 'border-emerald-300 bg-emerald-50' : 'border-amber-300 bg-amber-50', flash && 'ring-4 ring-blue-300')}>
                 {result.recommendedName ? <Trophy className="mt-0.5 h-5 w-5 text-emerald-600" /> : <AlertTriangle className="mt-0.5 h-5 w-5 text-amber-600" />}
                 <div className="text-sm">
                   {result.recommendedName ? (
@@ -264,9 +274,14 @@ export function AssignmentRulesView({ data }: { data: AssignmentData }) {
               </div>
             )}
 
-            <button type="button" onClick={() => setSimNow(Date.now())} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
+            <button type="button" onClick={runTest} className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
               <Play className="h-4 w-4" /> Tester une attribution
             </button>
+            <p className="mt-2 text-center text-xs text-slate-500" role="status">
+              {testedAt === null
+                ? "Le résultat ci-dessus se met à jour en direct quand vous changez une règle ou le lead. Ce bouton relit la présence des télépros et l'heure."
+                : `Test relancé à ${new Date(testedAt).toLocaleTimeString('fr-FR')} : présence des télépros et horaires relus.`}
+            </p>
             <p className="mt-2 text-xs text-slate-400">La simulation et l'attribution réelle utilisent le même moteur. À égalité parfaite, le départage dépend de l'identifiant du lead.</p>
           </section>
         </div>
