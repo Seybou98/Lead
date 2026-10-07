@@ -1,0 +1,96 @@
+J'ai lu les 82 pages du cahier des charges (texte seulement). Je n'ai pas pu voir les 46 maquettes, car l'outil de rendu PDF n'est pas installé. Je regarde aussi comment est structuré ton projet principal.
+
+Ce que dit le cahier des charges, en bref
+Le principe est « zéro lead oublié ». Le CRM doit guider un télépro-commercial de la réception du lead jusqu'à la vente, puis créer le client dans ton CRM principal. Il y a trois rôles : admin, manager et télépro. Les six lots du cahier :
+
+Lot	Contenu
+1. Socle	Utilisateurs, rôles, leads, API et import, doublons, attribution, historique
+2. Exécution	Alerte sonore et SLA, file de priorité, statuts, NR1 à NR5, rappels, recyclage
+3. Documents	Checklists, dépôt, contrôle, relances
+4. Conversion	Montage du dossier, verrous, création client et dossier sans doublon
+5. Pilotage	Cockpit manager, KPI, exports
+6. Évolutions	SMS et email automatiques, OCR, scoring
+Les sections 19 à 25 ajoutent le back-office admin, le paramétrage métier versionné, le reporting, la vente à distance avec signature et financement, le hub d'intégrations et les règles UX.
+
+Le constat
+L'ancien CRM couvre à peu près le tiers du Lot 1 : une liste de leads, un webhook et une détection de doublons basique. Il n'a pas :
+
+de moteur d'attribution ;
+de SLA ni d'alertes ;
+de file de priorité ;
+de cycle NR ;
+de workflow documentaire ;
+de conversion vers un autre CRM.
+C'est donc surtout une nouvelle construction. On reprend de l'ancien code ce qui est utile.
+
+Ton projet principal a déjà de quoi t'aider :
+
+React, Firebase, Zustand, Vite et Tailwind ;
+un firestore.rules ;
+des Cloud Functions (functions/src) ;
+Yousign, GoCardless, EmailJS et un serveur SMS.
+Il contient aussi déjà un dossier src/components/leads, copie de l'ancien CRM. La question est de savoir s'il sera remplacé.
+
+Décisions d'architecture que je recommande
+Lead/ est une application Vite séparée, avec la même stack que Crm-Lead-main et ton projet. Le cahier des charges décrit une transmission entre deux CRM avec une clé d'idempotence, donc deux applications.
+Firebase : Firestore en temps réel pour les écrans, Cloud Functions pour toute la logique serveur.
+Le moteur tourne côté serveur, pas dans le navigateur. Cela couvre l'attribution, les SLA, les échéances NR et les rappels, la conversion et les relances. Il s'appuie sur Cloud Scheduler ou Cloud Tasks. Le cahier le demande en 15.1 et 15.3. L'ancien CRM faisait ces corrections côté navigateur, ce qui est fragile.
+Les droits sont appliqués par les règles Firestore, pas seulement par l'interface. L'ancien CRM chargeait tous les leads chez tout le monde.
+Modèle de données :
+le lead est un document léger : propriétaire, statut, prochaine action, échéance ;
+les appels, actions, documents et événements sont des sous-collections, pas des tableaux dans le document ;
+un journal d'audit en ajout seul ;
+la configuration (SLA, horaires, matrices NR, checklists) dans des collections versionnées, pour que l'admin la modifie sans livrer de code (RG18).
+Conversion idempotente : une Cloud Function côté CRM principal reçoit le lead avec une clé stable (par exemple leadId) et ne crée rien si le client existe déjà.
+Plan d'exécution
+Phase 0 : cadrage (avant de coder)
+
+Trancher les 8 points listés par le cahier en page 30. Les plus bloquants sont la matrice NR1 à NR5, les horaires, les documents par produit et l'API du CRM principal.
+Décider si on utilise la même base Firebase que le projet principal.
+Créer le squelette de Lead/ : Vite, TypeScript, Tailwind, Firebase, routes par rôle.
+Phase 1 : Lot 1, socle
+
+Utilisateurs et rôles, avec statut du compte et statut opérationnel (disponible, en pause…).
+Modèle lead, journal d'audit, règles Firestore.
+Ingestion unique : une seule Cloud Function pour Pabbly, Meta, import CSV et saisie manuelle. Elle remplace les trois copies du webhook.
+Normalisation, déduplication avec niveau de confiance, conservation de la donnée brute.
+Moteur d'attribution : éligibilité, plafond de 10, charge la plus faible, journal « pourquoi ce télépro ». Plus la file tampon.
+Réutilise : la correspondance des champs Pabbly, la corbeille, l'import CSV.
+Phase 2 : Lot 2, exécution (le plus important pour l'usage)
+
+Écran « Ma journée » : carte de la prochaine action, avec le compteur SLA.
+Alertes sonores (à l'arrivée, chaque minute jusqu'à 5 min, puis toutes les 10 min). Elles ne s'arrêtent que sur un changement de statut valide.
+Qualification de fin d'appel, avec les 6 résultats et leurs champs obligatoires.
+Cycle NR avec horaires commerciaux, rappels promis (paliers +5, +15, +30 min), statut « intéressé » et température.
+Moteur de priorité P0 à P4, avec tests unitaires (le cahier les exige).
+Réutilise : les sons existants.
+Phase 3 : Lot 3, documents
+
+Checklists calculées selon le produit, états par pièce, motifs de refus.
+Relances J+1, J+3, J+5, J+7, J+14, documents promis.
+Stockage sécurisé (Storage avec liens temporaires), vue en 3 colonnes.
+Phase 4 : Lot 4, conversion
+
+Écran de montage en 5 étapes, calcul financier, verrous qui expliquent ce qui manque.
+Exceptions validées par le manager.
+Création client et dossier dans le CRM principal, reprise sur échec, chaîne d'identifiants Lead → Vente → Client → Dossier.
+Phase 5 : Lot 5, pilotage
+
+Cockpit manager (alertes classées, équipe en direct, réattribution en 3 clics).
+KPI cliquables dont le total correspond à la liste, filtres globaux, exports.
+Back-office admin : campagnes, utilisateurs et équipes, paramétrage.
+Phase 6 : sections 23 et 24, à planifier après
+Vente à distance (Yousign, Floa, financement), hub d'intégrations, SMS et email automatiques, OCR. Le Lot 6 est explicitement hors V1.
+
+Ordre que je conseille
+Faire Phase 0, puis 1, puis 2 d'abord. C'est un MVP utilisable : les leads arrivent, sont attribués, alertés et traités sans oubli. Les phases 3 à 5 s'ajoutent ensuite, avec une recette métier à chaque étape.
+
+Ce qu'il me faut de ta part pour démarrer
+Base Firebase : la même que ton projet principal (plus simple pour la conversion) ou une base séparée ?
+Ancien CRM : on migre les leads existants, ou on repart de zéro ?
+Maquettes : peux-tu m'envoyer en images au moins les figures 4, 5, 14, 39, 45 et 46 ? Le cahier dit que ce sont les références principales de l'interface, et je n'ai lu que le texte.
+Tests : le cahier exige des tests unitaires du moteur de priorité, des échéances et des verrous. Je les écris avec le code, d'accord ?
+Quand tu m'as répondu, je commence par la Phase 0 : le squelette de Lead/ et le modèle de données détaillé, que je te montre avant d'écrire le reste.
+
+
+

@@ -1,0 +1,14 @@
+node_modules
+dist
+.netlify
+.tmp-smoke
+
+# Variables d'environnement : contiennent des clés. Jamais dans git.
+.env
+.env.*
+!.env.example
+
+# Paquet de déploiement (secours) : régénéré, pas versionné
+deploy-bundle/*.zip
+functions/node_modules
+functions/lib

@@ -1,0 +1,464 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+
+    // ── Espace Mandataire — accès restreint aux dossiers facturés qui le concernent ──────────
+    // Un mandataire (rôle utilisateur "mandataire") ne doit accéder qu'aux clients dont il fait
+    // partie de `mandataireFactureIds` (dénormalisé sur le document client, cf.
+    // src/lib/utils/mandataire-access.ts), jamais par URL/ID/requête API directe. Les fonctions
+    // ci-dessous sont volontairement défensives (exists()/get() avant lecture) pour ne jamais
+    // faire planter une règle si le document `users/{uid}` est incomplet.
+    function currentUserData() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : {};
+    }
+    function isMandataire() {
+      return signedIn() && currentUserData().get('role', '').lower() == 'mandataire';
+    }
+    function myMandataireId() {
+      return currentUserData().get('mandataire', {}).get('id', '');
+    }
+    function clientAuthorized(clientId) {
+      return clientId != null
+        && exists(/databases/$(database)/documents/clients/$(clientId))
+        && get(/databases/$(database)/documents/clients/$(clientId)).data
+          .get('mandataireFactureIds', []).hasAny([myMandataireId()]);
+    }
+    // Docs `tickets` (SAV) historiques : certains ont `clientId`, d'autres `client.id`.
+    function ticketClientAuthorized(data) {
+      return clientAuthorized(data.get('clientId', null))
+        || clientAuthorized(data.get('client', {}).get('id', null));
+    }
+
+    // ═════════════ MODIFICATION 1 — CRM Leads : fonctions d'aide ═════════════════════════════
+    // Rôle et statut viennent de users/{uid}, comme pour le mandataire. La correspondance
+    // rôle CRM principal → profil CRM Leads est AUSSI dans Lead/src/config/roles.ts :
+    // toute modification doit être faite aux deux endroits.
+    // UN SEUL accès à users/{uid} (get) au lieu de deux (exists + get) : une transaction d'écriture est
+    // limitée à 20 accès de ce type, et chaque écriture en consomme un. Si le compte n'existe pas,
+    // get() échoue et la règle refuse : jamais d'accès par défaut.
+    function clUser() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function clUserActive() {
+      return signedIn() && clUser().get('status', '').lower() == 'active';
+    }
+    function clMainRole() { return clUser().get('role', '').lower(); }
+    function isClAdmin() {
+      return clUserActive() && clMainRole() in ['administrateur', 'admin', 'administratrice'];
+    }
+    function isClManager() { return clUserActive() && clMainRole() == 'manager'; }
+    function isClTelepro() {
+      return clUserActive() && clMainRole() in ['telepro commercial', 'telepro-commercial', 'télépro commercial', 'télépro-commercial', 'telepro', 'télépro'];
+    }
+    function isClStaff() { return isClAdmin() || isClManager() || isClTelepro(); }
+
+    // Périmètre d'un document « appartenant » à un lead : admin = tout ; manager = si son uid est
+    // dans `managerIds` (champ dénormalisé, donc prouvable pour une requête de liste) ;
+    // télépro = si propriétaire.
+    function clCanSee(data) {
+      return isClAdmin()
+        || (isClManager() && request.auth.uid in data.get('managerIds', []))
+        || (isClTelepro() && data.get('ownerId', '') == request.auth.uid);
+    }
+    // ═════════════ FIN MODIFICATION 1 ════════════════════════════════════════════════════════
+
+    match /public/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /products/{id} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    match /teams/{id} {
+      allow read: if true;
+      allow write: if signedIn();
+    }
+
+    match /notifications/{nid} {
+      allow read: if signedIn()
+        && resource.data.recipientIds != null
+        && request.auth.uid in resource.data.recipientIds;
+
+      allow create: if signedIn()
+  || (
+    request.resource.data.type == 'request'
+    && request.resource.data.title == 'Nouvelle demande de dossier'
+    && request.resource.data.source in ['public_home_form', 'mobile_app_non_client_form']
+    && request.resource.data.demandeId is string
+  );
+
+      allow update: if signedIn()
+        && resource.data.recipientIds != null
+        && request.auth.uid in resource.data.recipientIds
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['read']);
+
+      allow delete: if false;
+    }
+
+    // ✅ Projects : autoriser confirmation client sans auth
+    match /projects/{projectId} {
+      allow read: if true;
+
+      allow update: if true;
+
+      allow create, delete: if signedIn();
+    }
+
+    // Leads publics (formulaires marketing, ex: campagne canicule) : création
+    // sans connexion autorisée avec validation minimale des champs envoyés.
+    match /leads/{leadId} {
+      allow create: if request.resource.data.fullName is string
+        && request.resource.data.fullName.size() > 0
+        && request.resource.data.phone is string
+        && request.resource.data.status == 'nouveau';
+
+      // Lecture / modification / suppression réservées aux comptes connectés
+      allow read, update, delete: if signedIn();
+    }
+
+    // ── Espace Mandataire : accès conditionnel aux collections protégées ─────────────────────
+    match /clients/{clientId} {
+      allow read: if signedIn()
+        && (!isMandataire() || (resource.data.get('mandataireFactureIds', []).hasAny([myMandataireId()])));
+      // Un mandataire n'écrit jamais directement le document client — toutes ses actions passent
+      // par les sous-collections/collections dédiées ci-dessous.
+      allow write: if signedIn() && !isMandataire();
+
+      match /commentaires/{commentId} {
+        allow read, create: if signedIn() && (!isMandataire() || clientAuthorized(clientId));
+        allow update, delete: if signedIn() && !isMandataire();
+      }
+
+      match /documents/{documentId} {
+        allow read, create: if signedIn() && (!isMandataire() || clientAuthorized(clientId));
+        allow update, delete: if signedIn() && !isMandataire();
+      }
+
+      match /liasseTemplates/{templateId} {
+        allow read: if signedIn() && (!isMandataire() || clientAuthorized(clientId));
+        allow write: if signedIn() && !isMandataire();
+      }
+
+      match /mandataireStatuts/{mandataireId} {
+        allow read: if signedIn() && (!isMandataire() || clientAuthorized(clientId));
+        allow write: if signedIn()
+          && (!isMandataire() || (clientAuthorized(clientId) && mandataireId == myMandataireId()));
+      }
+
+      match /mandataireAnomalies/{anomalieId} {
+        allow read, create: if signedIn() && (!isMandataire() || clientAuthorized(clientId));
+        allow update, delete: if signedIn() && !isMandataire();
+      }
+    }
+
+    // APF (Avis de Paiement Facturé) : montants de prime/commission par mandataire — un mandataire
+    // ne doit voir que ses propres APF, jamais ceux des autres délégataires.
+    match /apfs/{apfId} {
+      allow read: if signedIn() && (!isMandataire() || resource.data.mandataireId == myMandataireId());
+      allow write: if signedIn() && !isMandataire();
+    }
+
+    // Suivi post-facturation (onglet Facturation) : un mandataire peut modifier les statuts/dates
+    // MPR-CEE, le RAC/financement et ajouter un paiement sur un dossier autorisé (exception
+    // métier), mais ne crée ni ne supprime jamais ce suivi (généré automatiquement par l'app).
+    // Comme pour `retraits` ci-dessous : accepter aussi `delegataireId` en direct (sans get()
+    // croisé vers `clients`) permet à une requête `where('delegataireId', '==', ...)` (KPI
+    // mandataire, tableau de bord global) de rester prouvable côté règles — Firestore rejette en
+    // bloc toute requête `list` dont le filtre ne correspond pas exactement au champ lu par un
+    // get() croisé comme `clientAuthorized`, même si aucun document réel ne violerait la règle.
+    match /postFacturationSuivis/{suiviId} {
+      // `read` séparé de `update` : champ dénormalisé (pas de get() croisé) pour que Firestore
+      // puisse prouver une requête groupée `in` sûre pour un mandataire (cf. subventions plus bas).
+      allow read: if signedIn()
+        && (!isMandataire() || resource.data.get('mandataireFactureIds', []).hasAny([myMandataireId()]) || resource.data.delegataireId == myMandataireId());
+      allow update: if signedIn()
+        && (!isMandataire() || clientAuthorized(resource.data.clientId) || resource.data.delegataireId == myMandataireId());
+      allow create, delete: if signedIn() && !isMandataire();
+    }
+
+    match /subventions/{subventionId} {
+      // Champ dénormalisé (mandataireFactureIds) plutôt qu'un clientAuthorized() avec get()
+      // croisé sur clients/{id} : comme pour clients (voir plus haut), ça permet à une requête
+      // groupée where('clientId','in',[...]) d'être "prouvée" sûre par Firestore pour un
+      // mandataire — sans ça, Firestore rejette en bloc toute requête in() sur cette collection.
+      allow read: if signedIn() && (!isMandataire() || resource.data.get('mandataireFactureIds', []).hasAny([myMandataireId()]));
+      allow create, delete: if signedIn() && !isMandataire();
+      // Exception métier (onglet Facturation) : un mandataire peut corriger UNIQUEMENT le
+      // montant total de sa propre prime (MPR ou CEE), jamais les opérations détaillées, le RAC,
+      // ni la prime de l'autre poste — et seulement s'il est bien le délégataire affecté sur ce
+      // poste précis pour ce dossier (pas seulement un accès client via clientAuthorized).
+      allow update: if signedIn() && (
+        !isMandataire()
+        || (
+          clientAuthorized(resource.data.clientId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['primeMprTotal', 'updatedAt'])
+          && resource.data.get('affiliations', {}).get('mandataireMprId', '') == myMandataireId()
+        )
+        || (
+          clientAuthorized(resource.data.clientId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['primeCeeTotal', 'updatedAt'])
+          && resource.data.get('affiliations', {}).get('mandataireCeeId', '') == myMandataireId()
+        )
+      );
+    }
+
+    match /dossiers_paiement/{dossierId} {
+      allow read: if signedIn() && (!isMandataire() || clientAuthorized(resource.data.clientId));
+      allow create, update, delete: if signedIn() && !isMandataire();
+    }
+
+    match /retraits/{retraitId} {
+      // Un retrait porte à la fois `clientId` et `delegataireId` — accepter l'une ou l'autre
+      // permet à la fois la requête scopée par client (onglet Retraits d'un dossier) et la
+      // requête scopée par mandataire (tableau de bord global des retraits pour ce rôle).
+      allow read, update: if signedIn()
+        && (!isMandataire() || clientAuthorized(resource.data.clientId) || resource.data.delegataireId == myMandataireId());
+      allow create: if signedIn()
+        && (!isMandataire() || clientAuthorized(request.resource.data.clientId) || request.resource.data.delegataireId == myMandataireId());
+      allow delete: if signedIn() && !isMandataire();
+    }
+
+    match /tickets/{ticketId} {
+      // `read` séparé de `update` : champ dénormalisé (pas de get() croisé) pour que Firestore
+      // puisse prouver une requête groupée `in` sûre pour un mandataire.
+      allow read: if signedIn() && (!isMandataire() || resource.data.get('mandataireFactureIds', []).hasAny([myMandataireId()]));
+      allow update: if signedIn() && (!isMandataire() || ticketClientAuthorized(resource.data));
+      allow create: if signedIn() && (!isMandataire() || ticketClientAuthorized(request.resource.data));
+      allow delete: if signedIn() && !isMandataire();
+    }
+
+    // Recouvrement : même logique que `retraits` (clientId ET delegataireId acceptés, pour couvrir
+    // à la fois l'onglet Recouvrement d'un dossier et le tableau de bord global mandataire).
+    // Cette collection n'avait jusque-là AUCUNE règle dédiée : elle retombait sur la règle
+    // générique de fin de fichier, qui accorde un accès total non filtré à tout utilisateur
+    // connecté — y compris un mandataire. Corrigé ici pour rester cohérent avec le reste de
+    // l'espace mandataire (accès limité aux seuls dossiers qui le concernent).
+    match /recouvrements/{recouvrementId} {
+      // `read` séparé de `update` : champ dénormalisé (pas de get() croisé) pour que Firestore
+      // puisse prouver une requête groupée `in` sûre pour un mandataire.
+      allow read: if signedIn()
+        && (!isMandataire() || resource.data.get('mandataireFactureIds', []).hasAny([myMandataireId()]) || resource.data.delegataireId == myMandataireId());
+      allow update: if signedIn()
+        && (!isMandataire() || clientAuthorized(resource.data.clientId) || resource.data.delegataireId == myMandataireId());
+      allow create: if signedIn() && !isMandataire();
+      allow delete: if signedIn() && !isMandataire();
+
+      match /history/{historyId} {
+        allow read: if signedIn()
+          && (!isMandataire()
+            || clientAuthorized(get(/databases/$(database)/documents/recouvrements/$(recouvrementId)).data.clientId)
+            || get(/databases/$(database)/documents/recouvrements/$(recouvrementId)).data.delegataireId == myMandataireId());
+        allow write: if signedIn() && !isMandataire();
+      }
+    }
+
+    // Suivi juridique : un mandataire peut ouvrir un dossier sur un client autorisé (exception
+    // "création" demandée pour cet onglet), mais pas modifier/supprimer un dossier existant.
+    match /ticketsJuridiques/{ticketId} {
+      // Champ dénormalisé (pas de get() croisé) pour que Firestore puisse prouver une requête
+      // groupée `in` sûre pour un mandataire.
+      allow read: if signedIn() && (!isMandataire() || resource.data.get('mandataireFactureIds', []).hasAny([myMandataireId()]));
+      allow create: if signedIn() && (!isMandataire() || clientAuthorized(request.resource.data.clientId));
+      allow update, delete: if signedIn() && !isMandataire();
+    }
+
+    // Historique : un mandataire ne voit qu'un sous-ensemble d'actions (cf.
+    // MANDATAIRE_VISIBLE_ACTIONS dans src/lib/history-utils.ts) — la requête cliente doit déjà
+    // filtrer sur `action in [...]` (sinon Firestore rejette la requête en bloc, non filtrée).
+    match /historique_dossier/{entryId} {
+      allow read: if signedIn()
+        && (!isMandataire() || (
+          clientAuthorized(resource.data.clientId)
+          && resource.data.action in [
+            'mandataire_status_changed', 'comment_added',
+            'project_date_changed', 'appointment_date_changed',
+            'project_billed', 'dossier_paye', 'document_uploaded',
+            'mandataire_anomalie_signalee', 'mandataire_anomalie_traitee'
+          ]
+        ));
+      allow write: if signedIn() && !isMandataire();
+    }
+
+    // Historique immuable des mouvements de stock catalogue (cf. src/lib/stock/apply-stock-movement.ts) :
+    // création seule, jamais de modification/suppression, pour garder l'audit trail fiable.
+    match /stock_movements/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update, delete: if false;
+    }
+
+    // Tout le reste : auth obligatoire, comportement inchangé pour tous les rôles. Seules les
+    // collections de dossier client listées ci-dessous sont fermées par défaut pour un mandataire
+    // (via `{collection}` qui capture le premier segment du chemin — ex. "clients" pour
+    // /clients/{id}/commentaires/{c}) ; tout le reste (delegataires, users, permissions_navigation,
+    // notifications, appointments, orders, installations, sinistres, apf, prestations, activités de
+    // connexion…) reste accessible exactement comme avant ce chantier — volontairement, pour ne pas
+    // avoir à deviner/énumérer tout ce que l'app touche globalement.
+    match /demandes_dossier/{demandeId} {
+  allow create: if request.resource.data.status == 'nouvelle'
+    && request.resource.data.operations is list
+    && request.resource.data.operations.size() > 0
+    && request.resource.data.clientName is string
+    && request.resource.data.clientName.size() > 0
+    && request.resource.data.source in ['public_home_form', 'mobile_app_non_client_form'];
+
+  allow read, update, delete: if signedIn();
+}
+
+    // ═════════════ MODIFICATION 2 — CRM Leads : règles des collections cl_* ══════════════════
+    // Le navigateur LIT ; le SERVEUR (leads, compteurs : Admin SDK, qui ignore ces règles) écrit les
+    // données métier. Seules les écritures d'administration listées ci-dessous passent par le navigateur.
+    // Tout cl_* non listé ici est refusé.
+    match /cl_profiles/{uid} {
+      allow read: if isClAdmin()
+        || (isClStaff() && request.auth.uid == uid)
+        || (isClManager() && request.auth.uid in resource.data.get('managerIds', []));
+      // Écriture par un administrateur (écrans Utilisateurs). Les compteurs de charge, le statut
+      // opérationnel et la dernière attribution restent réservés au serveur : un champ protégé
+      // modifié fait refuser l'écriture.
+      allow create: if isClAdmin() && request.resource.data.uid == uid;
+      allow update: if isClAdmin()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'scope', 'capacity', 'distributionSuspended', 'schedule', 'accessEndsAt',
+          'teamIds', 'managerIds', 'primaryTeamId', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    // Seule écriture client directe : son propre heartbeat de présence.
+    match /cl_presence/{uid} {
+      allow read: if isClAdmin() || isClManager() || (isClStaff() && request.auth.uid == uid);
+      allow create, update: if isClStaff() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['uid', 'connected', 'lastSeenAt'])
+        && request.resource.data.uid == uid;
+      allow delete: if false;
+    }
+
+    match /cl_teams/{id} {
+      allow read: if isClStaff();
+      allow create, update: if isClAdmin() && request.resource.data.id == id;
+      allow delete: if false;
+    }
+
+    match /cl_absences/{id} {
+      allow read: if isClAdmin() || isClManager()
+        || (isClTelepro() && resource.data.get('userId', '') == request.auth.uid);
+      allow write: if false;
+    }
+
+    match /cl_leads/{leadId} {
+      allow read: if clCanSee(resource.data);
+      allow write: if false;
+
+      // events (historique immuable), callAttempts, documents : même périmètre que le lead parent.
+      match /{sub}/{subId} {
+        allow read: if clCanSee(get(/databases/$(database)/documents/cl_leads/$(leadId)).data);
+        allow write: if false;
+      }
+    }
+
+    match /cl_actions/{id} {
+      allow read: if clCanSee(resource.data);
+      allow write: if false;
+    }
+
+    match /cl_sales/{id} {
+      allow read: if clCanSee(resource.data);
+      allow write: if false;
+    }
+
+    // L'id du document est le leadId.
+    match /cl_conversions/{leadId} {
+      allow read: if exists(/databases/$(database)/documents/cl_leads/$(leadId))
+        && clCanSee(get(/databases/$(database)/documents/cl_leads/$(leadId)).data);
+      allow write: if false;
+    }
+
+    // Campagnes, sources, dépenses : masquées au télépro (§22.11).
+    match /cl_campaigns/{id} {
+      allow read: if isClAdmin() || isClManager();
+      allow create, update: if isClAdmin() && request.resource.data.id == id;
+      allow delete: if false;
+    }
+    match /cl_sources/{id} {
+      allow read: if isClAdmin() || isClManager();
+      allow create, update: if isClAdmin() && request.resource.data.id == id;
+      allow delete: if false;
+    }
+    // Dépenses : jamais supprimées (une erreur se corrige à 0 avec motif). L'auteur est celui qui écrit,
+    // et une dépense ne change ni de campagne ni d'auteur d'origine.
+    match /cl_adSpend/{id} {
+      allow read: if isClAdmin() || isClManager();
+      allow create: if isClAdmin() && request.resource.data.id == id
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid;
+      allow update: if isClAdmin() && request.resource.data.id == id
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.campaignId == resource.data.campaignId
+        && request.resource.data.createdBy == resource.data.createdBy;
+      allow delete: if false;
+    }
+
+    match /cl_distributionLog/{id} {
+      allow read: if isClAdmin()
+        || (isClManager() && request.auth.uid in resource.data.get('managerIds', []));
+      allow write: if false;
+    }
+
+    // Admin uniquement : audit, payloads bruts (données personnelles), journal d'intégration.
+    // Audit en AJOUT SEUL : l'auteur est celui qui écrit, l'heure est celle du serveur (pas de
+    // date antidatée), la forme est figée, et rien n'est jamais modifié ni supprimé.
+    match /cl_audit/{id} {
+      allow read: if isClAdmin();
+      allow create: if isClAdmin()
+        && request.resource.data.actorId == request.auth.uid
+        && request.resource.data.at == request.time
+        && request.resource.data.keys().hasOnly(['id', 'at', 'actorId', 'action', 'entityType', 'entityId', 'before', 'after', 'reason']);
+      allow update, delete: if false;
+    }
+    match /cl_rawLeads/{id} {
+      allow read: if isClAdmin();
+      allow write: if false;
+    }
+    match /cl_integrationLog/{id} {
+      allow read: if isClAdmin();
+      allow write: if false;
+    }
+    match /cl_idempotency/{id} {
+      allow read, write: if false;
+    }
+
+    match /cl_notifications/{id} {
+      allow read: if clUserActive() && request.auth.uid in resource.data.get('recipientIds', []);
+      allow update: if clUserActive() && request.auth.uid in resource.data.get('recipientIds', [])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']);
+      allow create, delete: if false;
+    }
+
+    // Configuration versionnée : le personnel lit les versions publiées/archivées, seul l'admin
+    // voit les brouillons. La publication passe par une fonction serveur.
+    match /cl_config/{module} {
+      allow read: if isClStaff();
+      allow write: if false;
+
+      match /versions/{versionId} {
+        allow read: if isClAdmin()
+          || (isClStaff() && resource.data.get('state', '') in ['published', 'archived']);
+        allow write: if false;
+      }
+    }
+    // ═════════════ FIN MODIFICATION 2 ════════════════════════════════════════════════════════
+
+    match /{collection}/{document=**} {
+      allow read, write: if signedIn()
+        && !collection.matches('cl_.*')          // ← MODIFICATION 3 : exclut les collections du CRM Leads
+        && !(isMandataire() && collection in
+          ['clients', 'subventions', 'retraits', 'tickets', 'ticketsJuridiques', 'historique_dossier', 'apfs', 'postFacturationSuivis', 'recouvrements']);
+    }
+  }
+}

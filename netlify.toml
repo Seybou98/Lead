@@ -1,0 +1,25 @@
+# Site Netlify du CRM Leads : héberge l'application (Vite) ET la réception des leads.
+# « Base directory » du site Netlify : Lead
+
+[build]
+  command = "npm run build"
+  publish = "dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  # Module volumineux, chargé depuis node_modules plutôt qu'embarqué dans le paquet de la fonction.
+  external_node_modules = ["firebase-admin"]
+
+# Adresse publique de réception des leads (à donner à la source : Pabbly, Meta, agence…)
+[[redirects]]
+  from = "/api/leads"
+  to = "/.netlify/functions/ingest-lead"
+  status = 200
+  force = true
+
+# Application Vite : toute autre adresse retombe sur index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

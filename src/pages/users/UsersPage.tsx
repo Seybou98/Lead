@@ -1,0 +1,435 @@
+import { useMemo, useState } from 'react';
+import { AlertTriangle, CheckCircle2, Gauge, Phone, Plus, Search, UserMinus, Users, UserCheck, ChevronRight } from 'lucide-react';
+import { cn } from '../../lib/utils';
+import { ROLES, type OperationalStatus, type Role } from '../../domain/enums';
+import { DISTRIBUTION_LABELS, OPERATIONAL_STATUS_LABELS, ROLE_LABELS } from '../../domain/labels';
+import {
+  buildUserRows,
+  computeAlerts,
+  computeKpis,
+  filterUserRows,
+  NO_FILTERS,
+  summarizeTeams,
+  type DistributionState,
+  type UserFilters,
+  type UserRow,
+} from '../../domain/admin/userRows';
+import { errorMessage, saveProfile } from '../../lib/adminApi';
+import { useUsersData, type UsersData } from './useUsersData';
+import { ProfileModal } from './ProfileModal';
+import { TeamModal } from './TeamModal';
+
+const PAGE_SIZES = [10, 25, 50];
+
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((p) => p[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2) || '?';
+
+// §12.11 : la couleur est toujours accompagnée d'un libellé.
+const DISTRIBUTION_STYLE: Record<DistributionState, string> = {
+  active: 'text-emerald-700',
+  suspended: 'text-red-600',
+  paused: 'text-amber-600',
+  full: 'text-red-600',
+  no_profile: 'text-slate-500',
+  not_applicable: 'text-slate-400',
+};
+
+function StatusPill({ row }: { row: UserRow }) {
+  if (!row.accountActive) return <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">Compte inactif</span>;
+  if (!row.connected) return <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">● Déconnecté</span>;
+  if (row.operationalStatus === null) return <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">● Connecté</span>;
+  const tone: Record<OperationalStatus, string> = {
+    available: 'bg-emerald-50 text-emerald-700',
+    on_call: 'bg-blue-50 text-blue-700',
+    processing: 'bg-blue-50 text-blue-700',
+    doc_followup: 'bg-blue-50 text-blue-700',
+    file_building: 'bg-blue-50 text-blue-700',
+    in_meeting: 'bg-amber-50 text-amber-700',
+    paused: 'bg-amber-50 text-amber-700',
+    absent: 'bg-amber-50 text-amber-700',
+    disconnected: 'bg-slate-100 text-slate-600',
+    unavailable: 'bg-red-50 text-red-700',
+  };
+  return <span className={cn('rounded-full px-2.5 py-1 text-xs font-medium', tone[row.operationalStatus])}>● {OPERATIONAL_STATUS_LABELS[row.operationalStatus]}</span>;
+}
+
+function Kpi({ icon, label, value, tone }: { icon: React.ReactNode; label: string; value: string; tone: string }) {
+  return (
+    <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4">
+      <div className={cn('flex h-11 w-11 items-center justify-center rounded-full', tone)}>{icon}</div>
+      <div>
+        <p className="text-xs text-slate-500">{label}</p>
+        <p className="text-2xl font-semibold text-slate-900">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+const selectClass = 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
+
+/** Lecture Firestore ici ; tout l'affichage est dans UsersView (rendu aussi avec des données fictives pour contrôle visuel). */
+export function UsersPage() {
+  return <UsersView data={useUsersData()} />;
+}
+
+export function UsersView({ data }: { data: UsersData }) {
+  const [filters, setFilters] = useState<UserFilters>(NO_FILTERS);
+  const [pageSize, setPageSize] = useState(10);
+  const [page, setPage] = useState(1);
+  const [profileRow, setProfileRow] = useState<UserRow | null>(null);
+  const [teamEdit, setTeamEdit] = useState<{ id: string | null } | null>(null);
+  const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string; warnings?: string[] } | null>(null);
+  const [busyUid, setBusyUid] = useState<string | null>(null);
+
+  const rows = useMemo(
+    () => buildUserRows(data.users, data.profiles, data.teams, data.presence, data.nowMs),
+    [data.users, data.profiles, data.teams, data.presence, data.nowMs]
+  );
+  const filtered = useMemo(() => filterUserRows(rows, filters), [rows, filters]);
+  const kpis = useMemo(() => computeKpis(rows), [rows]);
+  const summaries = useMemo(() => summarizeTeams(data.teams, rows), [data.teams, rows]);
+  const alerts = useMemo(() => computeAlerts(data.teams, rows), [data.teams, rows]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const current = Math.min(page, pageCount);
+  const pageRows = filtered.slice((current - 1) * pageSize, current * pageSize);
+  const setFilter = <K extends keyof UserFilters>(k: K, v: UserFilters[K]) => {
+    setFilters((f) => ({ ...f, [k]: v }));
+    setPage(1);
+  };
+  const filtersActive = JSON.stringify(filters) !== JSON.stringify(NO_FILTERS);
+
+  const saved = (what: string) => (warnings: string[]) => {
+    setProfileRow(null);
+    setTeamEdit(null);
+    setNotice({ kind: 'ok', text: `${what} enregistré.`, warnings });
+    data.reloadUsers();
+  };
+
+  const toggleDistribution = async (row: UserRow) => {
+    setBusyUid(row.uid);
+    setNotice(null);
+    try {
+      const suspend = row.distribution !== 'suspended';
+      await saveProfile({ uid: row.uid, distributionSuspended: suspend, reason: suspend ? 'Suspension depuis la liste des utilisateurs' : 'Réactivation depuis la liste des utilisateurs' });
+      setNotice({ kind: 'ok', text: `Distribution ${suspend ? 'suspendue' : 'réactivée'} pour ${row.name}.` });
+    } catch (e) {
+      setNotice({ kind: 'error', text: errorMessage(e) });
+    } finally {
+      setBusyUid(null);
+    }
+  };
+
+  const alertText: Record<string, (n: number) => string> = {
+    team_without_members: (n) => `${n} équipe${n > 1 ? 's' : ''} sans membre`,
+    capacity_reached: (n) => `${n} capacité${n > 1 ? 's' : ''} atteinte${n > 1 ? 's' : ''}`,
+    user_without_profile: (n) => `${n} télépro${n > 1 ? 's' : ''} non configuré${n > 1 ? 's' : ''}`,
+    user_without_team: (n) => `${n} télépro${n > 1 ? 's' : ''} sans équipe`,
+  };
+  const inactiveTeams = data.teams.filter((t) => !t.active);
+
+  return (
+    <div className="w-full">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">Utilisateurs &amp; équipes</h1>
+          <p className="mt-1 text-slate-500">Gérez les accès, les capacités et la disponibilité de vos équipes.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setTeamEdit({ id: null })}
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+        >
+          <Plus className="h-4 w-4" /> Créer une équipe
+        </button>
+      </div>
+
+      {notice && (
+        <div
+          role={notice.kind === 'error' ? 'alert' : 'status'}
+          className={cn('mt-4 rounded-lg border px-4 py-3 text-sm', notice.kind === 'ok' ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-red-200 bg-red-50 text-red-700')}
+        >
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="flex items-center gap-2 font-medium">
+                {notice.kind === 'ok' ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
+                {notice.text}
+              </p>
+              {notice.warnings?.map((w) => (
+                <p key={w} className="mt-1 text-amber-800">⚠ {w}</p>
+              ))}
+            </div>
+            <button type="button" onClick={() => setNotice(null)} className="text-xs underline">
+              Fermer
+            </button>
+          </div>
+        </div>
+      )}
+
+      {data.error && (
+        <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {data.error}
+        </p>
+      )}
+
+      <div className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+        <Kpi icon={<Users className="h-5 w-5" />} label="Utilisateurs actifs" value={String(kpis.activeUsers)} tone="bg-blue-50 text-blue-600" />
+        <Kpi icon={<UserCheck className="h-5 w-5" />} label="Télépros disponibles" value={String(kpis.availableTelepros)} tone="bg-emerald-50 text-emerald-600" />
+        <Kpi icon={<Phone className="h-5 w-5" />} label="En appel" value={String(kpis.onCall)} tone="bg-sky-50 text-sky-600" />
+        <Kpi icon={<UserMinus className="h-5 w-5" />} label="Absents" value={String(kpis.absent)} tone="bg-amber-50 text-amber-600" />
+        <Kpi icon={<Gauge className="h-5 w-5" />} label="Capacité globale" value={`${kpis.capacityUsed}/${kpis.capacityTotal}`} tone="bg-violet-50 text-violet-600" />
+      </div>
+
+      <div className="mt-6 space-y-6">
+        <section className="min-w-0 rounded-xl border border-slate-200 bg-white">
+          <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 p-4">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="search"
+                value={filters.search}
+                onChange={(e) => setFilter('search', e.target.value)}
+                placeholder="Rechercher un utilisateur"
+                aria-label="Rechercher un utilisateur"
+                className="w-56 rounded-lg border border-slate-300 py-2 pl-9 pr-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
+            </div>
+            <select aria-label="Filtrer par rôle" className={selectClass} value={filters.role} onChange={(e) => setFilter('role', e.target.value as Role | 'all')}>
+              <option value="all">Tous les rôles</option>
+              {ROLES.map((r) => (
+                <option key={r} value={r}>
+                  {ROLE_LABELS[r]}
+                </option>
+              ))}
+            </select>
+            <select aria-label="Filtrer par équipe" className={selectClass} value={filters.teamId} onChange={(e) => setFilter('teamId', e.target.value)}>
+              <option value="all">Toutes les équipes</option>
+              <option value="none">Sans équipe</option>
+              {data.teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <select aria-label="Filtrer par statut" className={selectClass} value={filters.status} onChange={(e) => setFilter('status', e.target.value as UserFilters['status'])}>
+              <option value="all">Tous les statuts</option>
+              <option value="offline">Déconnectés</option>
+              {(Object.keys(OPERATIONAL_STATUS_LABELS) as OperationalStatus[])
+                .filter((s) => s !== 'disconnected')
+                .map((s) => (
+                  <option key={s} value={s}>
+                    {OPERATIONAL_STATUS_LABELS[s]}
+                  </option>
+                ))}
+            </select>
+            <select aria-label="Filtrer par distribution" className={selectClass} value={filters.distribution} onChange={(e) => setFilter('distribution', e.target.value as UserFilters['distribution'])}>
+              <option value="all">Distribution : toutes</option>
+              {(['active', 'suspended', 'paused', 'full', 'no_profile'] as DistributionState[]).map((d) => (
+                <option key={d} value={d}>
+                  {DISTRIBUTION_LABELS[d]}
+                </option>
+              ))}
+            </select>
+            {filtersActive && (
+              <button type="button" onClick={() => { setFilters(NO_FILTERS); setPage(1); }} className="text-sm text-blue-600 underline">
+                Réinitialiser
+              </button>
+            )}
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-[13px]">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  {['Utilisateur', 'Rôle', 'Équipe', 'Produits', 'Zones', 'Capacité', 'Statut', 'Distribution', 'Actions'].map((h) => (
+                    <th key={h} scope="col" className="whitespace-nowrap px-3 py-3 font-medium">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {data.loading && (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                      Chargement…
+                    </td>
+                  </tr>
+                )}
+                {!data.loading && pageRows.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-10 text-center text-slate-500">
+                      {rows.length === 0
+                        ? "Aucun utilisateur n'a accès au CRM Leads. Les rôles concernés sont « administrateur », « manager » et « telepro commercial »."
+                        : 'Aucun résultat pour ces filtres.'}
+                    </td>
+                  </tr>
+                )}
+                {pageRows.map((r) => (
+                  <tr key={r.uid} className={cn('hover:bg-slate-50', !r.accountActive && 'opacity-60')}>
+                    <td className="px-3 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-xs font-semibold text-blue-700">{initials(r.name)}</span>
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-slate-900">{r.name}</p>
+                          {r.email && <p className="truncate text-xs text-slate-500">{r.email}</p>}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 text-slate-700">{ROLE_LABELS[r.role]}</td>
+                    <td className="px-3 py-3 text-slate-700">{r.teamNames.length ? r.teamNames.join(', ') : <span className="text-slate-400">—</span>}</td>
+                    <td className="px-3 py-3 text-slate-700">{r.products.length ? r.products.join(' + ') : <span className="text-slate-400">{r.role === 'telepro' ? 'Aucun' : 'Tous'}</span>}</td>
+                    <td className="px-3 py-3 text-slate-700">{r.zones.length ? r.zones.join(' + ') : <span className="text-slate-400">{r.role === 'telepro' ? 'Aucune' : 'Toutes'}</span>}</td>
+                    <td className={cn('whitespace-nowrap px-3 py-3 font-medium', r.distribution === 'full' ? 'text-red-600' : 'text-slate-800')}>
+                      {r.cap === null ? '—' : `${r.newLeads}/${r.cap}`}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3">
+                      <StatusPill row={r} />
+                    </td>
+                    <td className={cn('whitespace-nowrap px-3 py-3 font-medium', DISTRIBUTION_STYLE[r.distribution])}>{DISTRIBUTION_LABELS[r.distribution]}</td>
+                    <td className="whitespace-nowrap px-3 py-3">
+                      {r.role === 'telepro' && r.accountActive ? (
+                        <div className="flex items-center gap-3">
+                          <button type="button" onClick={() => setProfileRow(r)} className="text-sm font-medium text-blue-600 hover:underline">
+                            {r.hasProfile ? 'Modifier' : 'Configurer'}
+                          </button>
+                          {r.hasProfile && (
+                            <button
+                              type="button"
+                              disabled={busyUid === r.uid}
+                              onClick={() => toggleDistribution(r)}
+                              className="text-sm text-slate-600 hover:underline disabled:opacity-50"
+                            >
+                              {r.distribution === 'suspended' ? 'Réactiver' : 'Suspendre'}
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-4 py-3 text-sm text-slate-600">
+            <span>
+              {filtered.length === 0 ? 'Aucun utilisateur' : `Affichage de ${(current - 1) * pageSize + 1} à ${Math.min(current * pageSize, filtered.length)} sur ${filtered.length} utilisateur${filtered.length > 1 ? 's' : ''}`}
+            </span>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2">
+                Lignes par page
+                <select className={selectClass} value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
+                  {PAGE_SIZES.map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" disabled={current <= 1} onClick={() => setPage(current - 1)} className="rounded-lg border border-slate-300 px-3 py-1.5 disabled:opacity-40">
+                Précédent
+              </button>
+              <span>
+                {current} / {pageCount}
+              </span>
+              <button type="button" disabled={current >= pageCount} onClick={() => setPage(current + 1)} className="rounded-lg border border-slate-300 px-3 py-1.5 disabled:opacity-40">
+                Suivant
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <aside>
+          <section className="rounded-xl border border-slate-200 bg-white p-5">
+            <h2 className="text-base font-semibold text-slate-900">État des équipes</h2>
+            <div className="mt-4 space-y-4">
+              {data.teams.length === 0 && !data.loading && <p className="text-sm text-slate-500">Aucune équipe. Créez la première pour commencer à distribuer des leads.</p>}
+              {summaries.map((s) => (
+                <button key={s.id} type="button" onClick={() => setTeamEdit({ id: s.id })} className="block w-full text-left">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="font-medium text-slate-800">{s.name}</span>
+                    <span className="text-slate-600">
+                      {s.used}/{s.total}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuenow={s.percent} aria-valuemin={0} aria-valuemax={100} aria-label={`Capacité utilisée de ${s.name}`}>
+                    <div className={cn('h-full rounded-full', s.percent >= 90 ? 'bg-red-500' : s.percent >= 70 ? 'bg-amber-500' : 'bg-blue-500')} style={{ width: `${s.percent}%` }} />
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {s.memberCount} membre{s.memberCount > 1 ? 's' : ''} · {s.percent} % de capacité
+                  </p>
+                </button>
+              ))}
+              {inactiveTeams.map((t) => (
+                <button key={t.id} type="button" onClick={() => setTeamEdit({ id: t.id })} className="flex w-full items-center justify-between text-left text-sm text-slate-400">
+                  <span>{t.name}</span>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs">Inactive</span>
+                </button>
+              ))}
+            </div>
+
+            {/* Alertes : en bas de la carte, comme sur la maquette (fig. 20). */}
+            <div className="mt-5 space-y-3 border-t border-slate-100 pt-4">
+          {alerts.map((a) => {
+            const critical = a.kind === 'capacity_reached';
+            return (
+              <div key={a.kind} className={cn('flex items-center gap-3 rounded-xl border p-4 text-sm', critical ? 'border-red-200 bg-red-50 text-red-800' : 'border-amber-200 bg-amber-50 text-amber-900')}>
+                <AlertTriangle className="h-5 w-5 flex-shrink-0" />
+                <div className="flex-1">
+                  <p className="font-medium">{alertText[a.kind](a.count)}</p>
+                  <p className="mt-0.5 text-xs opacity-80">
+                    {a.kind === 'team_without_members' && 'Aucun lead ne peut être confié à ces équipes.'}
+                    {a.kind === 'capacity_reached' && 'Ces télépros ne reçoivent plus de nouveaux leads.'}
+                    {a.kind === 'user_without_profile' && 'Sans périmètre, ils ne reçoivent aucun lead : cliquez sur « Configurer ».'}
+                    {a.kind === 'user_without_team' && "Ils ne sont rattachés à aucune équipe, donc à aucun manager."}
+                  </p>
+                </div>
+                {a.kind === 'team_without_members' && a.ids[0] && (
+                  <button type="button" aria-label="Ouvrir l'équipe" onClick={() => setTeamEdit({ id: a.ids[0] })}>
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+          {alerts.length === 0 && !data.loading && (
+            <p className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+              <CheckCircle2 className="h-4 w-4" /> Aucune anomalie détectée.
+            </p>
+          )}
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      {profileRow && (
+        <ProfileModal
+          row={profileRow}
+          raw={data.rawProfiles.get(profileRow.uid)}
+          hasActiveOverride={!!data.profiles.get(profileRow.uid)?.capacity.override && (data.profiles.get(profileRow.uid)!.capacity.override!.untilMs > data.nowMs)}
+          onClose={() => setProfileRow(null)}
+          onSaved={saved('Profil')}
+        />
+      )}
+      {teamEdit && (
+        <TeamModal
+          team={teamEdit.id ? (data.teams.find((t) => t.id === teamEdit.id) ?? null) : null}
+          raw={teamEdit.id ? data.rawTeams.get(teamEdit.id) : undefined}
+          users={data.users}
+          teams={data.teams}
+          onClose={() => setTeamEdit(null)}
+          onSaved={saved('Équipe')}
+        />
+      )}
+    </div>
+  );
+}
