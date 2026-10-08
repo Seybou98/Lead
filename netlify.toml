@@ -30,6 +30,13 @@
   status = 200
   force = true
 
+# Ancien chemin de l'ancien CRM : Pabbly n'a ainsi que le nom de domaine à changer (même secret, mêmes champs).
+[[redirects]]
+  from = "/api/pabbly/leads"
+  to = "/.netlify/functions/ingest-lead"
+  status = 200
+  force = true
+
 # Qualification de fin d'appel (appelée par l'application, authentifiée par le jeton Firebase de l'utilisateur)
 [[redirects]]
   from = "/api/qualify-call"
