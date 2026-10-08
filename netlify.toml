@@ -58,6 +58,13 @@
   status = 200
   force = true
 
+# Montage du dossier et création de la vente (brouillon, validation manager) : jeton Firebase.
+[[redirects]]
+  from = "/api/lead-conversion"
+  to = "/.netlify/functions/lead-conversion"
+  status = 200
+  force = true
+
 # Réattribution manuelle d'un lead (manager, administrateur) : jeton Firebase.
 [[redirects]]
   from = "/api/reassign-lead"

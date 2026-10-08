@@ -9,8 +9,9 @@ import type { LeadListItem } from '../../domain/leads/leadList';
 import { useCockpitData, type CockpitData } from './useCockpitData';
 import { ManagerNotifications } from './ManagerNotifications';
 import { LeadPanel, ListPanel, SEVERITY_STYLE, TONE_PILL } from './CockpitPanel';
+import { sendConversionAction } from '../../lib/conversionApi';
 
-type Kpi = 'danger' | 'callbacks' | 'docs';
+type Kpi = 'danger' | 'callbacks' | 'docs' | 'sales';
 type Panel = { kind: 'list'; kpi: Kpi } | { kind: 'buffer' } | { kind: 'lead'; leadId: string };
 
 const BUFFER_REASONS: Record<string, string> = {
@@ -68,6 +69,8 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
   const [period, setPeriod] = useState<Period>('today');
   const [panel, setPanel] = useState<Panel | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState<string | null>(null);
 
   const cockpit: Cockpit = useMemo(() => buildCockpit({ items: data.items, rows: data.rows, nowMs: data.nowMs, period }), [data.items, data.rows, data.nowMs, period]);
   const byId = useMemo(() => new Map(data.items.map((l) => [l.id, l])), [data.items]);
@@ -79,6 +82,18 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
     danger: { title: 'Leads en danger', issues: cockpit.danger },
     callbacks: { title: 'Rappels en retard', issues: cockpit.lateCallbacks },
     docs: { title: 'Documents bloqués', issues: cockpit.blockedDocs },
+    sales: { title: 'Ventes à sécuriser', issues: cockpit.salesToSecure },
+  };
+
+  /** « Réessayer » d'une transmission au CRM principal. Un doublon de dossier se tranche sur la fiche du dossier. */
+  const retryTransmission = async (leadId: string) => {
+    setRetrying(leadId);
+    setProblem(null);
+    const r = await sendConversionAction(leadId, { kind: 'transmit' });
+    setRetrying(null);
+    if (r.ok) return setNotice(r.message);
+    setProblem(r.message);
+    if (/existe déjà/.test(r.message)) navigate(`/dossiers/${leadId}`);
   };
   // File tampon : chaque lead en attente est une ligne ; un clic ouvre le panneau d'attribution.
   const bufferIssues: LeadIssue[] = cockpit.buffer.leads.map((l) => ({
@@ -115,6 +130,12 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
         </p>
       )}
       {data.error && <p role="alert" className="mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="h-4 w-4" /> {data.error}</p>}
+      {problem && (
+        <p role="alert" className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span className="flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> {problem}</span>
+          <button type="button" onClick={() => setProblem(null)} className="text-xs underline">Fermer</button>
+        </p>
+      )}
       {notice && (
         <p role="status" className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           <span className="flex items-center gap-2"><CheckCircle2 className="h-4 w-4" /> {notice}</span>
@@ -126,7 +147,7 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
         <KpiCard tone="red" icon={<AlertTriangle className="h-6 w-6" />} value={String(cockpit.danger.length)} label="Leads en danger" sub="SLA dépassé ou proche" onOpen={() => setPanel({ kind: 'list', kpi: 'danger' })} />
         <KpiCard tone="orange" icon={<Clock className="h-6 w-6" />} value={String(cockpit.lateCallbacks.length)} label="Rappels en retard" onOpen={() => setPanel({ kind: 'list', kpi: 'callbacks' })} />
         <KpiCard tone="blue" icon={<FileText className="h-6 w-6" />} value={String(cockpit.blockedDocs.length)} label="Documents bloqués" onOpen={() => setPanel({ kind: 'list', kpi: 'docs' })} />
-        <KpiCard tone="green" icon={<Euro className="h-6 w-6" />} value="—" label="Ventes à sécuriser" sub="Disponible avec le lot Conversion" />
+        <KpiCard tone="green" icon={<Euro className="h-6 w-6" />} value={String(cockpit.salesToSecure.length)} label="Ventes à sécuriser" sub="Signature et paiement à confirmer" onOpen={() => setPanel({ kind: 'list', kpi: 'sales' })} />
       </div>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
@@ -186,10 +207,17 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
                     </span>
                     <button
                       type="button"
-                      onClick={() => (d.action.kind === 'buffer' ? setPanel({ kind: 'buffer' }) : d.action.kind === 'docs' && d.leadId ? navigate(`${basePath}/${d.leadId}?onglet=documents`) : d.leadId && openLead(d.leadId))}
-                      className="flex-shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-white hover:bg-blue-700"
+                      disabled={retrying !== null && d.leadId === retrying}
+                      onClick={() => {
+                        if (d.action.kind === 'buffer') return setPanel({ kind: 'buffer' });
+                        if (d.action.kind === 'docs' && d.leadId) return navigate(`${basePath}/${d.leadId}?onglet=documents`);
+                        if (d.action.kind === 'validation' && d.leadId) return navigate(`/dossiers/${d.leadId}`);
+                        if (d.action.kind === 'transmit' && d.leadId) return void retryTransmission(d.leadId);
+                        if (d.leadId) openLead(d.leadId);
+                      }}
+                      className="flex-shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-white hover:bg-blue-700 disabled:opacity-60"
                     >
-                      {d.action.label}
+                      {retrying !== null && d.leadId === retrying ? 'Reprise…' : d.action.label}
                     </button>
                   </li>
                 );
@@ -230,7 +258,7 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
       <ManagerNotifications nowMs={data.nowMs} onOpenLead={openLead} />
 
       {panel?.kind === 'list' && (
-        <ListPanel title={lists[panel.kpi].title} issues={lists[panel.kpi].issues} nowMs={data.nowMs} names={data.names} onPick={openLead} onClose={() => setPanel(null)} />
+        <ListPanel title={lists[panel.kpi].title} issues={lists[panel.kpi].issues} nowMs={data.nowMs} names={data.names} onPick={panel.kpi === 'sales' ? (id) => navigate(`/dossiers/${id}`) : openLead} onClose={() => setPanel(null)} />
       )}
       {panel?.kind === 'buffer' && (
         <ListPanel title="File tampon" issues={bufferIssues} nowMs={data.nowMs} names={data.names} onPick={openLead} onClose={() => setPanel(null)} />

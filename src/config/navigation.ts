@@ -8,6 +8,7 @@ export type NavIconName =
   | 'users'
   | 'file-text'
   | 'bar-chart'
+  | 'folder'
   | 'message-square'
   | 'gauge'
   | 'user-cog'
@@ -47,6 +48,7 @@ export const NAVIGATION: NavGroup[] = [
       { name: 'Leads', href: '/leads', icon: 'users', roles: PILOTAGE },
       // Communs
       { name: 'Documents', href: '/documents', icon: 'file-text', roles: ALL },
+      { name: 'Dossiers', href: '/dossiers', icon: 'folder', roles: ALL },
       { name: 'Ventes', href: '/ventes', icon: 'bar-chart', roles: ALL },
       { name: 'Messages', href: '/messages', icon: 'message-square', roles: ['telepro'] },
       { name: 'Rapports', href: '/rapports', icon: 'pie-chart', roles: PILOTAGE },

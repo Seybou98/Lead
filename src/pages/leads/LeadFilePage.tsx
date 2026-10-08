@@ -19,6 +19,7 @@ import { newRequestId } from '../../lib/qualifyApi';
 import { sendStatus } from '../../lib/statusApi';
 import { documentLabel } from '../../domain/documents/plan';
 import { LeadDocumentsPanel } from '../documents/LeadDocumentsPanel';
+import { SalePanel } from '../sale/SalePanel';
 
 type Tab = 'summary' | 'exchanges' | 'documents' | 'sale';
 const TABS: { key: Tab; label: string }[] = [
@@ -416,14 +417,9 @@ export function LeadFileView({ state, listPath, canSeePriority, nowOverride, onC
       )}
 
       {tab === 'sale' && (
-        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-        <div>
-          <Card title="Vente" icon={<Workflow className="h-[18px] w-[18px] text-blue-600" />}>
-            <p className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500">Offres, signature, règlement et financement arrivent avec les lots « Conversion » et « Vente à distance ».</p>
-          </Card>
+        <div className="mt-6">
+          <SalePanel leadId={lead.id} names={names.users} campaignName={campaignName} backPath={listPath} />
         </div>
-        <aside className="space-y-6">{progressionCard}</aside>
-      </div>
       )}
     </div>
   );

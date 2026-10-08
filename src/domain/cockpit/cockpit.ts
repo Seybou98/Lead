@@ -5,6 +5,7 @@
 
 import { CLOSED_LEAD_STATUSES } from '../enums';
 import { callbackLevel, isCallbackAction } from '../alerts/engine';
+import { formatEuros } from '../conversion/finance';
 import { getSlaMs, slaAgeMs, slaLevel, type LeadListItem } from '../leads/leadList';
 import { buildDayQueue } from '../leads/myDay';
 import type { DistributionState, UserRow } from '../admin/userRows';
@@ -34,8 +35,11 @@ export interface Decision {
   severity: Severity;
   title: string;
   sinceMs: number | null;
-  /** buffer : ouvre la file tampon · lead : panneau d'action · docs : onglet Documents de la fiche. */
-  action: { label: string; kind: 'buffer' | 'lead' | 'docs' };
+  /**
+   * buffer : ouvre la file tampon · lead : panneau d'action · docs : onglet Documents de la fiche ·
+   * validation : dossier à valider (fiche du dossier) · transmit : relance la transmission au CRM principal.
+   */
+  action: { label: string; kind: 'buffer' | 'lead' | 'docs' | 'validation' | 'transmit' };
   leadId: string | null;
 }
 
@@ -65,6 +69,8 @@ export interface Cockpit {
   lateCallbacks: LeadIssue[];
   /** Décision à J+14, promesses échues, relances au-delà de J+5, pièces à contrôler depuis plus d'un jour. */
   blockedDocs: LeadIssue[];
+  /** Ventes créées pas encore sécurisées : signature ET paiement ou financement à confirmer (§25.7). */
+  salesToSecure: LeadIssue[];
   decisions: Decision[];
   team: TeamRow[];
   flow: { received: number; assigned: number; contacted: number };
@@ -135,6 +141,27 @@ function blockedDocIssues(items: readonly LeadListItem[], nowMs: number): LeadIs
   return out.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || a.sinceMs - b.sinceMs);
 }
 
+/** Une vente est sécurisée après signature ET confirmation du paiement ou de l'acceptation du financement (§25.7, §23.11). */
+export const isSaleSecured = (l: Pick<LeadListItem, 'commercialState' | 'financialState'>): boolean =>
+  l.commercialState === 'signed' && (l.financialState === 'payment_confirmed' || l.financialState === 'financing_accepted');
+
+/** Ventes à sécuriser : toute vente créée, ni sécurisée ni annulée ou rétractée. Un lead converti n'est donc pas « clos » ici. */
+function saleIssues(items: readonly LeadListItem[]): LeadIssue[] {
+  const out: LeadIssue[] = [];
+  for (const l of items) {
+    if (l.excluded || !l.conversion) continue;
+    if (l.commercialState === 'cancelled' || l.commercialState === 'retracted') continue;
+    if (isSaleSecured(l)) continue;
+    out.push({
+      lead: l,
+      sinceMs: l.montage?.updatedAtMs ?? l.receivedAtMs,
+      severity: 'watch',
+      reason: l.commercialState === 'signed' ? 'Signée : paiement ou financement à confirmer' : 'Vente créée : signature et paiement à confirmer',
+    });
+  }
+  return out.sort((a, b) => a.sinceMs - b.sinceMs);
+}
+
 function stateOf(row: UserRow): TeamRow['state'] {
   if (!row.connected) return { label: 'Déconnecté', tone: 'grey' };
   const s = row.operationalStatus;
@@ -152,6 +179,7 @@ export function buildCockpit(args: { items: readonly LeadListItem[]; rows: reado
   const danger = dangerIssues(items, nowMs);
   const lateCallbacks = lateCallbackIssues(items, nowMs);
   const blockedDocs = blockedDocIssues(items, nowMs);
+  const salesToSecure = saleIssues(items);
 
   const bufferLeads = items.filter((l) => isOpen(l) && l.ownerId === null && (l.assignmentState === 'buffer' || l.assignmentState === 'to_assign'));
   const oldestMs = bufferLeads.length ? Math.min(...bufferLeads.map((l) => l.receivedAtMs)) : null;
@@ -178,6 +206,16 @@ export function buildCockpit(args: { items: readonly LeadListItem[]; rows: reado
   for (const i of blockedDocs.filter((x) => x.severity === 'high')) {
     const decision = i.lead.nextAction?.type === 'document_decision';
     decisions.push({ id: `doc:${i.lead.id}`, severity: 'high', title: `${decision ? 'Décision documentaire' : 'Documents promis non reçus'} — ${nameOf(i.lead)}`, sinceMs: i.sinceMs, action: { label: decision ? 'Décider' : 'Relancer', kind: 'docs' }, leadId: i.lead.id });
+  }
+  // Ventes : une exception soumise attend le manager (§11.11), une transmission échouée attend une reprise (fig. 14).
+  for (const l of items) {
+    if (l.excluded) continue;
+    if (l.status === 'manager_validation') {
+      const ttc = l.montage?.totalTtcCents ?? 0;
+      decisions.push({ id: `val:${l.id}`, severity: 'high', title: `Vente à valider — ${nameOf(l)}${ttc > 0 ? ` · ${formatEuros(ttc)}` : ''}`, sinceMs: l.montage?.updatedAtMs ?? null, action: { label: 'Valider', kind: 'validation' }, leadId: l.id });
+    } else if (l.status === 'transmission_error') {
+      decisions.push({ id: `trx:${l.id}`, severity: 'high', title: `Erreur d’envoi CRM — ${nameOf(l)}`, sinceMs: l.montage?.updatedAtMs ?? null, action: { label: 'Réessayer', kind: 'transmit' }, leadId: l.id });
+    }
   }
   decisions.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || (a.sinceMs ?? nowMs) - (b.sinceMs ?? nowMs));
 
@@ -216,6 +254,7 @@ export function buildCockpit(args: { items: readonly LeadListItem[]; rows: reado
     danger,
     lateCallbacks,
     blockedDocs,
+    salesToSecure,
     decisions,
     team,
     flow: { received: inPeriod.length, assigned: inPeriod.filter((l) => l.ownerId !== null).length, contacted: inPeriod.filter((l) => l.slaStoppedAtMs !== null).length },

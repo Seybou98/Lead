@@ -24,6 +24,7 @@ import { displayName, readPublishedConfig, toCampaignInfo } from './ingest';
 import { parseCallRules } from './qualify';
 import { reassignLead } from './reassign';
 import { loadCampaignSla, loadSchedulerRules } from './settings';
+import { backoffMinutes, MAX_AUTO_ATTEMPTS, transmitConversion, type StorageLike } from './transmission';
 import { DEFAULT_SLA_SETTINGS, type SlaSettings } from '../../src/domain/settings/settings';
 
 export interface SchedulerReport {
@@ -42,8 +43,19 @@ export interface SchedulerReport {
   returned: number;
   /** Leads en file tampon réévalués sans qu'aucun télépro ne puisse encore les recevoir. */
   stillWaiting: number;
+  /** Transmissions au CRM principal reprises avec succès / alertes administrateur envoyées (échecs répétés). */
+  transmitted: number;
+  transmissionAlerts: number;
   errors: string[];
 }
+
+/** Dépendances facultatives du passage : le stockage n'est ouvert que si une transmission est à reprendre. */
+export interface SchedulerDeps {
+  getStorage?: () => Promise<StorageLike | null>;
+}
+
+/** Transmissions reprises au plus par passage : le reste attend le suivant. */
+const TRANSMIT_LIMIT = 5;
 
 const OPEN_STATUSES = ['new', 'callback', 'awaiting_documents', 'missing_info', 'unreachable_cycle_end'];
 const READ_LIMIT = 1000;
@@ -98,8 +110,8 @@ export function toSchedLead(id: string, d: DocumentData): SchedLead {
 
 const alreadyExists = (e: unknown) => (e as { code?: number | string })?.code === 6 || /already exists/i.test((e as Error)?.message ?? '');
 
-export async function runScheduler(db: Firestore, nowMs: number): Promise<SchedulerReport> {
-  const report: SchedulerReport = { atMs: nowMs, leadsRead: 0, escalations: 0, recycled: 0, archived: 0, assigned: 0, slaReassigned: 0, absencesStarted: 0, absencesEnded: 0, returned: 0, stillWaiting: 0, errors: [] };
+export async function runScheduler(db: Firestore, nowMs: number, deps: SchedulerDeps = {}): Promise<SchedulerReport> {
+  const report: SchedulerReport = { atMs: nowMs, leadsRead: 0, escalations: 0, recycled: 0, archived: 0, assigned: 0, slaReassigned: 0, absencesStarted: 0, absencesEnded: 0, returned: 0, stillWaiting: 0, transmitted: 0, transmissionAlerts: 0, errors: [] };
   const at = new Date(nowMs);
   const guard = async (label: string, fn: () => Promise<void>) => {
     try {
@@ -396,6 +408,57 @@ export async function runScheduler(db: Firestore, nowMs: number): Promise<Schedu
         }
         // Marqué traité dans tous les cas : un propriétaire d'origine devenu inactif ne doit pas bloquer chaque passage.
         await batch.ref.update({ returned: true, returnedAt: at });
+      });
+    }
+  });
+
+  // ── 6. Transmissions au CRM principal : reprise automatique (§11.9) ──
+  // Pause croissante entre deux tentatives ; après MAX_AUTO_ATTEMPTS échecs, une alerte part vers les administrateurs et
+  // la reprise devient manuelle. Un doublon de dossier attend une décision humaine : il n'est jamais retenté seul.
+  await guard('transmissions', async () => {
+    const snap = await db.collection(COL.conversions).where('state', 'in', ['pending', 'sent', 'dossier_created', 'failed']).limit(50).get();
+    let started = 0;
+    for (const c of snap.docs) {
+      const lockedUntil = ms(c.get('lockedUntil'));
+      if (lockedUntil !== null && lockedUntil > nowMs) continue;
+      if ((c.get('lastError') as { code?: string } | null)?.code === 'duplicate_dossier') continue;
+      const attempts = Number(c.get('attempts') ?? 0);
+      if (attempts >= MAX_AUTO_ATTEMPTS) {
+        if (c.get('alertedAt')) continue;
+        await guard(`alerte transmission ${c.id}`, async () => {
+          const [admins, lead] = await Promise.all([db.collection('users').where('role', 'in', ['Administrateur', 'admin']).get(), db.collection(COL.leads).doc(c.id).get()]);
+          const recipientIds = admins.docs.map((a) => a.id);
+          if (recipientIds.length > 0) {
+            try {
+              await db.collection(COL.notifications).doc(`transmit_alert_${c.id}`).create({
+                id: `transmit_alert_${c.id}`,
+                type: 'manager_alert',
+                title: 'Transmission au CRM principal en échec',
+                description: `${lead.get('fullName') ?? 'Lead'} : ${attempts} tentatives sans succès, reprise manuelle nécessaire.`.slice(0, 300),
+                leadId: c.id,
+                recipientIds,
+                sound: 'critical',
+                readBy: [],
+                createdAt: at,
+              });
+            } catch (e) {
+              if (!alreadyExists(e)) throw e;
+            }
+          }
+          await c.ref.update({ alertedAt: at });
+          report.transmissionAlerts += 1;
+        });
+        continue;
+      }
+      const last = ms(c.get('lastAttemptAt'));
+      if (last !== null && nowMs - last < backoffMinutes(attempts) * 60_000) continue;
+      if (started >= TRANSMIT_LIMIT) break;
+      started += 1;
+      await guard(`transmission ${c.id}`, async () => {
+        const storage = deps.getStorage ? await deps.getStorage() : null;
+        const r = await transmitConversion(db, { leadId: c.id, actorId: 'system', nowMs, storage });
+        if (r.ok) report.transmitted += 1;
+        else if (r.code !== 'busy') report.errors.push(`transmission ${c.id} : ${r.message}`.slice(0, 200));
       });
     }
   });

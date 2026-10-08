@@ -2,9 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 // Base en mémoire (pas d'émulateur disponible) : on vérifie ce que runScheduler ÉCRIT, pas le moteur Firestore.
 vi.mock('firebase-admin/firestore', () => ({ FieldValue: { increment: (n: number) => ({ __inc: n }) } }));
+// La transmission au CRM principal a ses propres tests (transmission.test.ts) : ici on vérifie QUAND le planificateur la relance.
+vi.mock('./transmission', async (orig) => ({ ...(await orig<typeof import('./transmission')>()), transmitConversion: vi.fn() }));
 
 import { parseSchedulerRules, runScheduler, toSchedLead } from './scheduler';
 import { DEFAULT_SCHEDULER_RULES } from '../../src/domain/scheduler/plan';
+import { transmitConversion } from './transmission';
 
 type Doc = Record<string, unknown>;
 const T = (ms: number) => ({ toMillis: () => ms });
@@ -412,5 +415,86 @@ describe('runScheduler — réattribution au SLA', () => {
   it("un rappel client promis n\'est jamais réattribué automatiquement", async () => {
     const db = setup(on, { status: 'callback', nextAction: { type: 'client_callback', dueAt: T(NOW - 60 * MIN), reason: '' } });
     expect((await run(db)).slaReassigned).toBe(0);
+  });
+});
+
+
+describe('runScheduler — reprise des transmissions au CRM principal (§11.9)', () => {
+  const transmit = vi.mocked(transmitConversion);
+  const OK = { ok: true, replay: false, state: 'confirmed', clientId: '2612345', dossierId: 'cl_L1', documents: 0, message: 'ok' } as const;
+  const conversion = (over: Doc = {}): Doc => ({ leadId: 'L1', state: 'pending', attempts: 0, lastAttemptAt: null, lockedUntil: null, lastError: null, ...over });
+  const seedConv = (id: string, over: Doc = {}) => {
+    const db = new FakeDb();
+    db.data.set(`cl_conversions/${id}`, conversion(over));
+    db.data.set(`cl_leads/${id}`, { fullName: 'Jean Dupont', status: 'transmitting', managerIds: ['m1'] });
+    return db;
+  };
+  const reset = () => transmit.mockReset().mockResolvedValue(OK);
+
+  it('relance une vente jamais transmise, au nom du système', async () => {
+    reset();
+    const db = seedConv('L1');
+    const r = await run(db);
+    expect(transmit).toHaveBeenCalledTimes(1);
+    expect(transmit.mock.calls[0][1]).toMatchObject({ leadId: 'L1', actorId: 'system', nowMs: NOW });
+    expect(r.transmitted).toBe(1);
+  });
+  it('ignore une conversion déjà confirmée', async () => {
+    reset();
+    await run(seedConv('L1', { state: 'confirmed' }));
+    expect(transmit).not.toHaveBeenCalled();
+  });
+  it('respecte la pause croissante entre deux tentatives', async () => {
+    reset();
+    await run(seedConv('L1', { state: 'failed', attempts: 2, lastAttemptAt: T(NOW - 3 * MIN) }));
+    expect(transmit).not.toHaveBeenCalled();
+    await run(seedConv('L1', { state: 'failed', attempts: 2, lastAttemptAt: T(NOW - 5 * MIN) }));
+    expect(transmit).toHaveBeenCalledTimes(1);
+  });
+  it('laisse une exécution en cours terminer (verrou)', async () => {
+    reset();
+    await run(seedConv('L1', { lockedUntil: T(NOW + 30_000) }));
+    expect(transmit).not.toHaveBeenCalled();
+  });
+  it('ne retente jamais seul un doublon de dossier : décision humaine', async () => {
+    reset();
+    await run(seedConv('L1', { state: 'failed', attempts: 1, lastAttemptAt: T(NOW - 10 * MIN), lastError: { code: 'duplicate_dossier' } }));
+    expect(transmit).not.toHaveBeenCalled();
+  });
+  it('après 5 échecs : plus de reprise automatique, une seule alerte vers les administrateurs', async () => {
+    reset();
+    const db = seedConv('L1', { state: 'failed', attempts: 5, lastAttemptAt: T(NOW - 3 * H) });
+    db.data.set('users/adm1', { role: 'Administrateur' });
+    db.data.set('users/u9', { role: 'Télépro Commercial' });
+    const first = await run(db);
+    expect(transmit).not.toHaveBeenCalled();
+    expect(first.transmissionAlerts).toBe(1);
+    expect(db.data.get('cl_notifications/transmit_alert_L1')).toMatchObject({ type: 'manager_alert', leadId: 'L1', recipientIds: ['adm1'], sound: 'critical', readBy: [] });
+    expect((db.data.get('cl_notifications/transmit_alert_L1') as Doc).description).toContain('5 tentatives');
+    expect(db.data.get('cl_conversions/L1')).toMatchObject({ alertedAt: expect.any(Date) });
+    const second = await run(db);
+    expect(second.transmissionAlerts).toBe(0);
+  });
+  it("un échec est rapporté sans bloquer; « déjà en cours » n'est pas une erreur", async () => {
+    transmit.mockReset().mockResolvedValue({ ok: false, code: 'failed', message: 'La pièce n\'a pas pu être transférée.' });
+    const r = await run(seedConv('L1'));
+    expect(r.transmitted).toBe(0);
+    expect(r.errors.some((e) => e.includes('transmission L1'))).toBe(true);
+    transmit.mockReset().mockResolvedValue({ ok: false, code: 'busy', message: 'en cours' });
+    expect((await run(seedConv('L1'))).errors.filter((e) => e.includes('transmission'))).toEqual([]);
+  });
+  it('au plus 5 reprises par passage', async () => {
+    reset();
+    const db = new FakeDb();
+    for (let i = 1; i <= 8; i++) db.data.set(`cl_conversions/L${i}`, conversion({ leadId: `L${i}` }));
+    const r = await run(db);
+    expect(transmit).toHaveBeenCalledTimes(5);
+    expect(r.transmitted).toBe(5);
+  });
+  it('le rapport enregistré porte les nouveaux compteurs', async () => {
+    reset();
+    const db = seedConv('L1');
+    await run(db);
+    expect(db.data.get('cl_config/schedulerStatus')).toMatchObject({ report: { transmitted: 1, transmissionAlerts: 0 } });
   });
 });

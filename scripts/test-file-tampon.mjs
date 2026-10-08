@@ -29,7 +29,7 @@ const { getAuth } = require('firebase-admin/auth');
 const arg = (name) => { const i = process.argv.indexOf(name); return i >= 0 ? process.argv[i + 1] : undefined; };
 const KEEP = process.argv.includes('--keep');
 const BASE = (arg('--base') ?? 'https://crm-leads1.netlify.app').replace(/\/$/, '');
-const KEY_FILE = process.env.SERVICE_ACCOUNT ?? resolve(root, '..', 'crm-pose-dev-firebase-adminsdk-fbsvc-f17f67f379.json');
+const KEY_FILE = process.env.SERVICE_ACCOUNT ?? resolve(root, 'service-account.json');
 const env = readFileSync(resolve(root, '.env'), 'utf8');
 const apiKey = /^VITE_FIREBASE_API_KEY=(.*)$/m.exec(env)?.[1].trim();
 if (!apiKey) throw new Error('VITE_FIREBASE_API_KEY introuvable dans Lead/.env');

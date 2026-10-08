@@ -1,11 +1,13 @@
 // Accès Firebase admin partagé par les fonctions Netlify (réception des leads, qualification d'appel).
 // Réutilisé tant que le conteneur reste chaud : Firebase n'est initialisé qu'une fois.
 
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { applicationDefault, cert, getApp, getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { parseServiceAccount } from '../../functions/src/serviceAccount';
 import { verifyFirebaseIdToken, type VerifiedToken } from '../../functions/src/idToken';
+import type { StorageLike } from '../../functions/src/transmission';
 
 let db: Firestore | undefined;
 /** Identifiant du projet Firebase, connu dès l'initialisation (sert à vérifier l'émetteur des jetons). */
@@ -53,6 +55,31 @@ export function getAdminAuth(): { verifyIdToken: (token: string) => Promise<Veri
   // l'identifiant du projet depuis l'app plutôt que de se fier à la variable du module.
   const id = projectId || (getApp().options.projectId ?? '');
   return { verifyIdToken: (token) => verifyFirebaseIdToken(token, id) };
+}
+
+/**
+ * Copie de fichiers Storage (pièces transmises au CRM principal). Chargé à la demande : les autres fonctions
+ * n'embarquent pas le module Storage. Rend null si Storage est indisponible (la transmission le signale).
+ */
+export async function getStorageAdapter(): Promise<StorageLike | null> {
+  ensureApp();
+  try {
+    const { getStorage } = await import('firebase-admin/storage');
+    const bucket = getStorage().bucket(process.env.FIREBASE_STORAGE_BUCKET?.trim() || `${projectId || getApp().options.projectId}.firebasestorage.app`);
+    return {
+      async copy(srcPath, destPath) {
+        const dest = bucket.file(destPath);
+        await bucket.file(srcPath).copy(dest);
+        // Jeton de téléchargement : même forme d'adresse que celles des envois faits par le CRM principal.
+        const token = randomUUID();
+        await dest.setMetadata({ metadata: { firebaseStorageDownloadTokens: token } });
+        return { url: `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(destPath)}?alt=media&token=${token}` };
+      },
+    };
+  } catch (e) {
+    console.error('storage indisponible', e);
+    return null;
+  }
 }
 
 export interface NetlifyEvent {

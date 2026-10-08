@@ -5,6 +5,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
   BarChart3,
+  FolderOpen,
   CalendarCheck,
   ChevronLeft,
   ChevronRight,
@@ -36,6 +37,7 @@ const ICONS: Record<NavIconName, ComponentType<{ className?: string }>> = {
   users: Users,
   'file-text': FileText,
   'bar-chart': BarChart3,
+  folder: FolderOpen,
   'message-square': MessageSquare,
   gauge: Gauge,
   'user-cog': UserCog,

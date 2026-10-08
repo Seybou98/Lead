@@ -172,6 +172,33 @@ campagnes. `/parametres/versions` relit le journal d'audit (`cl_audit`, 300 entr
 enregistrement d'un réglage y laisse l'ancienne et la nouvelle valeur ; un retour arrière réenregistre l'ancienne
 valeur (nouvelle version, validée comme toute saisie).
 
+## Montage, vente et transmission au CRM principal (lot Conversion)
+
+Fonction `lead-conversion` (`POST /api/lead-conversion`, jeton Firebase de l'utilisateur, aucun secret partagé).
+Corps : `{ leadId, requestId, input }` avec `input.kind` parmi `save_draft`, `request_validation`, `decide`, `create_sale`,
+`sale_action` (suivi de la vente : `input.action.kind` parmi `offer_sent`, `signed`, `deposit_expected`, `deposit_received`,
+`payment_confirmed`, `financing_started`, `financing_accepted`, `financing_refused`, `cancel`, `retract`, `reminder`)
+et `transmit` (reprise manuelle : manager du lead ou administrateur ; `decision: 'link' | 'create'` tranche un doublon).
+
+- Décision métier : `src/domain/conversion/` (finance, verrous, plan). Écriture en une transaction : `functions/src/conversion.ts`.
+- Données du CRM Leads : `cl_leads/{id}/montage/draft` et `/validation`, `cl_sales/{leadId}`, `cl_conversions/{leadId}`, compteur `cl_counters/sales_AAAA`.
+- Une vente par lead : créer deux fois (double clic, reprise) rend la vente existante.
+- **Transmission** (`functions/src/transmission.ts`) : crée dans le CRM principal le dossier `dossiers/cl_<leadId>`, sa fiche
+  `subventions/cl_<leadId>`, son historique `historique_dossier` et copie les pièces conformes vers
+  `dossiers/<id>/documents/`. La charge utile reprend celle du CRM principal (`src/domain/conversion/dossierPayload.ts` :
+  à mettre à jour si le CRM principal change). Idempotente et reprenable (avancement dans `cl_conversions`).
+- Reprise automatique : le planificateur relance les transmissions en échec (pause 1, 2, 4… minutes), puis alerte les
+  administrateurs après 5 tentatives. Un doublon de dossier attend une décision humaine.
+- Parcelle cadastrale : retrouvée automatiquement d'après l'adresse (service public de l'IGN) dans l'écran de montage, et complétée à la transmission si elle manque. Un service indisponible ne bloque rien.
+- Ce qui est repris du CRM principal est copié dans `Lead/` : voir `docs/DEPENDANCES_CRM_PRINCIPAL.md`.
+- Suivi de la vente (`functions/src/saleTrack.ts`, règles dans `src/domain/sales/track.ts`) : le CRM enregistre signature, règlement
+  et financement saisis par l'équipe, contrôle l'enchaînement, trace chaque étape et pose la date de sécurisation (signée ET
+  paiement confirmé ou financement accepté). Il ne signe, n'encaisse ni ne finance lui-même : prestataires de signature et
+  organismes de financement non branchés.
+- Variables facultatives : `FIREBASE_STORAGE_BUCKET` (défaut `<projet>.firebasestorage.app`) pour la copie des pièces ;
+  `VITE_MAIN_CRM_URL` (dans l'application) pour le lien « Voir le dossier CRM ».
+- Aucune règle Firestore supplémentaire : les règles actuelles couvrent ces chemins en lecture, l'écriture reste au serveur.
+
 ## Données de départ
 Sans elles, un lead reçu va en **file tampon** (comportement voulu, pas une panne). Voir
 [FONCTIONS.md](FONCTIONS.md) : comptes, équipe, configuration du télépro, campagne active, télépro connecté.

@@ -38,6 +38,8 @@ export const COL = {
   config: 'cl_config',
   // Checklists documentaires, une par famille de produit (identifiant = clé de la famille, « default » pour les autres)
   checklists: 'cl_checklists',
+  // Compteurs séquentiels (numéro de vente par année : « sales_2026 »)
+  counters: 'cl_counters',
 } as const;
 
 /** Sous-collections d'un lead : cl_leads/{leadId}/… */
@@ -45,6 +47,8 @@ export const SUB = {
   events: 'events',
   callAttempts: 'callAttempts',
   documents: 'documents',
+  // Montage du dossier : « draft » (brouillon des 5 étapes) et « validation » (demande au manager)
+  montage: 'montage',
 } as const;
 
 /** Sous-collection de versions d'un module de config : cl_config/{module}/versions/{versionId} */

@@ -8,7 +8,7 @@
 
 import { runScheduler } from '../../functions/src/scheduler';
 import { resolveLeadRole } from '../../src/config/roles';
-import { getAdminAuth, getDb, jsonResponse, type NetlifyEvent, type NetlifyResponse } from '../lib/admin';
+import { getAdminAuth, getDb, getStorageAdapter, jsonResponse, type NetlifyEvent, type NetlifyResponse } from '../lib/admin';
 
 export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => {
   if (event.httpMethod !== 'POST') return jsonResponse(405, { ok: false, error: 'method_not_allowed' });
@@ -28,7 +28,7 @@ export const handler = async (event: NetlifyEvent): Promise<NetlifyResponse> => 
     if (!active || resolveLeadRole(user.get('role')) !== 'admin') {
       return jsonResponse(403, { ok: false, error: 'forbidden', message: 'Réservé aux administrateurs.' });
     }
-    const report = await runScheduler(getDb(), Date.now());
+    const report = await runScheduler(getDb(), Date.now(), { getStorage: getStorageAdapter });
     return jsonResponse(200, { ok: true, report });
   } catch (err) {
     console.error('scheduler-run : erreur interne', err);

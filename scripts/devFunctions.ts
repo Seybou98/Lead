@@ -19,6 +19,7 @@ const ROUTES: Record<string, string> = {
   '/api/leads': 'ingest-lead',
   '/api/set-status': 'set-status',
   '/api/lead-documents': 'lead-documents',
+  '/api/lead-conversion': 'lead-conversion',
   '/api/reassign-lead': 'reassign-lead',
   '/api/scheduler-run': 'scheduler-run',
   '/api/portfolio': 'portfolio',

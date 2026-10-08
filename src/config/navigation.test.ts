@@ -6,12 +6,12 @@ const names = (role: Parameters<typeof getNavigation>[0]) =>
   getNavigation(role).flatMap((g) => g.items.map((i) => i.name));
 
 describe('navigation par profil (§25.2)', () => {
-  it('télépro : Ma journée, Mes leads, Documents, Ventes, Messages — rien d\'administratif', () => {
-    expect(names('telepro')).toEqual(['Ma journée', 'Mes leads', 'Documents', 'Ventes', 'Messages']);
+  it('télépro : Ma journée, Mes leads, Documents, Dossiers, Ventes, Messages — rien d\'administratif', () => {
+    expect(names('telepro')).toEqual(['Ma journée', 'Mes leads', 'Documents', 'Dossiers', 'Ventes', 'Messages']);
   });
 
-  it('manager : Cockpit, Équipe, Leads, Documents, Ventes, Rapports — sans paramétrage admin', () => {
-    expect(names('manager')).toEqual(['Cockpit', 'Équipe', 'Leads', 'Documents', 'Ventes', 'Rapports']);
+  it('manager : Cockpit, Équipe, Leads, Documents, Dossiers, Ventes, Rapports — sans paramétrage admin', () => {
+    expect(names('manager')).toEqual(['Cockpit', 'Équipe', 'Leads', 'Documents', 'Dossiers', 'Ventes', 'Rapports']);
   });
 
   it('admin : voit le pilotage et le bloc Administration', () => {

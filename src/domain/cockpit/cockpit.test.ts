@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCockpit, periodStart, sinceLabel, targetChoices } from './cockpit';
+import { buildCockpit, isSaleSecured, periodStart, sinceLabel, targetChoices } from './cockpit';
 import type { LeadListItem } from '../leads/leadList';
 import type { UserRow } from '../admin/userRows';
 
@@ -142,6 +142,77 @@ describe('flux et période', () => {
   it('début de période', () => {
     expect(periodStart('today', NOW)).toBe(new Date(2026, 9, 7).getTime());
     expect(periodStart('week', NOW)).toBe(NOW - 7 * DAY);
+  });
+});
+
+/** Lead dont la vente est créée (statut « Transmission en cours » ou « Converti »). */
+const sold = (over: Partial<LeadListItem> = {}): Partial<LeadListItem> => ({
+  status: 'converted',
+  commercialState: 'sale_committed',
+  financialState: 'none',
+  conversion: { state: 'confirmed', clientId: '2612345', dossierId: 'cl_x' },
+  montage: { validationState: 'none', blocking: 0, toConfirm: 0, totalTtcCents: 1_599_000, remainderCents: 349_000, updatedAtMs: NOW - 2 * H },
+  ...over,
+});
+const validation = (sinceMin: number, ttc = 1_599_000): Partial<LeadListItem> => ({
+  status: 'manager_validation',
+  montage: { validationState: 'pending', blocking: 0, toConfirm: 1, totalTtcCents: ttc, remainderCents: 0, updatedAtMs: NOW - sinceMin * MIN },
+});
+
+describe('ventes à sécuriser (§25.7, fig. 14)', () => {
+  it('une vente créée non sécurisée compte, même si le lead est « Converti » (clos pour la file)', () => {
+    const c = run([lead('v1', sold()), lead('v2', sold({ status: 'transmitting', conversion: { state: 'pending', clientId: null, dossierId: null } }))]);
+    expect(c.salesToSecure.map((i) => i.lead.id)).toEqual(['v1', 'v2']);
+    expect(c.salesToSecure[0].reason).toBe('Vente créée : signature et paiement à confirmer');
+    expect(c.salesToSecure[0].sinceMs).toBe(NOW - 2 * H);
+  });
+  it('signée mais sans paiement ni financement confirmé : encore à sécuriser', () => {
+    const c = run([lead('v', sold({ commercialState: 'signed', financialState: 'financing_in_progress' }))]);
+    expect(c.salesToSecure).toHaveLength(1);
+    expect(c.salesToSecure[0].reason).toBe('Signée : paiement ou financement à confirmer');
+  });
+  it('sécurisée = signée ET paiement confirmé ou financement accepté : absente de la carte', () => {
+    expect(run([lead('a', sold({ commercialState: 'signed', financialState: 'payment_confirmed' })), lead('b', sold({ commercialState: 'signed', financialState: 'financing_accepted' }))]).salesToSecure).toEqual([]);
+    expect(isSaleSecured({ commercialState: 'signed', financialState: 'payment_confirmed' })).toBe(true);
+    // Un financement demandé ou refusé n'est pas une vente financée (règle KPI du §23.11).
+    expect(isSaleSecured({ commercialState: 'signed', financialState: 'financing_refused' })).toBe(false);
+    expect(isSaleSecured({ commercialState: 'offer_sent', financialState: 'payment_confirmed' })).toBe(false);
+  });
+  it('vente annulée ou rétractée, lead exclu, ou lead sans vente : ignorés', () => {
+    const c = run([lead('c', sold({ commercialState: 'cancelled' })), lead('r', sold({ commercialState: 'retracted' })), lead('x', sold({ excluded: true })), lead('none', { status: 'converted' })]);
+    expect(c.salesToSecure).toEqual([]);
+  });
+  it('le chiffre de la carte est celui de la liste, la plus ancienne en premier', () => {
+    const c = run([lead('new', sold({ montage: { validationState: 'none', blocking: 0, toConfirm: 0, totalTtcCents: 1, remainderCents: 0, updatedAtMs: NOW - H } })), lead('old', sold({ montage: { validationState: 'none', blocking: 0, toConfirm: 0, totalTtcCents: 1, remainderCents: 0, updatedAtMs: NOW - DAY } }))]);
+    expect(c.salesToSecure.map((i) => i.lead.id)).toEqual(['old', 'new']);
+  });
+});
+
+describe('décisions : ventes (§11.11, fig. 14)', () => {
+  it('une exception soumise apparaît tout de suite, avec le montant et le bouton « Valider »', () => {
+    const c = run([lead('v', validation(25, 120_000))]);
+    expect(c.decisions).toHaveLength(1);
+    expect(c.decisions[0]).toMatchObject({ id: 'val:v', severity: 'high', sinceMs: NOW - 25 * MIN, leadId: 'v', action: { label: 'Valider', kind: 'validation' } });
+    expect(c.decisions[0].title).toMatch(/^Vente à valider — Client v · 1\s?200 €$/);
+  });
+  it('sans montant connu, le titre reste lisible', () => {
+    const c = run([lead('v', { status: 'manager_validation' })]);
+    expect(c.decisions[0].title).toBe('Vente à valider — Client v');
+    expect(c.decisions[0].sinceMs).toBeNull();
+  });
+  it('une transmission échouée propose « Réessayer »', () => {
+    const c = run([lead('t', { status: 'transmission_error', montage: { validationState: 'none', blocking: 0, toConfirm: 0, totalTtcCents: 1, remainderCents: 0, updatedAtMs: NOW - 41 * MIN } })]);
+    expect(c.decisions[0]).toMatchObject({ id: 'trx:t', severity: 'high', title: 'Erreur d’envoi CRM — Client t', sinceMs: NOW - 41 * MIN, action: { label: 'Réessayer', kind: 'transmit' } });
+  });
+  it('la décision disparaît dès que la situation est corrigée : approuvée, refusée, transmise', () => {
+    expect(run([lead('a', { status: 'file_ready' }), lead('b', { status: 'file_building' }), lead('c', sold())]).decisions).toEqual([]);
+  });
+  it('un lead exclu n’apparaît jamais', () => {
+    expect(run([lead('x', { ...validation(10), excluded: true })]).decisions).toEqual([]);
+  });
+  it('triées avec les autres alertes : un lead hors SLA (critique) passe avant une validation (élevée)', () => {
+    const c = run([lead('v', validation(60)), lead('late', sla(12))]);
+    expect(c.decisions.map((d) => d.id)).toEqual(['sla:late', 'val:v']);
   });
 });
 

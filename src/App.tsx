@@ -26,6 +26,9 @@ import { JournalPage } from './pages/journal/JournalPage';
 import { LeadsListPage } from './pages/leads/LeadsListPage';
 import { LeadFilePage } from './pages/leads/LeadFilePage';
 import { MyDayPage } from './pages/myday/MyDayPage';
+import { DossiersPage } from './pages/dossiers/DossiersPage';
+import { DossierPage } from './pages/dossiers/DossierPage';
+import { SalesPage } from './pages/sales/SalesPage';
 
 function Home() {
   const { user } = useAuth();
@@ -73,7 +76,9 @@ export default function App() {
 
         {/* Communs */}
         <Route path="/documents" element={<DocumentsPage />} />
-        <Route path="/ventes" element={page('Ventes', 'À signer, à sécuriser, sécurisées.', '§11, §23, §25.7', 'Phase 4')} />
+        <Route path="/dossiers" element={<DossiersPage />} />
+        <Route path="/ventes" element={<SalesPage />} />
+        <Route path="/dossiers/:leadId" element={<DossierPage />} />
 
         {/* Administration */}
         <Route path="/campagnes" element={<CampaignsPage />} />

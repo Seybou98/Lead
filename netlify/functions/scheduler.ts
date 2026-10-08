@@ -8,11 +8,11 @@
 // traitement, qui est idempotent. Le déclenchement manuel par un administrateur passe par scheduler-run.ts.
 
 import { runScheduler } from '../../functions/src/scheduler';
-import { getDb, jsonResponse, type NetlifyResponse } from '../lib/admin';
+import { getDb, getStorageAdapter, jsonResponse, type NetlifyResponse } from '../lib/admin';
 
 export const handler = async (): Promise<NetlifyResponse> => {
   try {
-    const report = await runScheduler(getDb(), Date.now());
+    const report = await runScheduler(getDb(), Date.now(), { getStorage: getStorageAdapter });
     console.log('scheduler', JSON.stringify(report));
     return jsonResponse(200, { ok: true, report });
   } catch (err) {
