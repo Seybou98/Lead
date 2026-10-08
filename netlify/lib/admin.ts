@@ -2,12 +2,14 @@
 // Réutilisé tant que le conteneur reste chaud : Firebase n'est initialisé qu'une fois.
 
 import { readFileSync } from 'node:fs';
-import { applicationDefault, cert, getApps, initializeApp } from 'firebase-admin/app';
-import { getAuth, type Auth } from 'firebase-admin/auth';
+import { applicationDefault, cert, getApp, getApps, initializeApp } from 'firebase-admin/app';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { parseServiceAccount } from '../../functions/src/serviceAccount';
+import { verifyFirebaseIdToken, type VerifiedToken } from '../../functions/src/idToken';
 
 let db: Firestore | undefined;
+/** Identifiant du projet Firebase, connu dès l'initialisation (sert à vérifier l'émetteur des jetons). */
+let projectId = '';
 
 function ensureApp(): void {
   if (getApps().length) return;
@@ -15,9 +17,11 @@ function ensureApp(): void {
   if (!env.FIREBASE_SERVICE_ACCOUNT_JSON_BASE64 && !env.FIREBASE_SERVICE_ACCOUNT_JSON && env.GOOGLE_APPLICATION_CREDENTIALS) {
     // Essai en local (`netlify dev`) : fichier de clé indiqué par GOOGLE_APPLICATION_CREDENTIALS.
     const svc = JSON.parse(readFileSync(env.GOOGLE_APPLICATION_CREDENTIALS, 'utf8')) as { project_id: string };
+    projectId = svc.project_id;
     initializeApp({ credential: applicationDefault(), projectId: svc.project_id });
   } else {
     const svc = parseServiceAccount(env);
+    projectId = svc.project_id;
     initializeApp({ credential: cert({ projectId: svc.project_id, clientEmail: svc.client_email, privateKey: svc.private_key }), projectId: svc.project_id });
   }
 }
@@ -38,9 +42,17 @@ export function getDb(): Firestore {
   return db;
 }
 
-export function getAdminAuth(): Auth {
+/**
+ * Vérification des jetons d'identité Firebase. Volontairement SANS `firebase-admin/auth` : ce module charge une chaîne de
+ * dépendances (jwks-rsa → jose) qui plante au démarrage sur le Node 20 de Netlify et ferait tomber toutes les fonctions,
+ * y compris la réception des leads. Voir functions/src/idToken.ts.
+ */
+export function getAdminAuth(): { verifyIdToken: (token: string) => Promise<VerifiedToken> } {
   ensureApp();
-  return getAuth();
+  // En développement le module est recompilé à chaque appel alors que l'app Firebase reste en mémoire : on relit donc
+  // l'identifiant du projet depuis l'app plutôt que de se fier à la variable du module.
+  const id = projectId || (getApp().options.projectId ?? '');
+  return { verifyIdToken: (token) => verifyFirebaseIdToken(token, id) };
 }
 
 export interface NetlifyEvent {
