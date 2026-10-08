@@ -7,6 +7,8 @@
 // Les deux appliquent donc exactement les mêmes règles. Les données sont des objets simples :
 // les dates sont des `Date` (les deux SDK les convertissent en Timestamp à l'écriture).
 
+import { coerceRulesInput, coerceSlaInput, effectiveSla, parseSlaOverride, validateRulesSettings, validateSlaSettings, type SlaSettings } from '../settings/settings';
+import { checklistKey, DEFAULT_CHECKLIST_KEY, slugCode, validateChecklist } from '../documents/checklist';
 import { resolveLeadRole } from '../../config/roles';
 import {
   affectedUserIds,
@@ -410,4 +412,78 @@ export function planSpendSave(args: {
     updatedAt: now,
   };
   return { doc, warnings, audit: { action: before ? 'adSpend.correct' : 'adSpend.create', entityType: 'adSpend', entityId: spendId, before, after: doc, reason: value.reason } };
+}
+
+// ── Checklist documentaire ───────────────────────────────────────────────────
+
+/**
+ * Enregistrement de la checklist d'une famille de produit (ou de la checklist « par défaut »). Les pièces gardent
+ * leur code d'origine ; une nouvelle pièce reçoit un code tiré de son nom. Un code ne change jamais ensuite :
+ * les dossiers déjà ouverts y sont rattachés.
+ */
+export function planChecklistSave(args: {
+  input: unknown;
+  before: Doc | null;
+  actorId: string;
+  nowMs: number;
+}): { key: string; doc: Doc; audit: AuditDraft } {
+  const data = asRecord(args.input);
+  const productCode = typeof data.productCode === 'string' && data.productCode.trim() ? data.productCode.trim().slice(0, 80) : null;
+  const key = checklistKey(productCode);
+  const raw = Array.isArray(data.items) ? data.items : [];
+  const taken = new Set<string>();
+  const items = raw.map((r) => {
+    const it = asRecord(r);
+    const label = typeof it.label === 'string' ? it.label.trim() : '';
+    const code = typeof it.code === 'string' && /^[a-z0-9][a-z0-9_-]{0,59}$/.test(it.code) && !taken.has(it.code) ? it.code : slugCode(label, taken);
+    taken.add(code);
+    return { code, label, mandatory: it.mandatory === true };
+  });
+  const errors = validateChecklist(items);
+  if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
+  const now = new Date(args.nowMs);
+  const doc: Doc = {
+    id: key,
+    productCode: key === DEFAULT_CHECKLIST_KEY ? null : productCode,
+    items,
+    createdAt: args.before?.createdAt ?? now,
+    updatedAt: now,
+    updatedBy: args.actorId,
+  };
+  return { key, doc, audit: { action: args.before ? 'checklist.update' : 'checklist.create', entityType: 'checklist', entityId: key, before: args.before, after: doc, reason: reasonOf(data) } };
+}
+
+// ── Réglages d'administration (SLA et horaires, cycles NR) ───────────────────
+
+/** Réglages généraux « SLA et horaires » : la saisie est validée telle quelle, jamais corrigée en silence. */
+export function planSlaSave(args: { input: unknown; before: Doc | null; actorId: string; nowMs: number }): { doc: Doc; audit: AuditDraft } {
+  const s = coerceSlaInput(args.input);
+  const errors = validateSlaSettings(s);
+  if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
+  const doc: Doc = { ...s, schedule: { timezone: s.schedule.timezone, weekly: s.schedule.weekly, closedDates: [...new Set(s.schedule.closedDates)].sort() }, updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
+  return { doc, audit: { action: args.before ? 'settings.sla.update' : 'settings.sla.create', entityType: 'settings', entityId: 'sla', before: args.before, after: doc, reason: reasonOf(asRecord(args.input)) } };
+}
+
+/** Règle de réattribution d'une campagne (surcharge des réglages généraux). */
+export function planSlaOverrideSave(args: { campaignId: string; input: unknown; general: SlaSettings; before: Doc | null; actorId: string; nowMs: number }): { doc: Doc; audit: AuditDraft } {
+  const d = asRecord(args.input);
+  const o = parseSlaOverride(d);
+  const merged = effectiveSla(args.general, o);
+  const problems = validateSlaSettings(merged);
+  if (problems.length > 0) throw new AdminRuleError('invalid-argument', problems[0]);
+  // Une valeur envoyée mais refusée par la lecture tolérante (hors bornes) est une erreur, pas un oubli.
+  for (const k of ['reassignMin', 'maxReassignments'] as const) {
+    if (d[k] !== undefined && d[k] !== null && o[k] === undefined) throw new AdminRuleError('invalid-argument', k === 'reassignMin' ? 'Délai de réattribution : entre 1 et 960 minutes.' : 'Le nombre maximal de réattributions va de 0 à 10.');
+  }
+  const doc: Doc = { ...o, campaignId: args.campaignId, updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
+  return { doc, audit: { action: args.before ? 'settings.sla.campaign.update' : 'settings.sla.campaign.create', entityType: 'settings', entityId: `sla_${args.campaignId}`, before: args.before, after: doc, reason: reasonOf(d) } };
+}
+
+/** Cycles NR, rappels, relances documentaires. */
+export function planRulesSave(args: { input: unknown; before: Doc | null; actorId: string; nowMs: number }): { doc: Doc; audit: AuditDraft } {
+  const s = coerceRulesInput(args.input);
+  const errors = validateRulesSettings(s);
+  if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
+  const doc: Doc = { ...s, updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
+  return { doc, audit: { action: args.before ? 'settings.rules.update' : 'settings.rules.create', entityType: 'settings', entityId: 'rules', before: args.before, after: doc, reason: reasonOf(asRecord(args.input)) } };
 }

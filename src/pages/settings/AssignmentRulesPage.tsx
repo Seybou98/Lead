@@ -1,9 +1,12 @@
+import { ProductSelect } from '../../components/ui/ProductPickers';
+import { useProductCatalog } from '../products/useProductCatalog';
 import { useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, Gauge, MapPin, Package, Play, Trophy, UserCheck, Users, Clock, CalendarX } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowUp, CalendarDays, CalendarX, CheckCircle2, ChevronDown, Clock, Gauge, GripVertical, MapPin, Package, Play, Snowflake, Sun, Trophy, UserCheck, Users } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { ELIGIBILITY_CRITERIA, type AssignmentConfig, type EligibilityCriterion, type RankingCriterion } from '../../domain/engine/assignment';
 import { parseAssignmentConfig } from '../../domain/ingest/configParse';
+import { reorderList } from '../../domain/admin/reorder';
 import { simulateAssignment } from '../../domain/admin/simulate';
 import { ELIGIBILITY_CRITERION_LABELS, EXCLUSION_LABELS, RANKING_CRITERION_LABELS } from '../../domain/labels';
 import { errorMessage, saveAssignmentConfig } from '../../lib/adminApi';
@@ -19,7 +22,25 @@ const CRITERION_ICON: Record<EligibilityCriterion, React.ComponentType<{ classNa
   exclude_in_meeting: CalendarX,
 };
 
-const selectClass = 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
+/** Détail déplié sous chaque critère (fig. 17 : chevron). Ce que le moteur vérifie réellement. */
+const CRITERION_HELP: Record<EligibilityCriterion, string> = {
+  active_connected: 'Le compte est actif et le télépro est connecté (battement de présence de moins de 2 minutes).',
+  product: "Le produit du lead fait partie des produits autorisés sur le profil du télépro (« * » = tous).",
+  zone: 'La zone du lead fait partie des zones autorisées sur le profil du télépro (« * » = toutes).',
+  team: "Le télépro appartient à une équipe éligible pour la campagne (ou la campagne est ouverte à tous).",
+  working_hours: 'Le lead arrive pendant les horaires de travail du télépro (hors pauses).',
+  capacity: "Le nombre de leads Nouveaux du télépro est inférieur à son plafond : à 10 il sort du pool, à 9 il revient.",
+  exclude_in_meeting: "Un télépro dont le statut est « En rendez-vous » ne reçoit pas de nouveau lead.",
+};
+
+/** Pictogramme de la carte « Lead entrant » : selon le produit saisi. */
+function productIcon(product: string): React.ComponentType<{ className?: string }> {
+  const p = product.toLowerCase();
+  if (/air|clim|pac/.test(p)) return Snowflake;
+  if (/solaire|photo|pv/.test(p)) return Sun;
+  return Package;
+}
+
 const inputClass = 'w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
 
 const initials = (n: string) => n.split(/\s+/).filter(Boolean).map((p) => p[0]).join('').toUpperCase().slice(0, 2) || '?';
@@ -60,6 +81,7 @@ export function AssignmentRulesView({ data }: { data: AssignmentData }) {
 
   // Lead fictif de la simulation, prérempli depuis la campagne.
   const [simProduct, setSimProduct] = useState('');
+  const catalog = useProductCatalog();
   const [simZone, setSimZone] = useState('');
   useEffect(() => {
     setSimProduct(campaign?.productCode ?? '');
@@ -94,15 +116,21 @@ export function AssignmentRulesView({ data }: { data: AssignmentData }) {
     [campaign, data.profiles, data.users, data.presence, data.absences, simProduct, simZone, simNow, form]
   );
 
-  const setCriterion = (k: EligibilityCriterion, on: boolean) => setForm((f) => ({ ...f, criteria: { ...f.criteria, [k]: on } }));
-  const move = (i: number, dir: -1 | 1) =>
-    setForm((f) => {
-      const next = [...f.rankingOrder];
-      const j = i + dir;
-      if (j < 0 || j >= next.length) return f;
-      [next[i], next[j]] = [next[j], next[i]];
-      return { ...f, rankingOrder: next as RankingCriterion[] };
+  const [openCrit, setOpenCrit] = useState<ReadonlySet<EligibilityCriterion>>(new Set());
+  const toggleOpen = (k: EligibilityCriterion) =>
+    setOpenCrit((cur) => {
+      const next = new Set(cur);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
     });
+  // Glisser-déposer de l'ordre de priorité (les flèches restent disponibles au clavier).
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+  const reorder = (from: number, to: number) => setForm((f) => ({ ...f, rankingOrder: reorderList(f.rankingOrder, from, to) as RankingCriterion[] }));
+
+  const setCriterion = (k: EligibilityCriterion, on: boolean) => setForm((f) => ({ ...f, criteria: { ...f.criteria, [k]: on } }));
+  const move = (i: number, dir: -1 | 1) => setForm((f) => ({ ...f, rankingOrder: reorderList(f.rankingOrder, i, i + dir) as RankingCriterion[] }));
 
   const save = async () => {
     if (!campaign) return;
@@ -130,17 +158,24 @@ export function AssignmentRulesView({ data }: { data: AssignmentData }) {
         </p>
       )}
 
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-4">
-        <label className="flex items-center gap-3 text-sm text-slate-700">
-          Campagne
-          <select className={selectClass} value={campaign?.id ?? ''} onChange={(e) => { setParams({ campagne: e.target.value }); setNotice(null); }} disabled={data.campaigns.length === 0}>
+      <div className="mt-5 flex flex-wrap items-stretch rounded-xl border border-slate-200 bg-white">
+        <label className="flex min-w-0 flex-1 items-center gap-3 px-5 py-3.5 text-sm font-semibold text-slate-800">
+          <CalendarDays className="h-4 w-4 flex-shrink-0 text-slate-500" />
+          <span className="flex-shrink-0">Campagne :</span>
+          <select
+            className="min-w-0 flex-1 cursor-pointer truncate bg-transparent py-1 font-semibold text-slate-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/30"
+            aria-label="Campagne"
+            value={campaign?.id ?? ''}
+            onChange={(e) => { setParams({ campagne: e.target.value }); setNotice(null); }}
+            disabled={data.campaigns.length === 0}
+          >
             {data.campaigns.length === 0 && <option value="">Aucune campagne</option>}
             {data.campaigns.map((c) => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
         </label>
-        <label className="flex cursor-pointer items-center gap-3 text-sm font-medium text-slate-800">
+        <label className="flex cursor-pointer items-center gap-4 border-l border-slate-200 px-5 py-3.5 text-sm font-medium text-slate-800">
           Distribution automatique {form.autoDistribution ? 'activée' : 'désactivée'}
           <button
             type="button"
@@ -175,12 +210,19 @@ export function AssignmentRulesView({ data }: { data: AssignmentData }) {
                   {ELIGIBILITY_CRITERIA.map((k) => {
                     const Icon = CRITERION_ICON[k];
                     const on = form.criteria[k] !== false;
+                    const open = openCrit.has(k);
                     return (
-                      <label key={k} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 px-3 py-2.5 text-sm hover:bg-slate-50">
-                        <input type="checkbox" checked={on} onChange={(e) => setCriterion(k, e.target.checked)} className="h-4 w-4" />
-                        <span className="flex-1 text-slate-800">{ELIGIBILITY_CRITERION_LABELS[k]}</span>
-                        <Icon className="h-4 w-4 text-slate-400" />
-                      </label>
+                      <div key={k} className="rounded-lg border border-slate-200">
+                        <div className="flex items-center gap-3 px-3 py-2.5 text-sm">
+                          <input id={`crit-${k}`} type="checkbox" checked={on} onChange={(e) => setCriterion(k, e.target.checked)} className="h-4 w-4 flex-shrink-0 rounded border-slate-300 accent-emerald-600" />
+                          <label htmlFor={`crit-${k}`} className="flex-1 cursor-pointer text-slate-800">{ELIGIBILITY_CRITERION_LABELS[k]}</label>
+                          <Icon className="h-4 w-4 flex-shrink-0 text-slate-400" />
+                          <button type="button" onClick={() => toggleOpen(k)} aria-expanded={open} aria-label={`Détail du critère « ${ELIGIBILITY_CRITERION_LABELS[k]} »`} className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+                            <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} />
+                          </button>
+                        </div>
+                        {open && <p className="border-t border-slate-100 px-3 py-2 text-xs text-slate-600">{CRITERION_HELP[k]}</p>}
+                      </div>
                     );
                   })}
                 </div>
@@ -193,11 +235,22 @@ export function AssignmentRulesView({ data }: { data: AssignmentData }) {
                   <p className="mt-1 text-sm text-slate-500">Les règles sont évaluées dans l'ordre ci-dessous.</p>
                   <ol className="mt-4 space-y-2">
                     {form.rankingOrder.map((k, i) => (
-                      <li key={k} className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2.5 text-sm">
+                      <li
+                        key={k}
+                        draggable
+                        onDragStart={(e) => { setDragFrom(i); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); }}
+                        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (dragOver !== i) setDragOver(i); }}
+                        onDrop={(e) => { e.preventDefault(); if (dragFrom !== null) reorder(dragFrom, i); setDragFrom(null); setDragOver(null); }}
+                        onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
+                        className={cn('group flex items-center gap-3 rounded-lg border bg-white px-3 py-2.5 text-sm', dragOver === i && dragFrom !== null && dragFrom !== i ? 'border-blue-400 bg-blue-50/50' : 'border-slate-200', dragFrom === i && 'opacity-50')}
+                      >
+                        <GripVertical className="h-4 w-4 flex-shrink-0 cursor-grab text-slate-400 active:cursor-grabbing" aria-hidden="true" />
                         <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">{i + 1}</span>
                         <span className="flex-1 text-slate-800">{RANKING_CRITERION_LABELS[k]}</span>
-                        <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Monter « ${RANKING_CRITERION_LABELS[k]} »`} className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"><ArrowUp className="h-4 w-4" /></button>
-                        <button type="button" onClick={() => move(i, 1)} disabled={i === form.rankingOrder.length - 1} aria-label={`Descendre « ${RANKING_CRITERION_LABELS[k]} »`} className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"><ArrowDown className="h-4 w-4" /></button>
+                        <span className="flex items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                          <button type="button" onClick={() => move(i, -1)} disabled={i === 0} aria-label={`Monter « ${RANKING_CRITERION_LABELS[k]} »`} className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"><ArrowUp className="h-4 w-4" /></button>
+                          <button type="button" onClick={() => move(i, 1)} disabled={i === form.rankingOrder.length - 1} aria-label={`Descendre « ${RANKING_CRITERION_LABELS[k]} »`} className="rounded p-1 text-slate-500 hover:bg-slate-100 disabled:opacity-30"><ArrowDown className="h-4 w-4" /></button>
+                        </span>
                       </li>
                     ))}
                   </ol>
@@ -216,9 +269,19 @@ export function AssignmentRulesView({ data }: { data: AssignmentData }) {
                       onChange={(e) => setForm((f) => ({ ...f, defaultNewLeadsCap: Number(e.target.value) || 0 }))}
                     />
                   </label>
-                  <p className="mt-2 text-xs text-slate-500">
-                    S'applique aux télépros dont le plafond n'est pas défini individuellement (fiche utilisateur). Le critère « Capacité disponible » à gauche bloque l'attribution quand ce plafond est atteint.
-                  </p>
+                  <p className="mt-2 text-xs text-slate-500">S'applique aux télépros dont le plafond n'est pas défini individuellement (fiche utilisateur).</p>
+                  <label className="mt-4 flex cursor-pointer items-start gap-2.5 text-sm text-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={form.criteria.capacity !== false}
+                      onChange={(e) => setCriterion('capacity', e.target.checked)}
+                      className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-slate-300 accent-amber-500"
+                    />
+                    <span>
+                      Bloquer l'attribution lorsque le plafond est atteint
+                      <span className="block text-xs text-slate-500">Aucun nouveau lead ne sera attribué si le télépro atteint ce plafond. (Même réglage que le critère « Capacité disponible ».)</span>
+                    </span>
+                  </label>
                 </section>
               </div>
             </div>
@@ -228,10 +291,20 @@ export function AssignmentRulesView({ data }: { data: AssignmentData }) {
             <h2 className="text-base font-semibold text-slate-900">Simulation en temps réel</h2>
             <p className="mt-1 text-sm text-slate-500">Testez l'attribution d'un lead entrant avec les règles ci-contre, même non enregistrées.</p>
 
-            <div className="mt-4 rounded-lg bg-blue-50 p-4">
-              <p className="text-xs text-blue-700">Lead entrant</p>
-              <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                <input className={inputClass} value={simProduct} onChange={(e) => setSimProduct(e.target.value)} placeholder="Produit (ex. PAC Air/Eau)" aria-label="Produit du lead simulé" />
+            <div className="mt-4 rounded-xl bg-blue-50 p-4">
+              <p className="text-xs font-medium text-blue-700">Lead entrant</p>
+              <div className="mt-2 flex items-center gap-3 rounded-lg bg-white p-3">
+                {(() => {
+                  const Icon = productIcon(simProduct);
+                  return <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-600"><Icon className="h-7 w-7" /></span>;
+                })()}
+                <div className="min-w-0">
+                  <p className="break-words text-base font-bold leading-tight text-slate-900">{simProduct.trim() || 'Produit à saisir'}{simZone.trim() ? ` — ${simZone.trim()}` : ''}</p>
+                  <p className="break-words text-xs text-slate-500">Produit : {simProduct.trim() || '—'} · Zone : {simZone.trim() || '—'}</p>
+                </div>
+              </div>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <ProductSelect value={simProduct} onChange={setSimProduct} categories={catalog.categories} emptyLabel="Produit du lead simulé" ariaLabel="Produit du lead simulé" />
                 <input className={inputClass} value={simZone} onChange={(e) => setSimZone(e.target.value)} placeholder="Zone (ex. Île-de-France)" aria-label="Zone du lead simulé" />
               </div>
             </div>
@@ -288,10 +361,10 @@ export function AssignmentRulesView({ data }: { data: AssignmentData }) {
       )}
 
       {campaign && (
-        <div className="mt-6 flex items-center justify-end gap-3 border-t border-slate-200 pt-4">
+        <div className="sticky bottom-0 z-10 -mx-3 mt-6 flex items-center justify-end gap-3 border-t border-slate-200 bg-white/95 px-3 py-4 backdrop-blur sm:-mx-4 sm:px-4 lg:-mx-6 lg:px-6">
           {dirty && <span className="mr-auto text-sm text-amber-700">Modifications non enregistrées</span>}
-          <button type="button" disabled={!dirty || saving} onClick={() => { setForm(saved); setNotice(null); }} className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40">Annuler</button>
-          <button type="button" disabled={!dirty || saving} onClick={save} className="rounded-lg bg-blue-600 px-5 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40">
+          <button type="button" disabled={!dirty || saving} onClick={() => { setForm(saved); setNotice(null); }} className="rounded-lg border border-slate-300 px-5 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40">Annuler</button>
+          <button type="button" disabled={!dirty || saving} onClick={save} className="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40">
             {saving ? 'Enregistrement…' : 'Enregistrer les règles'}
           </button>
         </div>

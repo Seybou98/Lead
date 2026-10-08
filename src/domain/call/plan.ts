@@ -162,6 +162,9 @@ const BUCKET_OF: Partial<Record<LeadStatus, LoadBucket>> = {
   recycling: 'recycling',
 };
 
+/** Compteur de charge du profil auquel un statut est rattaché (absent : le statut ne compte pas dans la charge). */
+export const bucketOf = (status: LeadStatus): LoadBucket | undefined => BUCKET_OF[status];
+
 /** Variation des compteurs quand un lead passe d'un statut à un autre. */
 export function loadDeltaFor(before: LeadStatus, after: LeadStatus): Partial<Record<LoadBucket, number>> {
   const b = BUCKET_OF[before];

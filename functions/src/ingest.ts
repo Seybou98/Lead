@@ -1,6 +1,10 @@
 // Couche Firestore de l'ingestion : lit, appelle le planificateur pur, écrit en UNE transaction.
 // Toute la logique métier est dans src/domain/ingest/plan.ts (testée). Ce fichier ne décide de rien.
 
+import { categoriesOf, resolveProductCode } from '../../src/domain/products/catalog';
+import { applyOutsideHours } from '../../src/domain/settings/outsideHours';
+import { DEFAULT_SLA_SETTINGS } from '../../src/domain/settings/settings';
+import { loadSettings } from './settings';
 import { FieldValue, type DocumentData, type DocumentReference, type Firestore } from 'firebase-admin/firestore';
 import { COL, SUB } from '../../src/domain/collections';
 import type { CampaignStatus } from '../../src/domain/enums';
@@ -79,9 +83,19 @@ export async function ingestLead(db: Firestore, args: IngestArgs): Promise<Inges
   }
 
   // 3. Campagne et configuration (lecture hors transaction : elles changent rarement)
-  const { campaign, campaignData, unresolvedRef } = await resolveCampaign(db, mapped);
+  const { campaign: resolvedCampaign, campaignData, unresolvedRef } = await resolveCampaign(db, mapped);
   const globalConfig = await readPublishedConfig(db, 'assignment');
-  const config = parseAssignmentConfig(globalConfig, campaignData?.assignmentConfig);
+  const productCategories = await readProductCategories(db);
+  // Hors horaires commerciaux (Paramètres → SLA et horaires) : attente, attribution immédiate ou équipe de garde.
+  const settings = await loadSettings(db);
+  const outside = applyOutsideHours({
+    config: parseAssignmentConfig(globalConfig, campaignData?.assignmentConfig),
+    campaign: resolvedCampaign,
+    sla: settings?.sla ?? DEFAULT_SLA_SETTINGS,
+    nowMs,
+  });
+  const config = outside.config;
+  const campaign = outside.campaign;
 
   // 4. Une seule transaction : lecture de l'état, décision, écriture. C'est elle qui empêche deux
   //    leads simultanés d'être donnés au même télépro au-delà du plafond, ou un doublon de passer.
@@ -165,7 +179,8 @@ export async function ingestLead(db: Firestore, args: IngestArgs): Promise<Inges
       rawLeadId: rawRef.id,
       sourceId: args.sourceId,
       channel: args.channel,
-      mapped,
+      // Le produit reçu est ramené à une famille du catalogue du CRM principal quand elle est reconnue sans ambiguïté.
+      mapped: { ...mapped, productCode: resolveProductCode(mapped.productCode, productCategories) },
       campaign,
       unresolvedCampaignRef: unresolvedRef,
       existing,
@@ -237,7 +252,7 @@ function safeJson(v: unknown): string {
   }
 }
 
-function displayName(u: DocumentData): string {
+export function displayName(u: DocumentData): string {
   return u.name || u.displayName || `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.email || 'Sans nom';
 }
 
@@ -265,24 +280,40 @@ async function resolveCampaign(
   if (!snap) return { campaign: null, campaignData: null, unresolvedRef: ref };
 
   const d = snap.data()!;
+  return { campaign: toCampaignInfo(snap.id, d), campaignData: d, unresolvedRef: null };
+}
+
+/** Campagne telle que le moteur d'attribution la lit (partagé avec le planificateur serveur). */
+export function toCampaignInfo(id: string, d: DocumentData): CampaignInfo {
   return {
-    campaign: {
-      id: snap.id,
-      name: d.name ?? snap.id,
-      status: (d.status ?? 'draft') as CampaignStatus,
-      productCode: d.productCode ?? null,
-      eligibleUserIds: arr(d.eligibleUserIds),
-      eligibleTeamIds: arr(d.eligibleTeamIds),
-      fallbackTeamId: d.fallbackTeamId ?? null,
-      autoEligible: d.autoEligible === true,
-    },
-    campaignData: d,
-    unresolvedRef: null,
+    id,
+    name: d.name ?? id,
+    status: (d.status ?? 'draft') as CampaignStatus,
+    productCode: d.productCode ?? null,
+    eligibleUserIds: arr(d.eligibleUserIds),
+    eligibleTeamIds: arr(d.eligibleTeamIds),
+    fallbackTeamId: d.fallbackTeamId ?? null,
+    autoEligible: d.autoEligible === true,
   };
 }
 
+/** Familles du catalogue du CRM principal (`products.category`), gardées 10 minutes : le catalogue change rarement. */
+let categoriesCache: { at: number; list: string[] } | null = null;
+async function readProductCategories(db: Firestore): Promise<string[]> {
+  if (categoriesCache && Date.now() - categoriesCache.at < 10 * 60_000) return categoriesCache.list;
+  try {
+    const snap = await db.collection('products').select('category').get();
+    const list = categoriesOf(snap.docs.map((d) => ({ category: d.get('category') }))).map((c) => c.code);
+    categoriesCache = { at: Date.now(), list };
+    return list;
+  } catch {
+    // Catalogue illisible : le produit reçu est conservé tel quel, la réception du lead n'échoue pas pour autant.
+    return categoriesCache?.list ?? [];
+  }
+}
+
 /** Payload de la version publiée d'un module de config, ou null. */
-async function readPublishedConfig(db: Firestore, module: string): Promise<unknown> {
+export async function readPublishedConfig(db: Firestore, module: string): Promise<unknown> {
   const pointer = await db.collection(COL.config).doc(module).get();
   const versionId = pointer.get('publishedVersionId');
   if (typeof versionId !== 'string') return null;

@@ -7,6 +7,7 @@ import {
   parseAssignmentConfigInput,
   planAssignmentConfig,
   planCampaignSave,
+  planChecklistSave,
   planProfileUpdate,
   planSourceSave,
   planSpendSave,
@@ -288,5 +289,36 @@ describe('campaignDependencies : seulement ce que la campagne référence (lu da
     expect(campaignDependencies({ sourceId: 's', fallbackTeamId: 'tf' })).toEqual({ sourceId: 's', teamIds: ['tf'], userIds: [] });
     expect(campaignDependencies({})).toEqual({ sourceId: null, teamIds: [], userIds: [] });
     expect(campaignDependencies(null)).toEqual({ sourceId: null, teamIds: [], userIds: [] });
+  });
+});
+
+describe('planChecklistSave', () => {
+  const input = { productCode: 'PAC', items: [{ code: 'identity', label: "Pièce d'identité", mandatory: true }, { label: 'Attestation de ramonage', mandatory: false }] };
+  it('une famille = un document ; une nouvelle pièce reçoit un code tiré de son nom, les existantes gardent le leur', () => {
+    const p = planChecklistSave({ input, before: null, actorId: 'adm', nowMs: NOW });
+    expect(p.key).toBe('pac');
+    expect(p.doc).toMatchObject({ id: 'pac', productCode: 'PAC', updatedBy: 'adm', items: [{ code: 'identity', mandatory: true }, { code: 'attestation-de-ramonage', label: 'Attestation de ramonage', mandatory: false }] });
+    expect(p.audit).toMatchObject({ action: 'checklist.create', entityType: 'checklist', entityId: 'pac', before: null });
+  });
+  it("la checklist « par défaut » n'a pas de famille", () => {
+    const p = planChecklistSave({ input: { productCode: null, items: [{ label: 'RIB', mandatory: true }] }, before: null, actorId: 'adm', nowMs: NOW });
+    expect(p).toMatchObject({ key: 'default', doc: { id: 'default', productCode: null } });
+  });
+  it('une modification garde la date de création et est tracée', () => {
+    const before = { id: 'pac', createdAt: new Date(1), items: [] };
+    const p = planChecklistSave({ input, before, actorId: 'adm', nowMs: NOW });
+    expect(p.doc.createdAt).toEqual(new Date(1));
+    expect(p.audit).toMatchObject({ action: 'checklist.update', before });
+  });
+  it('codes fournis invalides ou en double : remplacés, jamais acceptés tels quels', () => {
+    const p = planChecklistSave({ input: { productCode: 'SSC', items: [{ code: '../x', label: 'A' }, { code: 'dup', label: 'B' }, { code: 'dup', label: 'C' }] }, before: null, actorId: 'adm', nowMs: NOW });
+    const codes = (p.doc.items as { code: string }[]).map((i) => i.code);
+    expect(new Set(codes).size).toBe(3);
+    expect(codes.every((c) => /^[a-z0-9][a-z0-9_-]*$/.test(c))).toBe(true);
+  });
+  it('refus : liste vide, nom vide, doublon de nom, trop de pièces', () => {
+    for (const items of [[], [{ label: ' ' }], [{ label: 'RIB' }, { label: 'rib' }], Array.from({ length: 21 }, (_, i) => ({ label: `P${i}` }))]) {
+      expect(refusal(() => planChecklistSave({ input: { productCode: 'PAC', items }, before: null, actorId: 'adm', nowMs: NOW })).code).toBe('invalid-argument');
+    }
   });
 });

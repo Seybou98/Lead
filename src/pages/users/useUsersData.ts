@@ -6,7 +6,7 @@ import { COL } from '../../domain/collections';
 import type { OperationalStatus } from '../../domain/enums';
 import type { MainUserView, PresenceView, ProfileView, TeamView } from '../../domain/admin/userRows';
 
-function toProfile(id: string, d: DocumentData): ProfileView {
+export function toProfile(id: string, d: DocumentData): ProfileView {
   const o = d.capacity?.override;
   const from = ms(o?.from);
   const until = ms(o?.until);

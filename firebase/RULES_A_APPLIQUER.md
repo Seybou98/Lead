@@ -106,6 +106,12 @@ Principe : **le navigateur lit, le serveur écrit.** Aucune écriture directe su
       allow write: if false;
     }
 
+    // Lots de transferts de portefeuille : écrits par le serveur, lisibles par les managers et administrateurs.
+    match /cl_transfers/{id} {
+      allow read: if isClAdmin() || isClManager();
+      allow write: if false;
+    }
+
     match /cl_leads/{leadId} {
       allow read: if clCanSee(resource.data);
       allow write: if false;
@@ -176,6 +182,32 @@ Principe : **le navigateur lit, le serveur écrit.** Aucune écriture directe su
       allow update: if clUserActive() && request.auth.uid in resource.data.get('recipientIds', [])
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['readBy']);
       allow create, delete: if false;
+    }
+
+    // Brouillons de transfert de portefeuille : propres au manager ou à l'administrateur qui les crée, un par télépro
+    // (identifiant « <auteur>_<télépro> »). `resource == null` : lire un brouillon absent n'est pas une erreur de droits.
+    match /cl_transferDrafts/{id} {
+      allow read, delete: if (isClAdmin() || isClManager()) && (resource == null || resource.data.get('createdBy', '') == request.auth.uid);
+      allow create, update: if (isClAdmin() || isClManager())
+        && request.resource.data.createdBy == request.auth.uid
+        && id == request.auth.uid + '_' + request.resource.data.fromUid;
+    }
+
+    // Réglages d'administration (SLA et horaires, cycles NR, relances) : lus par tout le personnel (compteurs, aperçus),
+    // écrits par l'administrateur seul. L'identifiant du document est son nom (sla, rules, sla_<campagne>).
+    match /cl_settings/{id} {
+      allow read: if isClStaff();
+      allow create, update: if isClAdmin();
+      allow delete: if isClAdmin();
+    }
+
+    // Checklists documentaires (Paramètres → Documents) : une par famille de produit, plus « default ».
+    // Lecture par tout le personnel (le télépro les voit quand il demande des documents) ; écriture par
+    // l'administrateur seul, avec l'identifiant du document = la clé de la famille. Suppression = retour à « default ».
+    match /cl_checklists/{id} {
+      allow read: if isClStaff();
+      allow create, update: if isClAdmin() && request.resource.data.id == id;
+      allow delete: if isClAdmin();
     }
 
     // Configuration versionnée : le personnel lit les versions publiées/archivées (nécessaire pour

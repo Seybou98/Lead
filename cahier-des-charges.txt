@@ -1,5 +1,5 @@
 CRM LEADS — LABEL ÉNERGIE
-Plan d'exécution et état d'avancement (mis à jour le 7 octobre 2026)
+Plan d'exécution et état d'avancement (mis à jour le 8 octobre 2026)
 
 Source : « Cahier des charges CRM Leads Label Énergie V1 » (82 pages, §1 à §25) et ses maquettes
 (Lead/maquette/*.pdf, Lead/figure*.png). Ce document suit l'avancement par rapport au cahier.
@@ -22,19 +22,20 @@ Ce qui fonctionne aujourd'hui, de bout en bout, sur la base de DEV (crm-pose-dev
     programme la prochaine action, historise tout, et affiche le client suivant ;
   - l'administrateur configure utilisateurs, équipes, campagnes, règles d'attribution, et lit le Journal.
 
-Ce qui reste : le workflow documentaire complet, la conversion en vente et la transmission au CRM
+Ce qui reste : la conversion en vente et la transmission au CRM
 principal, le pilotage (cockpit manager, équipe, rapports), les traitements serveur planifiés, la mise en
 production, puis les évolutions (SMS, email, OCR, vente à distance, hub d'intégrations).
 
-Qualité : 751 tests unitaires (32 fichiers) ; typecheck de l'application, des fonctions Netlify et des
+Qualité : 1125 tests unitaires (56 fichiers) ; typecheck de l'application, des fonctions Netlify et des
 fonctions Firebase ; build de production OK.
 
 Les 6 lots du cahier :
   Lot 1  Socle         Utilisateurs, rôles, leads, API et import, doublons, attribution, historique   [PARTIEL]
   Lot 2  Exécution     Alerte sonore et SLA, file de priorité, statuts, NR1 à NR5, rappels, recyclage  [PARTIEL]
   Lot 3  Documents     Checklists, dépôt, contrôle, relances                                           [PARTIEL]
+
   Lot 4  Conversion    Montage du dossier, verrous, création client et dossier sans doublon            [À FAIRE]
-  Lot 5  Pilotage      Cockpit manager, KPI, exports                                                   [À FAIRE]
+  Lot 5  Pilotage      Cockpit manager, KPI, exports                                                   [PARTIEL]
   Lot 6  Évolutions    SMS et email automatiques, OCR, scoring (explicitement hors V1)                 [À FAIRE]
 Les sections 19 à 25 (back-office admin, paramétrage versionné, reporting, vente à distance, hub
 d'intégrations, règles UX) sont reprises dans les phases ci-dessous.
@@ -95,19 +96,70 @@ PHASE 1 — Lot 1, socle                                                        
   [FAIT]  Plafond de 10 leads Nouveaux : à 10 le télépro sort du pool, à 9 il revient.
   [FAIT]  Simulation d'attribution (« Tester une attribution ») et Journal de distribution (« pourquoi ce
           télépro »).
-  [À FAIRE] Réattribution manuelle par un manager (motif obligatoire), transfert de portefeuille,
-          gestion des absences (figs. 23-24).
+  [FAIT]  Réattribution manuelle d'un lead par un manager de son périmètre ou un administrateur (motif
+          obligatoire, historisée, les deux télépros prévenus) et attribution depuis la file tampon, dans le
+          panneau du cockpit. Fonction /api/reassign-lead.
+  [FAIT]  Fiche télépro (fig. 22) : en-tête et actions, six onglets (vue d'ensemble, portefeuille, performance,
+          horaires & absences, droits, journal), charge par famille, capacité, performance du mois.
+  [FAIT]  Absence (fig. 23) : type, période, motif, retour automatique de la distribution, charge actuelle,
+          conséquences (rappels sous 24 h, leads proches du SLA, promesses documentaires), remplacement suggéré,
+          décision de traitement par famille, aperçu du transfert. La distribution est suspendue exactement à
+          l'heure de début, rétablie à l'heure de fin (statut « Absent » posé et levé par le planificateur).
+  [FAIT]  Transfert de portefeuille (fig. 24) en 5 étapes : analyse, sélection, destination (un ou plusieurs
+          utilisateurs, une équipe, ou le moteur), simulation avant / après avec plafonds et réconciliation
+          sélectionnés = affectés + non attribués, confirmation avec motif. Propriétaire historique conservé
+          (originalOwnerId), chronologie de chaque lead conservée, audit. Transfert temporaire (documents)
+          avec retour automatique à la fin de l'absence.
+  [FAIT]  Fig. 22 : « Activité en temps réel » avec les dernières actions utiles (prise en charge, NR, note,
+          documents demandés / relancés / reçus, dossier complet), et horaires de travail dans l'onglet
+          « Horaires & absences » (propres au télépro, sinon ceux de l'entreprise, avec les pauses).
+  [FAIT]  Fig. 24 : « Enregistrer comme brouillon » : le choix du manager (catégories, destination, cause) est
+          conservé, repris en un clic ; la simulation est recalculée avec la charge du moment.
+  [PARTIEL] Fig. 22 : courbe « évolution des ventes » et ventes du mois absentes (pas de donnée de vente en
+          base). Un lead « intéressé » n'est transféré que si on le choisit (cas par cas).
   Back-office admin
-  [FAIT]  Utilisateurs et équipes (fig. 20-21) : création / modification, profil CRM Leads (équipes,
-          périmètre produit/zone, plafond, horaires), état des équipes sous le tableau.
+  [FAIT]  Utilisateurs et équipes (fig. 20-21) : liste, état des équipes, modification du profil CRM Leads
+          (équipes, périmètre produit/zone, plafond, horaires).
+  [FAIT]  Création d'un utilisateur depuis le CRM Leads (fig. 21) : identité, rôle, périmètre, plafond,
+          résumé du profil. Compte Firebase créé comme dans le CRM principal ; l'invitation est l'e-mail
+          Firebase de choix du mot de passe ; « brouillon » = compte inactif, sans équipe ni profil.
+  [PARTIEL] Fig. 21 : non reprises, faute de champ dans le modèle : authentification renforcée,
+          réattribution possible, participation au recyclage, équipe de secours (réglée sur l'équipe).
+          Pas de modification d'un utilisateur existant depuis cet écran (profil : menu « ⋯ » de la liste).
   [FAIT]  Campagnes (fig. 15-16) : liste et performance, création / modification, dépenses publicitaires.
   [FAIT]  Règles d'attribution (fig. 17) : critères, ordre de départage, plafond, simulation.
   [FAIT]  Journal (fig. 19) : historique des distributions, export CSV.
   [À FAIRE] Fiche détaillée d'un télépro (fig. 22).
-  [À FAIRE] Paramétrage des SLA et horaires (fig. 18) : valeurs par défaut en dur (SLA 5 min ; horaires
-          lundi-vendredi 9 h-19 h). Un document cl_config/callRules est lu s'il existe, sans écran.
-  [À FAIRE] Centre de paramétrage métier (figs. 25-29) : produits et éligibilité, qualification
-          conditionnelle, checklists documentaires, règles de conversion. Configuration versionnée (RG18).
+  [FAIT]  SLA et horaires (fig. 18, Paramètres) : paliers du SLA (1re alerte, retard critique, réattribution),
+          réattribution automatique (désactivée par défaut) avec nombre maximal et équipe de secours, SLA suspendu
+          hors horaires, horaires commerciaux par jour (plusieurs plages), fuseau, jours fermés, comportement
+          hors horaires (attente jusqu'à l'ouverture, attribution immédiate, équipe de garde). Un lead non pris
+          en charge au délai est réattribué par le planificateur ; un rappel client ne l'est jamais. Pour une
+          campagne, seule la règle de réattribution se surcharge.
+  [FAIT]  Cycles NR, rappels et documents (Paramètres) : matrice NR1 à NR5, délai de recyclage, cycles avant
+          archivage, alerte manager sur rappel non effectué, alertes sur leads non attribués, cadence des
+          relances documentaires (J+n, décision), marge « documents promis ». Ces valeurs sont CELLES des moteurs
+          (qualification, relances, planificateur, compteurs) : plus aucune valeur en double dans le code.
+  [PARTIEL] Priorité des NR (P3) et paliers des rappels (H-5, +5, +15) affichés mais fixes. Le « retard critique »
+          déclenche l'alerte au manager ; côté télépro, couleurs et son suivent le délai de 1re alerte.
+          Réglages généraux uniquement lus par les écrans après enregistrement ; sans enregistrement, valeurs du cahier.
+  [FAIT]  Centre de paramétrage métier (fig. 25) : huit modules avec leur état réel, alertes de configuration
+          (produit sans checklist, campagne active sans télépro éligible ou sans équipe, produit hors catalogue,
+          réglages non enregistrés, réattribution sans équipe de secours) renvoyant à l'écran concerné, dernières
+          modifications filtrables par module, dernière modification et son auteur.
+  [FAIT]  Produits & couverture (fig. 26, partie lecture) : pour chaque famille du catalogue du CRM principal,
+          checklist, équipes, télépros, campagnes actives et anomalies.
+  [FAIT]  Versions & publication : historique de chaque réglage (SLA et horaires, cycles NR, checklists) avec
+          numéro de version, auteur, date, motif et ce qui a changé ; retour arrière qui crée une NOUVELLE
+          version équivalente (rien n'est détruit), avec rappel du périmètre touché.
+  [À FAIRE] Constructeur de qualification conditionnelle (fig. 27), éligibilité et aides par produit, offres
+          combinées avec fusion et contradictions (fig. 28, partie fusion), workflows et statuts éditables,
+          motifs et listes administrables, règles de conversion avec test et impact (fig. 29, avec le lot
+          Conversion), communications versionnées.
+  [PARTIEL] Pas de cycle Brouillon → Test → Impact → Publication : un réglage enregistré est appliqué
+          immédiatement aux prochains leads, appels et relances ; l'historique et le retour arrière sont là,
+          pas la mise en brouillon ni la simulation sur un lead fictif. Les 300 derniers enregistrements du
+          journal sont lus.
   Leads
   [FAIT]  Liste des leads (rôles télépro / manager / admin) : onglets, filtres, tri par urgence, compteur SLA.
   [FAIT]  Fiche lead (fig. 45) : Résumé (prochaine action, informations essentielles, progression, dernière
@@ -152,19 +204,52 @@ PHASE 2 — Lot 2, exécution                                                   
   [À FAIRE] Recyclage automatique (entrée en recyclage après le délai, traitement en période creuse,
           archivage après N cycles), SMS automatique après une tentative (option ultérieure).
   Traitement serveur planifié (§15.1, §15.3)
-  [À FAIRE] Planificateur serveur (échéances NR, recyclage, escalade manager, relances documentaires,
-          réévaluation de la file tampon). Aujourd'hui les alertes et la priorité sont calculées dans le
-          navigateur du télépro : elles ne fonctionnent que page ouverte.
+  [FAIT]  Planificateur serveur (fonction planifiée toutes les 5 minutes, sans navigateur ouvert) :
+          - escalades vers les managers, une seule fois chacune : rappel client non effectué (+30 min, sans
+            réattribution), lead non attribué (15 min puis anomalie à 24 h), lead hors SLA, documents toujours
+            incomplets (J+7) et décision à J+14 ;
+          - recyclage : un « Injoignable — fin de cycle » entre en recyclage après le délai (action P4, donc en
+            période creuse de la file), puis « Injoignable / archivé » après 3 cycles ;
+          - file tampon : réévaluation avec le moteur d'attribution, attribution dès qu'une capacité compatible
+            réapparaît (plafond respecté pendant le passage, plus ancien d'abord) ; un doublon à examiner, une
+            campagne non active ou une distribution coupée restent des décisions humaines.
+          Idempotent (identifiants déterministes, relecture dans chaque transaction). Alertes manager visibles
+          dans le cockpit ; état du planificateur et passage manuel dans Paramètres.
+  [PARTIEL] Les ÉCHÉANCES (NR, rappels, relances) ne sont pas « tirées » par le serveur : leur heure est portée
+          par l'action du lead et lue par l'écran du télépro, seules les alertes sonores dépendent encore du
+          navigateur ouvert. Pas d'e-mail, SMS ni notification navigateur au manager. Les seuils sont dans
+          cl_config/schedulerRules (callbackEscalationMin, bufferWarnMin, bufferAnomalyHours, maxRecycleCycles).
 
 PHASE 3 — Lot 3, documents                                                                  [PARTIEL]
   [FAIT]  Demande de documents à la fin d'un appel : checklist par défaut (identité, avis d'imposition,
           justificatif de domicile, taxe foncière, RIB, autre), canal, date promise, état documentaire sur le
           lead, une pièce « attendue » par document, première relance (J+1, ou heure promise + 30 min).
-  [À FAIRE] Checklists selon produit / aide / type de dossier (paramétrables), modale complète « Passer en
-          attente de documents » (fig. 9), dépôt de fichiers (Storage sécurisé), contrôle pièce par pièce
-          (reçu, conforme, non conforme + motif, à redemander), recalcul de l'état général.
-  [À FAIRE] Relances J+3, J+5, J+7 (alerte rouge), J+14 (décision obligatoire), « Documents promis non
-          reçus », pastilles de pièces manquantes sur la fiche, écran Documents en 3 colonnes (fig. 46).
+  [FAIT]  Statut de chaque pièce (attendu, reçu, conforme, non conforme + motif, à redemander) et état général
+          du dossier recalculé à chaque geste (§10.2, §10.3) ; une pièce non conforme ne compte pas dans la
+          progression. Dossier complet → « Prêt à monter » ; une pièce remplacée le ramène en attente.
+  [FAIT]  Dépôt de fichiers (PDF, JPEG, PNG, WebP, HEIC, 15 Mo) dans Storage, ou pièce « marquée reçue » par
+          WhatsApp / email / SMS. Contrôle pièce par pièce. Passage au montage (statut « Montage en cours »).
+  [FAIT]  Relances J+1, J+3, J+5 (prioritaire), J+7 (alerte rouge « Documents toujours incomplets »), J+14
+          (décision obligatoire : poursuivre, recycler, clôturer avec motif). « Documents promis non reçus ».
+          Un message de relance prêt à copier cite exactement les pièces manquantes ou rejetées.
+  [FAIT]  Onglet Documents de la fiche (checklist, progression reçues/attendues et conformes/obligatoires,
+          actions) et écran Documents en 3 colonnes (fig. 46 : à relancer, à contrôler, complets ; filtres ;
+          « mes dossiers »). Les actions documentaires de Ma journée ouvrent l'onglet Documents.
+  [FAIT]  Serveur : fonction /api/lead-documents (jeton Firebase), transaction unique, idempotente, historisée.
+  [PARTIEL] Le CRM n'ENVOIE aucune relance (pas de canal e-mail / SMS / WhatsApp en V1) : il prépare le message,
+          le télépro l'envoie lui-même puis clique « J'ai relancé ». Les délais J+n sont dans le code, lisibles
+          depuis cl_config/documentRules (followUpDays, decisionRepeatDays), sans écran de paramétrage.
+  [FAIT]  Produits : les familles du catalogue du CRM principal (collection products, champ category : PAC,
+          SSC, CESI, POELE…) remplacent la saisie libre (campagnes, équipes, profils, nouvel utilisateur,
+          simulation). À la réception d'un lead, le produit reçu est ramené à une famille du catalogue quand
+          un seul mot la désigne sans ambiguïté (« PAC Air/Eau » → PAC) ; sinon il est conservé tel quel.
+  [FAIT]  Checklists par produit (Paramètres → Documents et checklists) : une liste de pièces par famille, plus
+          une liste « par défaut ». Le télépro voit celle du produit du lead quand il demande des documents ;
+          chaque pièce garde son libellé dans le dossier. Les dossiers déjà ouverts ne changent pas.
+  [À FAIRE] Checklists selon aide et type de dossier (le cahier les croise aussi avec MPR / CEE / financement,
+          fig. 28 : sources de règle, fusion, conflits), modale fig. 9 complète, règles Storage dédiées aux
+          rôles Leads (aujourd'hui : tout compte CRM peut lire cl_documents/), relances automatiques par le
+          serveur, alerte rouge J+7 vers le manager.
 
 PHASE 4 — Lot 4, conversion                                                                 [À FAIRE]
   [À FAIRE] Écran de montage du dossier en 5 étapes (figs. 1-3), récapitulatif financier, verrous qui
@@ -173,9 +258,19 @@ PHASE 4 — Lot 4, conversion                                                   
           sur échec, chaîne Lead ID → Vente ID → Client ID → Dossier ID, retour des statuts.
   [À FAIRE] Vente à distance (offre, règlement, signature Yousign, financement) : figs. 36-39, §23.
 
-PHASE 5 — Lot 5, pilotage et reporting                                                      [À FAIRE]
-  [À FAIRE] Cockpit manager (leads en danger, rappels en retard, documents bloqués, file tampon, décisions)
-          et écran Équipe (statut et charge en direct) : §12.2 à §12.13.
+PHASE 5 — Lot 5, pilotage et reporting                                                      [PARTIEL]
+  [FAIT]  Cockpit manager (fig. 14) : cartes Leads en danger (SLA dépassé ou proche), Rappels en retard
+          (5 min et plus), Documents bloqués (décision J+14, promesses échues, pièces non contrôlées depuis
+          plus d'un jour, relances sans effet), chacune ouvrant la liste exacte ; équipe en temps réel ;
+          décisions à prendre triées par gravité ; flux sur la période ; file tampon ; panneau d'action d'une
+          alerte (contexte, chronologie, réattribution avec télépro recommandé). Les alertes sont dérivées de
+          l'état des leads : elles disparaissent quand la situation est corrigée, jamais par simple consultation.
+  [FAIT]  Écran Équipe (§12.7) : état, action actuelle, charge, rappels / intéressés / documents en main,
+          distribution ; suspension / réactivation réservées à l'administrateur.
+  [PARTIEL] Cockpit : carte « Ventes à sécuriser » vide (lot Conversion) ; filtres globaux équipe / produit /
+          campagne / zone, pipeline cliquable, cockpit documentaire détaillé, actions de masse, clôture d'une
+          alerte avec motif, report d'action, sons et notifications du manager, actualisation par intervalles
+          (§12.5) : non faits. « Résultat du jour » (ventes) et durée dans le statut : pas de donnée en base.
   [À FAIRE] Rapports : tableau de bord Direction, analyse des campagnes et rentabilité, comparaison des
           télépros, pipeline documentaire, exports et rapports programmés (figs. 30-34).
   [PARTIEL] Les statistiques de campagne (leads, contactés, coût) existent dans l'écran Campagnes.
@@ -243,11 +338,11 @@ principal…) restent à confirmer par écrit.
 7. ORDRE CONSEILLÉ POUR LA SUITE
 ====================================================================================================
 
-  1. Lot Documents (modale fig. 9, dépôt et contrôle des pièces, relances, écran 3 colonnes). Débloque aussi
-     l'onglet Documents de la fiche et le montage de dossier.
-  2. Pilotage manager : Cockpit, Équipe, réattribution manuelle, alertes serveur vers le manager.
-  3. Planificateur serveur : recyclage, escalade, relances automatiques, file tampon.
-  4. Paramétrage (SLA, horaires, NR, checklists) pour sortir les valeurs par défaut du code.
+  1. Terminer le lot Documents : checklists paramétrables, règles Storage dédiées, relances serveur.
+  2. Pilotage manager : reste les absences et le transfert de portefeuille, les filtres du cockpit, les actions
+     de masse, les alertes serveur vers le manager.
+  3. (fait) Planificateur serveur. Reste : notifications e-mail / SMS au manager, relances documentaires envoyées.
+  4. (fait) Paramétrage SLA, horaires, NR, documents. Reste : motifs et listes, conversion (figs. 25-29).
   5. Conversion : montage, verrous, vente, transmission idempotente vers le CRM principal.
   6. Mise en production (§5), recette métier, puis Phase 6.
 
@@ -261,7 +356,7 @@ recette sur la base de DEV.
 
   cd Lead
   npm run dev                       application + fonctions sur http://localhost:5180
-  npm test                          les 751 tests
+  npm test                          les 1125 tests
   node scripts/send-test-leads.mjs --url http://localhost:5180 --secret <CRM_SHARED_SECRET> --count 5
                                     envoie de faux leads (option --scenario mix pour les cas limites)
 

@@ -50,19 +50,19 @@ export function ChipMultiSelect({
 
   return (
     <div ref={root} className="relative" onKeyDown={(e) => e.key === 'Escape' && setOpen(false)}>
-      <div className="flex min-h-[42px] w-full items-center gap-2 rounded-lg border border-slate-300 bg-white px-2 py-1.5 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
+      <div onClick={() => setOpen(true)} className="flex min-h-[42px] w-full cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-2 py-1.5 focus-within:border-blue-500 focus-within:ring-2 focus-within:ring-blue-500/20">
         <div className="flex flex-1 flex-wrap items-center gap-1.5">
           {selected.length === 0 && <span className="px-1 text-sm text-slate-400">{placeholder}</span>}
           {selected.map((id) => (
             <span key={id} className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-sm text-slate-800">
               {byId.get(id)?.label ?? `${id} (introuvable)`}
-              <button type="button" onClick={() => toggle(id)} aria-label={`Retirer ${byId.get(id)?.label ?? id}`} className="rounded text-slate-400 hover:text-slate-700">
+              <button type="button" onClick={(e) => { e.stopPropagation(); toggle(id); }} aria-label={`Retirer ${byId.get(id)?.label ?? id}`} className="rounded text-slate-400 hover:text-slate-700">
                 <X className="h-3.5 w-3.5" />
               </button>
             </span>
           ))}
         </div>
-        <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} aria-haspopup="listbox" aria-label={ariaLabel} className="rounded p-1 text-slate-500 hover:bg-slate-100">
+        <button type="button" onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }} aria-expanded={open} aria-haspopup="listbox" aria-label={ariaLabel} className="rounded p-1 text-slate-500 hover:bg-slate-100">
           <ChevronDown className={cn('h-4 w-4 transition-transform', open && 'rotate-180')} />
         </button>
       </div>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, Search } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../auth/AuthProvider';
@@ -50,16 +50,19 @@ export function SlaBadge({ ageMs }: { ageMs: number }) {
 
 export function LeadsListPage({ basePath }: { basePath: string }) {
   const { user } = useAuth();
+  const [params] = useSearchParams();
+  const wanted = params.get('onglet');
+  const initialTab = TABS.find((t) => t.key === wanted)?.key;
   // RequireAuth garantit un utilisateur ; la liste est cadrée par son rôle (règles Firestore).
   const role: Role = user?.role ?? 'telepro';
-  return <LeadsListView data={useLeadsList(role, user?.uid ?? '')} role={role} basePath={basePath} />;
+  return <LeadsListView data={useLeadsList(role, user?.uid ?? '')} role={role} basePath={basePath} initialTab={initialTab} />;
 }
 
-export function LeadsListView({ data, role, basePath, nowOverride }: { data: LeadsListData; role: Role; basePath: string; nowOverride?: number }) {
+export function LeadsListView({ data, role, basePath, nowOverride, initialTab }: { data: LeadsListData; role: Role; basePath: string; nowOverride?: number; initialTab?: QuickTab }) {
   const navigate = useNavigate();
   const liveNow = useNow(1000);
   const now = nowOverride ?? liveNow;
-  const [filters, setFilters] = useState<LeadFilters>(NO_LEAD_FILTERS);
+  const [filters, setFilters] = useState<LeadFilters>(initialTab ? { ...NO_LEAD_FILTERS, tab: initialTab } : NO_LEAD_FILTERS);
   const [pageSize, setPageSize] = useState(10);
   const [page, setPage] = useState(1);
   const isTelepro = role === 'telepro';

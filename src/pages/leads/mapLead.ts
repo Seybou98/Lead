@@ -2,6 +2,8 @@
 import type { DocumentData } from 'firebase/firestore';
 import type { AssignmentState, DocumentState, LeadStatus, PriorityClass, Temperature } from '../../domain/enums';
 import type { LeadListItem } from '../../domain/leads/leadList';
+import type { LeadDocsInfo } from '../../domain/documents/board';
+import { buildActivity } from '../../domain/leads/activity';
 import type { EventInput, LeadFileData } from '../../domain/leads/leadFile';
 import { ms } from '../../lib/firestoreViews';
 
@@ -13,6 +15,31 @@ function toNextAction(d: DocumentData): LeadListItem['nextAction'] {
   const dueAtMs = ms(a?.dueAt);
   if (!a || dueAtMs === null) return null;
   return { type: str(a.type), dueAtMs, priority: str(a.priority, 'P4') as PriorityClass, reason: str(a.reason) };
+}
+
+function toDocsInfo(d: DocumentData): LeadDocsInfo | undefined {
+  const x = d.documents;
+  if (!x || typeof x !== 'object' || x.state === 'none' || x.state === undefined) return undefined;
+  const missing = Array.isArray(x.missing)
+    ? x.missing
+        .filter((m: unknown): m is { code: string; label?: string | null; status: string; koReason?: string | null } => !!m && typeof (m as { code?: unknown }).code === 'string')
+        .map((m: { code: string; label?: string | null; status: string; koReason?: string | null }) => ({ code: m.code, label: typeof m.label === 'string' ? m.label : null, status: str(m.status, 'expected') as LeadDocsInfo['missing'][number]['status'], koReason: (typeof m.koReason === 'string' ? m.koReason : null) as LeadDocsInfo['missing'][number]['koReason'] }))
+    : [];
+  return {
+    expected: num(x.expected),
+    received: num(x.received),
+    conform: num(x.conform),
+    mandatory: num(x.mandatory),
+    mandatoryConform: num(x.mandatoryConform),
+    toCheck: num(x.toCheck),
+    missing,
+    lastReceivedAtMs: ms(x.lastReceivedAt),
+    completedAtMs: ms(x.completedAt),
+    lastRequestAtMs: ms(x.lastRequestAt),
+    nextFollowUpAtMs: ms(x.nextFollowUpAt),
+    promisedAtMs: ms(x.promisedAt),
+    followUpCount: num(x.followUpCount),
+  };
 }
 
 /** null si le lead n'a pas de date de réception lisible (jamais d'âge inventé). */
@@ -38,6 +65,18 @@ export function toListItem(id: string, d: DocumentData): LeadListItem | null {
     slaStoppedAtMs: ms(d.sla?.stoppedAt),
     nextAction: toNextAction(d),
     documentsState: str(d.documents?.state, 'none') as DocumentState,
+    docs: toDocsInfo(d),
+    activity: buildActivity({
+      slaStoppedAtMs: ms(d.sla?.stoppedAt),
+      nrLastAtMs: ms(d.nr?.lastAt),
+      nrAttempt: Number(d.nr?.attempt ?? 0) || 0,
+      noteAtMs: ms(d.lastNote?.at),
+      noteText: typeof d.lastNote?.text === 'string' ? d.lastNote.text : null,
+      docsRequestedAtMs: ms(d.documents?.lastRequestAt),
+      docsFollowUpAtMs: ms(d.documents?.lastFollowUpAt),
+      docsReceivedAtMs: ms(d.documents?.lastReceivedAt),
+      docsCompletedAtMs: ms(d.documents?.completedAt),
+    }),
     duplicate: !!d.quality?.duplicateOf,
     excluded: d.quality?.excluded === true,
     nr: { attempt: Number(d.nr?.attempt ?? 0) || 0, cycle: Number(d.nr?.cycle ?? 1) || 1 },

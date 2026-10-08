@@ -6,6 +6,8 @@ import { resolveLeadRole } from '../../config/roles';
 import { ChipMultiSelect, type ChipOption } from '../../components/ui/ChipMultiSelect';
 import { WeeklyScheduleEditor, type WeeklySlot } from '../../components/ui/WeeklyScheduleEditor';
 import { Field, inputClass, parseList } from '../../components/ui/Modal';
+import { ProductSelect } from '../../components/ui/ProductPickers';
+import { useProductCatalog } from '../products/useProductCatalog';
 import { SourceLogo } from '../../components/ui/SourceLogo';
 import { parseEuros } from '../../domain/admin/money';
 import { formatEuros } from '../../domain/admin/campaignStats';
@@ -127,7 +129,7 @@ function CampaignForm({ data, campaign, breadcrumb }: { data: CampaignFormData; 
   const sourceById = new Map(data.sources.map((s) => [s.id, s]));
   const chosenSource = newSource ? { name: newSourceName.trim() || 'Nouvelle source', kind: newSourceKind } : sourceById.get(sourceId);
 
-  const productHints = [...new Set(data.campaigns.map((c) => c.productCode).filter((p): p is string => !!p))];
+  const catalog = useProductCatalog();
   const zoneHints = [...new Set(data.campaigns.flatMap((c) => c.zones))];
 
   const submit = async (forced: Status | null) => {
@@ -224,8 +226,7 @@ function CampaignForm({ data, campaign, breadcrumb }: { data: CampaignFormData; 
               <input className={inputClass} value={externalId} onChange={(e) => setExternalId(e.target.value)} placeholder="META-98341 — celui envoyé par la source avec chaque lead" />
             </Field>
             <Field label="Produit">
-              <input className={inputClass} list="product-hints" value={product} onChange={(e) => setProduct(e.target.value)} placeholder="PAC Air/Eau" />
-              <datalist id="product-hints">{productHints.map((p) => <option key={p} value={p} />)}</datalist>
+              <ProductSelect value={product} onChange={setProduct} categories={catalog.categories} emptyLabel={catalog.loading ? 'Chargement du catalogue…' : 'Choisir un produit du catalogue'} />
             </Field>
             <Field label="Zone géographique">
               <input className={inputClass} list="zone-hints" value={zones} onChange={(e) => setZones(e.target.value)} placeholder="Île-de-France (plusieurs : séparées par des virgules)" />

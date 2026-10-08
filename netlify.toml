@@ -19,6 +19,10 @@
   targetPort = 5180
   port = 8888
 
+# Planificateur : escalades manager, recyclage, file tampon. Toutes les 5 minutes, sans navigateur ouvert.
+[functions."scheduler"]
+  schedule = "*/5 * * * *"
+
 # Adresse publique de réception des leads (à donner à la source : Pabbly, Meta, agence…)
 [[redirects]]
   from = "/api/leads"
@@ -37,6 +41,34 @@
 [[redirects]]
   from = "/api/set-status"
   to = "/.netlify/functions/set-status"
+  status = 200
+  force = true
+
+# Workflow documentaire d'un lead : jeton Firebase de l'utilisateur connecté.
+[[redirects]]
+  from = "/api/lead-documents"
+  to = "/.netlify/functions/lead-documents"
+  status = 200
+  force = true
+
+# Réattribution manuelle d'un lead (manager, administrateur) : jeton Firebase.
+[[redirects]]
+  from = "/api/reassign-lead"
+  to = "/.netlify/functions/reassign-lead"
+  status = 200
+  force = true
+
+# Déclenchement manuel du planificateur (administrateur) : jeton Firebase.
+[[redirects]]
+  from = "/api/scheduler-run"
+  to = "/.netlify/functions/scheduler-run"
+  status = 200
+  force = true
+
+# Absences et transferts de portefeuille (manager, administrateur) : jeton Firebase.
+[[redirects]]
+  from = "/api/portfolio"
+  to = "/.netlify/functions/portfolio"
   status = 200
   force = true
 

@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { ProductChips } from '../../components/ui/ProductPickers';
+import { useProductCatalog } from '../products/useProductCatalog';
 import { Field, inputClass, Modal, parseList } from '../../components/ui/Modal';
 import { WeeklyScheduleEditor, type WeeklySlot } from '../../components/ui/WeeklyScheduleEditor';
 import { errorMessage, saveProfile } from '../../lib/adminApi';
@@ -33,7 +35,8 @@ export function ProfileModal({
   }, [schedule]);
 
   const [cap, setCap] = useState(raw?.newLeadsCap != null ? String(raw.newLeadsCap) : '');
-  const [products, setProducts] = useState((raw?.scope.productCodes ?? []).join(', '));
+  const [products, setProducts] = useState<string[]>(raw?.scope.productCodes ?? []);
+  const catalog = useProductCatalog();
   const [zones, setZones] = useState((raw?.scope.zones ?? []).join(', '));
   const [suspended, setSuspended] = useState(row.distribution === 'suspended');
   const [weekly, setWeekly] = useState<WeeklySlot[]>(schedule.weekly);
@@ -58,7 +61,7 @@ export function ProfileModal({
       uid: row.uid,
       newLeadsCap: capNum,
       scope: {
-        productCodes: parseList(products),
+        productCodes: products,
         zones: parseList(zones),
         campaignIds: raw?.scope.campaignIds ?? [],
         sourceIds: raw?.scope.sourceIds ?? [],
@@ -117,9 +120,11 @@ export function ProfileModal({
 
         <section className="space-y-4">
           <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Périmètre commercial</h3>
-          <Field label="Produits autorisés" hint="Séparés par des virgules. « * » autorise tous les produits. Vide = aucun lead.">
-            <input className={inputClass} value={products} onChange={(e) => setProducts(e.target.value)} placeholder="pac_air_eau, ssc" />
-          </Field>
+          <div>
+            <span className="text-sm font-medium text-slate-700">Produits autorisés</span>
+            <div className="mt-1"><ProductChips selected={products} onChange={setProducts} categories={catalog.categories} ariaLabel="Produits autorisés" /></div>
+            <span className="mt-1 block text-xs text-slate-500">Familles du catalogue produits. Vide = aucun lead.</span>
+          </div>
           <Field label="Zones autorisées" hint="« * » autorise toutes les zones. Vide = aucun lead.">
             <input className={inputClass} value={zones} onChange={(e) => setZones(e.target.value)} placeholder="idf, grand_est" />
           </Field>

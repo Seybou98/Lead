@@ -54,6 +54,9 @@ function PriorityCard({ action, now, campaign, basePath, onCall }: { action: Day
   const { lead } = action;
   const age = slaAgeMs(lead, now);
   const tel = lead.phone ? `tel:${lead.phone}` : null;
+  const type = lead.nextAction?.type ?? '';
+  const docAction = /document|build_file/.test(type);
+  const docActionLabel = type === 'document_review' ? 'Contrôler les pièces' : type === 'document_decision' ? 'Décider du dossier' : type === 'build_file' ? 'Monter le dossier' : 'Relancer les documents';
   // Rappel client : le palier (§8.2) donne la couleur et le libellé — bleu à l'heure, orange à +5 min, rouge à +15 min.
   const cb = isCallbackAction(lead) && action.dueAtMs !== null ? callbackLevel(action.dueAtMs, now) : null;
   const lateMin = action.dueAtMs !== null ? Math.max(0, Math.floor((now - action.dueAtMs) / 60_000)) : 0;
@@ -101,9 +104,23 @@ function PriorityCard({ action, now, campaign, basePath, onCall }: { action: Day
       </div>
 
       <div className="mt-6 flex flex-col items-center gap-3">
-        <button type="button" onClick={onCall} disabled={!tel} title={tel ? undefined : 'Aucun numéro de téléphone'} className="inline-flex w-full max-w-md items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-blue-700 disabled:opacity-40">
-          <Phone className="h-4 w-4" /> Appeler maintenant
-        </button>
+        {docAction ? (
+          // Action documentaire (relance, contrôle, décision, montage) : on traite les pièces, on n'appelle pas.
+          <>
+            <Link to={`${basePath}/${lead.id}?onglet=documents`} className="inline-flex w-full max-w-md items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-blue-700">
+              <FileText className="h-4 w-4" /> {docActionLabel}
+            </Link>
+            {tel && (
+              <button type="button" onClick={onCall} className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:underline">
+                <Phone className="h-3.5 w-3.5" /> Appeler le client
+              </button>
+            )}
+          </>
+        ) : (
+          <button type="button" onClick={onCall} disabled={!tel} title={tel ? undefined : 'Aucun numéro de téléphone'} className="inline-flex w-full max-w-md items-center justify-center gap-2 rounded-lg bg-blue-600 px-6 py-3.5 text-sm font-bold uppercase tracking-wide text-white shadow-sm hover:bg-blue-700 disabled:opacity-40">
+            <Phone className="h-4 w-4" /> Appeler maintenant
+          </button>
+        )}
         <Link to={`${basePath}/${lead.id}`} className="text-sm font-medium text-blue-600 hover:underline">Voir la fiche complète →</Link>
       </div>
     </section>
@@ -389,7 +406,7 @@ export function MyDayView({
         <p className="text-sm text-slate-700"><span className={cn('font-semibold', stats.lateActions > 0 && 'text-red-600')}>{stats.lateActions}</span> action(s) en retard</p>
       </section>
 
-      <p className="mt-4 text-xs text-slate-400">Les documents obtenus du jour et les objectifs s'afficheront avec le lot Documents et la configuration des objectifs.</p>
+      <p className="mt-4 text-xs text-slate-400">Les objectifs s'afficheront avec la configuration des objectifs.</p>
     </div>
   );
 }

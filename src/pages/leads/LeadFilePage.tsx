@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ArrowLeft, BarChart3, Bell, Check, Clock, FileText, Flame, House, MapPin, MessageSquare, Phone, Send, StickyNote, UserCheck, UserRound, Workflow } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../auth/AuthProvider';
 import { ASSIGNMENT_STATE_LABELS, DOCUMENT_STATE_LABELS, LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from '../../domain/labels';
-import { formatAgo, formatCounter, formatPhoneDisplay, slaAgeMs, slaLevel, DEFAULT_SLA_MS } from '../../domain/leads/leadList';
+import { formatAgo, formatCounter, formatPhoneDisplay, slaAgeMs, slaLevel, getSlaMs } from '../../domain/leads/leadList';
 import {
   buildEssentials,
   buildNextAction,
@@ -17,6 +17,8 @@ import { useLeadFile, useNow, type LeadFileState } from './useLeadsData';
 import { buildCallSession, saveSession } from '../myday/callSession';
 import { newRequestId } from '../../lib/qualifyApi';
 import { sendStatus } from '../../lib/statusApi';
+import { documentLabel } from '../../domain/documents/plan';
+import { LeadDocumentsPanel } from '../documents/LeadDocumentsPanel';
 
 type Tab = 'summary' | 'exchanges' | 'documents' | 'sale';
 const TABS: { key: Tab; label: string }[] = [
@@ -135,6 +137,7 @@ export function LeadFilePage({ listPath }: { listPath: string }) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const state = useLeadFile(leadId);
+  const [params] = useSearchParams();
   // Appeler = déclarer le début de l'appel (téléphonie native hors périmètre V1, cahier §1.2) puis reprendre
   // l'écran « Appel en cours » de Ma journée, où le résultat sera déclaré. Réservé au propriétaire du lead.
   const lead = state.lead;
@@ -148,13 +151,16 @@ export function LeadFilePage({ listPath }: { listPath: string }) {
         navigate('/ma-journee');
       }
     : undefined;
-  return <LeadFileView state={state} listPath={listPath} canSeePriority={user?.role !== 'telepro'} onCall={onCall} />;
+  // Documents : le propriétaire, un manager du périmètre (déjà filtré par les règles de lecture) ou un administrateur.
+  const canActOnDocs = !!user && !!lead && (user.role === 'admin' || user.role === 'manager' || lead.ownerId === user.uid);
+  return <LeadFileView state={state} listPath={listPath} canSeePriority={user?.role !== 'telepro'} onCall={onCall} canActOnDocs={canActOnDocs} initialTab={params.get('onglet') === 'documents' ? 'documents' : undefined} />;
 }
 
-export function LeadFileView({ state, listPath, canSeePriority, nowOverride, onCall }: { state: LeadFileState; listPath: string; canSeePriority: boolean; nowOverride?: number; onCall?: () => void }) {
+export function LeadFileView({ state, listPath, canSeePriority, nowOverride, onCall, canActOnDocs = false, initialTab }: { state: LeadFileState; listPath: string; canSeePriority: boolean; nowOverride?: number; onCall?: () => void; canActOnDocs?: boolean; initialTab?: Tab }) {
   const liveNow = useNow(1000);
   const now = nowOverride ?? liveNow;
-  const [tab, setTab] = useState<Tab>('summary');
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'summary');
+  const [followUp, setFollowUp] = useState(false);
 
   const { lead, file, events, names } = state;
   const timeline = useMemo(() => buildTimeline(events, names.users), [events, names.users]);
@@ -200,6 +206,41 @@ export function LeadFileView({ state, listPath, canSeePriority, nowOverride, onC
   const nextIcon = overdue ? 'bg-red-600' : 'bg-orange-500';
   const isDocAction = file.nextAction ? /document/.test(file.nextAction.type) : false;
   const canAct = file.nextAction !== null;
+  const missingPieces = lead.docs?.missing ?? [];
+  const actionType = file.nextAction?.type ?? '';
+  const docActionLabel = actionType === 'document_review' ? 'Contrôler les pièces' : actionType === 'document_decision' ? 'Décider' : actionType === 'build_file' ? 'Monter le dossier' : 'Relancer maintenant';
+  const docActionIcon = actionType === 'document_review' || actionType === 'document_decision' || actionType === 'build_file' ? <FileText className="h-4 w-4" /> : <Send className="h-4 w-4" />;
+  const openDocAction = () => {
+    setTab('documents');
+    if (actionType === 'document_followup' || actionType === 'promised_docs_missing') setFollowUp(true);
+  };
+
+  const progressionCard = (
+        <Card title="Progression" icon={<BarChart3 className="h-[18px] w-[18px] text-blue-600" />}>
+          <ol className="space-y-5">
+            {progress.map((s, i) => (
+              <li key={s.key} className="relative flex gap-4">
+                {i < progress.length - 1 && <span className={cn('absolute left-[11px] top-7 h-[calc(100%-0.25rem)] w-0.5', s.state === 'done' ? 'bg-emerald-500' : 'bg-slate-200')} aria-hidden="true" />}
+                <span
+                  className={cn(
+                    'z-10 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2',
+                    s.state === 'done' ? 'border-emerald-500 bg-emerald-500 text-white' : s.state === 'current' ? 'border-blue-600 bg-white ring-4 ring-blue-100' : 'border-slate-300 bg-slate-100'
+                  )}
+                >
+                  {s.state === 'done' && <Check className="h-3.5 w-3.5" />}
+                  {s.state === 'current' && <span className="h-2 w-2 rounded-full bg-blue-600" />}
+                </span>
+                <div>
+                  <p className={cn('text-sm font-semibold', s.state === 'current' ? 'text-blue-700' : s.state === 'todo' ? 'text-slate-700' : 'text-slate-900')}>{s.label}</p>
+                  <p className="text-xs text-slate-500">{s.detail}</p>
+                </div>
+              </li>
+            ))}
+          </ol>
+          {/* Statut technique : réservé au manager et à l'administrateur (§25.1). */}
+          {canSeePriority && <p className="mt-5 border-t border-slate-100 pt-3 text-xs text-slate-500">Statut : {LEAD_STATUS_LABELS[lead.status]}</p>}
+        </Card>
+  );
 
   return (
     <div className="w-full">
@@ -265,16 +306,28 @@ export function LeadFileView({ state, listPath, canSeePriority, nowOverride, onC
                   {next.dueAtMs !== null && <p className={cn('mt-1 text-sm', overdue ? 'font-semibold text-red-700' : 'text-orange-700')}>{dueLine(next.dueAtMs, next.overdue, now)}</p>}
                   <p className="mt-1.5 text-sm text-slate-600">{next.reason}</p>
                   {next.priority && <p className="mt-1 text-xs text-slate-500">Priorité {next.priority}</p>}
+                  {isDocAction && missingPieces.length > 0 && (
+                    <div className="mt-3">
+                      <p className="text-sm text-slate-700">{missingPieces.some((m) => m.status !== 'expected') ? 'Pièces à fournir ou à redemander :' : 'Pièces manquantes :'}</p>
+                      <ul className="mt-1.5 flex flex-wrap gap-2">
+                        {missingPieces.map((m) => (
+                          <li key={m.code} className={cn('inline-flex items-center gap-2 rounded-lg border bg-white px-3 py-1.5 text-sm', m.status === 'expected' ? 'border-slate-200 text-slate-700' : 'border-red-200 text-red-700')}>
+                            <FileText className="h-4 w-4 text-slate-400" /> {documentLabel(m.code, m.label)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
                 {canAct && (
                   <button
                     type="button"
-                    onClick={isDocAction ? undefined : onCall}
-                    disabled={isDocAction || !onCall}
-                    title={isDocAction ? "L'envoi de relances arrive avec le lot « Documents »" : !onCall ? 'Seul le propriétaire du lead peut lancer un appel' : undefined}
+                    onClick={isDocAction ? openDocAction : onCall}
+                    disabled={isDocAction ? !canActOnDocs : !onCall}
+                    title={isDocAction ? (!canActOnDocs ? 'Seul le propriétaire du lead, son manager ou un administrateur peut traiter ses documents' : undefined) : !onCall ? 'Seul le propriétaire du lead peut lancer un appel' : undefined}
                     className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-sm font-bold uppercase tracking-wide text-white hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {isDocAction ? <><Send className="h-4 w-4" /> Relancer maintenant</> : <><Phone className="h-4 w-4" /> Appeler maintenant</>}
+                    {isDocAction ? <>{docActionIcon} {docActionLabel}</> : <><Phone className="h-4 w-4" /> Appeler maintenant</>}
                   </button>
                 )}
               </div>
@@ -286,7 +339,7 @@ export function LeadFileView({ state, listPath, canSeePriority, nowOverride, onC
                   title="Ouvrir cette fiche n'arrête pas le compteur : seul un changement de statut le fait."
                 >
                   Depuis la réception : {formatCounter(age)}
-                  {level === 'breached' && <> · SLA dépassé de {formatCounter(age - DEFAULT_SLA_MS)}</>}
+                  {level === 'breached' && <> · SLA dépassé de {formatCounter(age - getSlaMs())}</>}
                 </p>
               )}
             </section>
@@ -317,30 +370,7 @@ export function LeadFileView({ state, listPath, canSeePriority, nowOverride, onC
           </div>
 
           <div className="space-y-6">
-            <Card title="Progression" icon={<BarChart3 className="h-[18px] w-[18px] text-blue-600" />}>
-              <ol className="space-y-5">
-                {progress.map((s, i) => (
-                  <li key={s.key} className="relative flex gap-4">
-                    {i < progress.length - 1 && <span className={cn('absolute left-[11px] top-7 h-[calc(100%-0.25rem)] w-0.5', s.state === 'done' ? 'bg-emerald-500' : 'bg-slate-200')} aria-hidden="true" />}
-                    <span
-                      className={cn(
-                        'z-10 mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border-2',
-                        s.state === 'done' ? 'border-emerald-500 bg-emerald-500 text-white' : s.state === 'current' ? 'border-blue-600 bg-white ring-4 ring-blue-100' : 'border-slate-300 bg-slate-100'
-                      )}
-                    >
-                      {s.state === 'done' && <Check className="h-3.5 w-3.5" />}
-                      {s.state === 'current' && <span className="h-2 w-2 rounded-full bg-blue-600" />}
-                    </span>
-                    <div>
-                      <p className={cn('text-sm font-semibold', s.state === 'current' ? 'text-blue-700' : s.state === 'todo' ? 'text-slate-700' : 'text-slate-900')}>{s.label}</p>
-                      <p className="text-xs text-slate-500">{s.detail}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
-              {/* Statut technique : réservé au manager et à l'administrateur (§25.1). */}
-              {canSeePriority && <p className="mt-5 border-t border-slate-100 pt-3 text-xs text-slate-500">Statut : {LEAD_STATUS_LABELS[lead.status]}</p>}
-            </Card>
+            {progressionCard}
 
             <Card title="Historique récent" icon={<Clock className="h-[18px] w-[18px] text-blue-600" />}>
               <RecentHistory items={timeline.slice(0, 4)} now={now} />
@@ -355,29 +385,45 @@ export function LeadFileView({ state, listPath, canSeePriority, nowOverride, onC
       )}
 
       {tab === 'exchanges' && (
-        <div className="mt-6 max-w-3xl">
+        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div>
           <Card title={`Chronologie (${timeline.length})`} icon={<MessageSquare className="h-[18px] w-[18px] text-blue-600" />}>
             <Timeline items={timeline} />
-            <p className="mt-4 text-xs text-slate-400">Appels, emails, SMS et WhatsApp rejoindront cette chronologie avec les lots « Exécution » et « Documents ».</p>
+            <p className="mt-4 text-xs text-slate-400">Appels, emails, SMS et WhatsApp rejoindront cette chronologie avec les canaux de communication.</p>
           </Card>
         </div>
+        <aside className="space-y-6">{progressionCard}</aside>
+      </div>
       )}
 
       {tab === 'documents' && (
-        <div className="mt-6 max-w-3xl">
+        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div>
           <Card title="Documents" icon={<FileText className="h-[18px] w-[18px] text-blue-600" />}>
-            <p className="text-sm text-slate-800">{DOCUMENT_STATE_LABELS[file.documents.state]}{file.documents.expected > 0 ? ` — ${file.documents.received}/${file.documents.expected} pièces reçues, ${file.documents.conform} conformes` : ''}.</p>
-            <p className="mt-3 rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500">La checklist, le dépôt, le contrôle et les relances de pièces arrivent avec le lot « Documents ».</p>
+            <LeadDocumentsPanel
+              leadId={lead.id}
+              firstName={lead.fullName.split(/\s+/)[0] ?? ''}
+              leadStatus={lead.status}
+              nextActionType={file.nextAction?.type ?? null}
+              canAct={canActOnDocs}
+              openFollowUp={followUp}
+              onFollowUpClosed={() => setFollowUp(false)}
+            />
           </Card>
         </div>
+        <aside className="space-y-6">{progressionCard}</aside>
+      </div>
       )}
 
       {tab === 'sale' && (
-        <div className="mt-6 max-w-3xl">
+        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div>
           <Card title="Vente" icon={<Workflow className="h-[18px] w-[18px] text-blue-600" />}>
             <p className="rounded-lg border border-dashed border-slate-300 p-4 text-sm text-slate-500">Offres, signature, règlement et financement arrivent avec les lots « Conversion » et « Vente à distance ».</p>
           </Card>
         </div>
+        <aside className="space-y-6">{progressionCard}</aside>
+      </div>
       )}
     </div>
   );

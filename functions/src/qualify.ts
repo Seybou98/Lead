@@ -11,6 +11,8 @@ import type { Role } from '../../src/domain/enums';
 import type { CallOutcomeInput } from '../../src/domain/call/outcomes';
 import { DEFAULT_CALL_RULES, planCallOutcome, type CallRules } from '../../src/domain/call/plan';
 import { statusAfterCall } from '../../src/domain/availability/status';
+import { loadCallRules } from './settings';
+import { checklistKey, resolveChecklist } from '../../src/domain/documents/checklist';
 
 export interface QualifyArgs {
   uid: string;
@@ -61,8 +63,13 @@ export async function qualifyCall(db: Firestore, args: QualifyArgs): Promise<Qua
   const idemRef = db.collection(COL.idempotency).doc(`qualify_${args.requestId}`.slice(0, 200));
 
   // Configuration lue hors transaction : elle change rarement.
-  const cfgSnap = await db.collection(COL.config).doc('callRules').get();
-  const rules = parseCallRules(cfgSnap.exists ? (cfgSnap.data() as DocumentData) : undefined);
+  const configured = await loadCallRules(db);
+  let rules = configured;
+  if (!rules) {
+    // Aucun réglage enregistré dans Paramètres : anciens documents cl_config, sinon valeurs du cahier.
+    const cfgSnap = await db.collection(COL.config).doc('callRules').get();
+    rules = parseCallRules(cfgSnap.exists ? (cfgSnap.data() as DocumentData) : undefined);
+  }
 
   const result = await db.runTransaction(async (tx): Promise<QualifyResult> => {
     // ── lectures ──
@@ -82,6 +89,14 @@ export async function qualifyCall(db: Firestore, args: QualifyArgs): Promise<Qua
       return { ok: false, code: 'stale', message: "Ce lead a changé depuis l'ouverture de l'écran (autre onglet ou autre utilisateur). Rechargez la page.", errors: {} };
     }
 
+    // Pièces à demander : checklist du produit du lead (cl_checklists), sinon celle par défaut, sinon la liste d'origine.
+    let planRules = rules;
+    if (args.input.kind === 'request_documents') {
+      const key = checklistKey(lead.productCode);
+      const [own, def] = await Promise.all([tx.get(db.collection(COL.checklists).doc(key)), tx.get(db.collection(COL.checklists).doc('default'))]);
+      planRules = { ...rules, documentTypes: resolveChecklist(lead.productCode, { [key]: own.data(), default: def.data() }).items };
+    }
+
     const result = planCallOutcome(args.input, {
       lead: {
         id: args.leadId,
@@ -96,7 +111,7 @@ export async function qualifyCall(db: Firestore, args: QualifyArgs): Promise<Qua
       nowMs,
       requestId: args.requestId,
       durationSeconds: args.durationSeconds,
-      rules,
+      rules: planRules,
     });
     if (!result.ok) return { ok: false, code: result.code, message: result.message, errors: result.errors };
     const plan = result.plan;
@@ -136,6 +151,12 @@ export async function qualifyCall(db: Firestore, args: QualifyArgs): Promise<Qua
       patch['documents.conform'] = 0;
       patch['documents.mandatory'] = mandatory;
       patch['documents.mandatoryConform'] = 0;
+      patch['documents.toCheck'] = 0;
+      patch['documents.followUpCount'] = 0;
+      patch['documents.lastFollowUpAt'] = null;
+      patch['documents.lastReceivedAt'] = null;
+      patch['documents.completedAt'] = null;
+      patch['documents.missing'] = plan.documents.types.map((t) => ({ code: t.code, label: t.label, status: 'expected', koReason: null }));
       patch['documents.lastRequestAt'] = at;
       patch['documents.nextFollowUpAt'] = plan.documents.nextFollowUpAtMs === null ? null : d(plan.documents.nextFollowUpAtMs);
       patch['documents.promisedAt'] = plan.documents.promisedAtMs === null ? null : d(plan.documents.promisedAtMs);
@@ -204,6 +225,7 @@ export async function qualifyCall(db: Firestore, args: QualifyArgs): Promise<Qua
         tx.set(ref, {
           id: ref.id,
           typeCode: t.code,
+          label: t.label,
           mandatory: t.mandatory,
           status: 'expected',
           koReason: null,

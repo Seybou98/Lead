@@ -14,6 +14,8 @@ export interface ScheduleLike {
   timezone: string;
   weekly: readonly WorkSlotLike[];
   breaks?: readonly WorkSlotLike[];
+  /** Jours fermés de l'entreprise (« YYYY-MM-DD » dans le fuseau du planning), en plus de ceux passés à l'appel. */
+  closedDates?: readonly string[];
 }
 
 const WEEKDAYS: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
@@ -69,7 +71,8 @@ export function isWithinSchedule(
   atMs: number,
   closedDates: readonly string[] = []
 ): boolean {
-  if (closedDates.length > 0 && closedDates.includes(localDateString(atMs, schedule.timezone))) return false;
+  const closed = schedule.closedDates?.length ? [...schedule.closedDates, ...closedDates] : closedDates;
+  if (closed.length > 0 && closed.includes(localDateString(atMs, schedule.timezone))) return false;
   const { day, minutes } = localDayAndMinutes(atMs, schedule.timezone);
   const working = schedule.weekly.some((s) => inSlot(s, day, minutes));
   if (!working) return false;
@@ -109,4 +112,54 @@ export function nextWorkingTime(
     }
   }
   return null;
+}
+
+// ── Temps de travail écoulé (SLA suspendu hors horaires, §19.4) ──────────────
+
+/** Décalage du fuseau (ms) à l'instant donné : heure locale − heure UTC. */
+function tzOffsetMs(timezone: string, atMs: number): number {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(atMs));
+  const n = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+  return Date.UTC(n('year'), n('month') - 1, n('day'), n('hour'), n('minute'), n('second')) - Math.floor(atMs / 1000) * 1000;
+}
+
+/** Instant (epoch ms) de « jour y-m-d, `minutes` après minuit » dans le fuseau. 1440 = minuit du lendemain. */
+function zonedEpoch(timezone: string, y: number, m: number, d: number, minutes: number): number {
+  const guess = Date.UTC(y, m - 1, d, 0, minutes);
+  const first = guess - tzOffsetMs(timezone, guess);
+  const second = guess - tzOffsetMs(timezone, first);
+  return second;
+}
+
+/**
+ * Durée de TRAVAIL écoulée entre deux instants : seules comptent les plages du planning, hors pauses et jours
+ * fermés. Exacte (calculée par plages et par jour, pas par pas), donc assez légère pour un compteur affiché à la
+ * seconde. Un planning vide ne compte aucune durée.
+ */
+export function workingElapsedMs(schedule: ScheduleLike, fromMs: number, toMs: number, closedDates: readonly string[] = []): number {
+  if (!(toMs > fromMs) || schedule.weekly.length === 0) return 0;
+  const closed = new Set([...(schedule.closedDates ?? []), ...closedDates]);
+  const [fy, fm, fd] = localDateString(fromMs, schedule.timezone).split('-').map(Number);
+  const last = localDateString(toMs, schedule.timezone);
+  let total = 0;
+  for (let i = 0; i < 400; i++) {
+    const day = new Date(Date.UTC(fy, fm - 1, fd + i));
+    const [y, m, d] = [day.getUTCFullYear(), day.getUTCMonth() + 1, day.getUTCDate()];
+    const dateStr = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    if (dateStr > last) break;
+    if (closed.has(dateStr)) continue;
+    const dow = day.getUTCDay();
+    const breaks = (schedule.breaks ?? []).filter((b) => b.day === dow).map((b) => [parseHHmm(b.start), parseHHmm(b.end)] as const);
+    for (const slot of schedule.weekly.filter((s) => s.day === dow)) {
+      // Plage moins pauses → morceaux continus.
+      let pieces: [number, number][] = [[parseHHmm(slot.start), parseHHmm(slot.end)]];
+      for (const [bs, be] of breaks) pieces = pieces.flatMap(([a, b]) => (be <= a || bs >= b ? [[a, b]] : [...(bs > a ? [[a, bs] as [number, number]] : []), ...(be < b ? [[be, b] as [number, number]] : [])]));
+      for (const [a, b] of pieces) {
+        const start = Math.max(zonedEpoch(schedule.timezone, y, m, d, a), fromMs);
+        const end = Math.min(zonedEpoch(schedule.timezone, y, m, d, b), toMs);
+        if (end > start) total += end - start;
+      }
+    }
+  }
+  return total;
 }

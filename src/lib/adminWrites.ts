@@ -25,6 +25,7 @@ import {
 import { auth, db } from './firebase';
 import { COL } from '../domain/collections';
 import { cleanString } from '../domain/admin/validate';
+import { parseSlaSettings } from '../domain/settings/settings';
 import {
   AdminRuleError,
   asRecord,
@@ -32,6 +33,10 @@ import {
   optionalId,
   planAssignmentConfig,
   planCampaignSave,
+  planChecklistSave,
+  planRulesSave,
+  planSlaOverrideSave,
+  planSlaSave,
   planProfileUpdate,
   planSourceSave,
   planSpendSave,
@@ -163,6 +168,95 @@ export async function saveProfileDirect(input: unknown): Promise<DirectResult> {
     tx.set(doc(db, COL.profiles, uid), plan.next);
     writeAudit(tx, actor, plan.audit);
     return { ok: true as const, id: uid, warnings: plan.warnings };
+  });
+}
+
+// ── Checklist documentaire ───────────────────────────────────────────────────
+
+export async function saveChecklistDirect(input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  // Le plan donne la clé (une famille = un document) : on lit l'existant avant de recalculer le plan complet.
+  const probe = planChecklistSave({ input, before: null, actorId: actor, nowMs });
+  const ref = doc(db, COL.checklists, probe.key);
+  return runTransaction(db, async (tx) => {
+    const plan = planChecklistSave({ input, before: data(await tx.get(ref)), actorId: actor, nowMs });
+    tx.set(ref, plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: plan.key, warnings: [] };
+  });
+}
+
+/** Retire la checklist d'une famille : elle retombe sur la checklist « par défaut ». */
+export async function deleteChecklistDirect(key: string): Promise<DirectResult> {
+  const actor = actorId();
+  if (!/^[a-z0-9][a-z0-9-]{0,79}$/.test(key)) throw new AdminRuleError('invalid-argument', 'Checklist inconnue.');
+  const ref = doc(db, COL.checklists, key);
+  return runTransaction(db, async (tx) => {
+    const before = data(await tx.get(ref));
+    if (!before) throw new AdminRuleError('not-found', "Cette checklist n'existe pas.");
+    tx.delete(ref);
+    writeAudit(tx, actor, { action: 'checklist.delete', entityType: 'checklist', entityId: key, before, after: null, reason: null });
+    return { ok: true as const, id: key, warnings: [] };
+  });
+}
+
+// ── Réglages : SLA et horaires, cycles NR ────────────────────────────────────
+
+export async function saveSlaDirect(input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  const ref = doc(db, COL.settings, 'sla');
+  return runTransaction(db, async (tx) => {
+    const plan = planSlaSave({ input, before: data(await tx.get(ref)), actorId: actor, nowMs });
+    tx.set(ref, plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: 'sla', warnings: [] };
+  });
+}
+
+export async function saveRulesDirect(input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  const ref = doc(db, COL.settings, 'rules');
+  return runTransaction(db, async (tx) => {
+    const plan = planRulesSave({ input, before: data(await tx.get(ref)), actorId: actor, nowMs });
+    tx.set(ref, plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: 'rules', warnings: [] };
+  });
+}
+
+/** Règle de réattribution d'une campagne : validée avec les réglages généraux, qui restent la base. */
+export async function saveSlaOverrideDirect(input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const d = asRecord(input);
+  const campaignId = optionalId(d.campaignId);
+  if (!campaignId) throw new AdminRuleError('invalid-argument', 'La campagne est obligatoire.');
+  const nowMs = Date.now();
+  const ref = doc(db, COL.settings, `sla_${campaignId}`);
+  const generalRef = doc(db, COL.settings, 'sla');
+  return runTransaction(db, async (tx) => {
+    const [cur, general] = await Promise.all([tx.get(ref), tx.get(generalRef)]);
+    const plan = planSlaOverrideSave({ campaignId, input: d, general: parseSlaSettings(data(general) ?? undefined), before: data(cur), actorId: actor, nowMs });
+    tx.set(ref, plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: ref.id, warnings: [] };
+  });
+}
+
+/** Retire la règle propre à une campagne : elle retombe sur les réglages généraux. */
+export async function deleteSlaOverrideDirect(campaignId: string): Promise<DirectResult> {
+  const actor = actorId();
+  const id = optionalId(campaignId);
+  if (!id) throw new AdminRuleError('invalid-argument', 'Campagne inconnue.');
+  const ref = doc(db, COL.settings, `sla_${id}`);
+  return runTransaction(db, async (tx) => {
+    const before = data(await tx.get(ref));
+    if (!before) throw new AdminRuleError('not-found', "Cette campagne n'a pas de règle propre.");
+    tx.delete(ref);
+    writeAudit(tx, actor, { action: 'settings.sla.campaign.delete', entityType: 'settings', entityId: ref.id, before, after: null, reason: null });
+    return { ok: true as const, id: ref.id, warnings: [] };
   });
 }
 

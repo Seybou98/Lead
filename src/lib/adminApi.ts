@@ -4,7 +4,7 @@
 import { httpsCallable } from 'firebase/functions';
 import { functions } from './firebase';
 import { resolveWriteMode } from './adminErrors';
-import { saveAssignmentConfigDirect, saveCampaignDirect, saveProfileDirect, saveSourceDirect, saveSpendDirect, saveTeamDirect } from './adminWrites';
+import { deleteChecklistDirect, deleteSlaOverrideDirect, saveRulesDirect, saveSlaDirect, saveSlaOverrideDirect, saveAssignmentConfigDirect, saveChecklistDirect, saveCampaignDirect, saveProfileDirect, saveSourceDirect, saveSpendDirect, saveTeamDirect } from './adminWrites';
 
 export interface AdminResult {
   ok: true;
@@ -109,3 +109,20 @@ export const saveSpend = call<SpendInput>('adminSaveSpend', saveSpendDirect);
 export const saveSource = call<SourceInput>('adminUpsertSource', saveSourceDirect);
 export const saveCampaign = call<CampaignInput>('adminUpsertCampaign', saveCampaignDirect);
 export const saveAssignmentConfig = call<{ campaignId: string; config: AssignmentConfigInput; reason?: string }>('adminUpdateAssignmentConfig', saveAssignmentConfigDirect);
+
+export interface ChecklistInput {
+  /** null = checklist « par défaut ». */
+  productCode: string | null;
+  items: { code?: string; label: string; mandatory: boolean }[];
+  reason?: string;
+}
+
+/** Les checklists n'ont pas de fonction de secours : écriture directe, protégée par les règles Firestore. */
+export const saveChecklist = (input: ChecklistInput): Promise<AdminResult> => saveChecklistDirect(input);
+export const deleteChecklist = (key: string): Promise<AdminResult> => deleteChecklistDirect(key);
+
+/** Réglages d'administration (SLA et horaires, cycles NR) : écriture directe, protégée par les règles Firestore. */
+export const saveSla = (input: unknown): Promise<AdminResult> => saveSlaDirect(input);
+export const saveRules = (input: unknown): Promise<AdminResult> => saveRulesDirect(input);
+export const saveSlaOverride = (input: unknown): Promise<AdminResult> => saveSlaOverrideDirect(input);
+export const deleteSlaOverride = (campaignId: string): Promise<AdminResult> => deleteSlaOverrideDirect(campaignId);

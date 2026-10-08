@@ -28,8 +28,16 @@ export const COL = {
   integrationLog: 'cl_integrationLog',
   idempotency: 'cl_idempotency',
 
+  // Lots de transferts de portefeuille (propriétaire d'origine, retour des transferts temporaires)
+  transfers: 'cl_transfers',
+  // Brouillons de transfert de portefeuille (propres à chaque manager)
+  transferDrafts: 'cl_transferDrafts',
+  // Réglages d'administration (SLA et horaires, cycles NR, relances) : un document par sujet, modifiable par l'administrateur
+  settings: 'cl_settings',
   // Paramétrage versionné
   config: 'cl_config',
+  // Checklists documentaires, une par famille de produit (identifiant = clé de la famille, « default » pour les autres)
+  checklists: 'cl_checklists',
 } as const;
 
 /** Sous-collections d'un lead : cl_leads/{leadId}/… */

@@ -18,6 +18,10 @@ const ROUTES: Record<string, string> = {
   '/api/qualify-call': 'qualify-call',
   '/api/leads': 'ingest-lead',
   '/api/set-status': 'set-status',
+  '/api/lead-documents': 'lead-documents',
+  '/api/reassign-lead': 'reassign-lead',
+  '/api/scheduler-run': 'scheduler-run',
+  '/api/portfolio': 'portfolio',
 };
 
 interface LambdaEvent {

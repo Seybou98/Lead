@@ -1,4 +1,7 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useChecklistFor } from '../documents/useChecklists';
+import { useSettings } from '../settings/useSettings';
+import { callRulesFrom } from '../../domain/settings/runtime';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   Archive,
@@ -202,7 +205,7 @@ export interface QualificationPanelProps {
   initialModal?: ModalKey;
 }
 
-export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, requestId, rules = DEFAULT_CALL_RULES, userId, onSubmit, onCancel, initialChoice, initialModal }: QualificationPanelProps) {
+export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, requestId, rules: rulesProp, userId, onSubmit, onCancel, initialChoice, initialModal }: QualificationPanelProps) {
   const [choice, setChoice] = useState<CallChoice | null>(initialChoice ?? null);
   const [modal, setModal] = useState<ModalKey | null>(initialModal ?? null);
 
@@ -232,7 +235,15 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
   const [intTime, setIntTime] = useState(tomorrow.time);
   const [intComment, setIntComment] = useState('');
   // ── Documents ──
+  // Pièces proposées : checklist du produit du lead (Paramètres → Documents), sinon la liste par défaut.
+  // Règles d'appel : celles de Paramètres (matrice NR, horaires, jours fermés), sinon les valeurs du cahier.
+  const settings = useSettings();
+  const baseRules = useMemo(() => rulesProp ?? (settings.saved.sla || settings.saved.rules ? callRulesFrom(settings.rules, settings.sla) : DEFAULT_CALL_RULES), [rulesProp, settings]);
+  const checklist = useChecklistFor(lead.productCode);
+  const rules = useMemo(() => ({ ...baseRules, documentTypes: checklist.items }), [baseRules, checklist.items]);
   const [docs, setDocs] = useState<string[]>(DEFAULT_DOCUMENT_TYPES.filter((d) => d.mandatory).map((d) => d.code));
+  // Quand la checklist change (chargement, autre produit), on repart des pièces obligatoires.
+  useEffect(() => setDocs(checklist.items.filter((d) => d.mandatory).map((d) => d.code)), [checklist.items]);
   const [docChannel, setDocChannel] = useState<DocumentChannelKey | ''>('');
   const [docPromised, setDocPromised] = useState(false);
   const [docDate, setDocDate] = useState(soon.date);

@@ -97,6 +97,81 @@ Troisième fonction du site : `netlify/functions/set-status.ts`, adresse `/api/s
 - Chaque changement est historisé dans `cl_audit` (`operational_status_changed`).
 - Codes : 200 · 401 · 404 profil absent · 409 statut verrouillé · 422 statut refusé · 500.
 
+## Documents d'un lead
+Quatrième fonction du site : `netlify/functions/lead-documents.ts`, adresse `/api/lead-documents` (jeton Firebase, même clé).
+- Corps : `{ leadId, requestId, input: { kind, ... } }` avec `kind` parmi `receive` (pièce reçue, avec ou sans fichier),
+  `check` (conforme / non conforme + motif), `reask`, `follow_up` (relance faite), `decide` (poursuivre, recycler,
+  clôturer à J+14) et `start_building` (passage au montage).
+- Droit : propriétaire du lead, manager du lead (`managerIds`) ou administrateur. L'identité vient du jeton.
+- Une transaction recalcule l'état du dossier, le statut du lead, la prochaine action et les compteurs de charge,
+  et écrit l'historique. Idempotente (`requestId`).
+- Fichiers : le navigateur les envoie dans Storage sous `cl_documents/{leadId}/{pièce}/…`, puis déclare le chemin à
+  la fonction, qui n'accepte que ce préfixe. **À faire avant la production** : ajouter dans `storage.rules` une règle
+  limitant `cl_documents/**` aux rôles administrateur, manager et télépro (aujourd'hui la règle générale laisse tout
+  compte CRM lire et écrire).
+- Pièces demandées : checklist du produit du lead (`cl_checklists/{famille}`), sinon `cl_checklists/default`, sinon la liste d'origine du code. Édition : Paramètres → Documents et checklists (règle Firestore `cl_checklists` à appliquer, voir `firebase/RULES_A_APPLIQUER.md`).
+- Réglages facultatifs, document `cl_config/documentRules` : `followUpDays` (croissant, ex. `[1,3,5,7,14]`),
+  `decisionRepeatDays`. La marge « documents promis » et les horaires viennent de `cl_config/callRules`.
+- Codes : 200 · 400 · 401 · 403 · 404 · 409 (lead clôturé, dossier indisponible) · 422 (saisie refusée) · 500.
+
+## Réattribution d'un lead (cockpit manager)
+Cinquième fonction du site : `netlify/functions/reassign-lead.ts`, adresse `/api/reassign-lead` (jeton Firebase, même clé).
+- Corps : `{ leadId, targetUid, requestId, reason }`. Droit : manager du lead (`managerIds`) ou administrateur ;
+  un manager ne confie un lead qu'à un télépro de son périmètre. Motif obligatoire.
+- Une transaction change propriétaire, équipe et managers (union : le manager qui agit garde la vue), déplace
+  la charge d'un profil à l'autre, crée l'action « prendre en charge » si le lead sortait de la file tampon,
+  écrit l'historique (`reassigned`), prévient les deux télépros et trace l'opération dans `cl_audit`. Idempotente.
+- Codes : 200 · 400 · 401 · 403 · 404 · 409 (lead clôturé) · 422 (motif, cible) · 500.
+
+## Planificateur (traitements automatiques)
+Deux fonctions : `netlify/functions/scheduler.ts` (PLANIFIÉE, toutes les 5 minutes, déclarée dans `netlify.toml`,
+section `[functions."scheduler"]`) et `netlify/functions/scheduler-run.ts` (`/api/scheduler-run`, jeton Firebase d'un
+administrateur, pour un passage manuel depuis Paramètres → « Exécuter maintenant »).
+- **Ce qu'il fait** : escalades vers les managers (notifications `manager_alert`, une seule par événement), entrée
+  en recyclage puis archivage des injoignables, attribution des leads de la file tampon quand un télépro compatible
+  redevient disponible. Logique : `src/domain/scheduler/plan.ts` et `functions/src/scheduler.ts`.
+- **Idempotent** : rejouer un passage ne double rien (identifiants déterministes, relecture dans chaque transaction).
+- **Réglages facultatifs**, document `cl_config/schedulerRules` : `callbackEscalationMin` (30), `bufferWarnMin` (15),
+  `bufferAnomalyHours` (24), `maxRecycleCycles` (3). Horaires : `cl_config/callRules`.
+- **Trace** : `cl_config/schedulerStatus` (dernier passage et compteurs), affichée dans Paramètres. Plus de
+  15 minutes sans passage : l'écran signale que le planificateur ne tourne plus.
+- **En développement** il n'y a aucune planification : utiliser le bouton « Exécuter maintenant ». Le passage
+  agit sur la vraie base (il attribue réellement les leads en file tampon).
+- La planification n'existe qu'une fois le site déployé sur Netlify (les fonctions planifiées ne tournent que sur
+  la branche de production du site).
+
+## Absences et transferts de portefeuille
+Sixième fonction du site : `netlify/functions/portfolio.ts`, adresse `/api/portfolio` (jeton Firebase, manager ou administrateur).
+- `declare_absence` : enregistre l'absence (`cl_absences`), pose le statut « Absent » si elle est en cours, trace dans
+  `cl_audit`. Un chevauchement avec une autre absence du même télépro est refusé. Le moteur d'attribution lit déjà les
+  dates : la distribution s'arrête à l'heure de début et reprend à l'heure de fin.
+- `end_absence` : fin anticipée (la fin devient « maintenant »).
+- `transfer` : jusqu'à 25 éléments par envoi, chacun passant par la réattribution (droits, historique, compteurs,
+  audit). Le lot est inscrit dans `cl_transfers` ; un lot temporaire reçoit une date de retour.
+- Le planificateur applique la fin des absences (statut « Absent » levé ; distribution laissée suspendue si
+  « rétablir automatiquement » était désactivé) et le retour des transferts temporaires vers le propriétaire d'origine.
+- Règle Firestore à appliquer : `cl_transfers` (lecture manager et administrateur), voir `firebase/RULES_A_APPLIQUER.md`.
+
+## Réglages d'administration (SLA, horaires, cycles NR)
+Édités dans Paramètres → « SLA et horaires » et « Cycles NR, rappels et documents ». Stockés dans `cl_settings` :
+`sla` (paliers, réattribution, horaires, jours fermés, comportement hors horaires), `rules` (matrice NR, recyclage,
+rappels, relances documentaires), `sla_<campagne>` (règle de réattribution propre à une campagne). Lecture par tout le
+personnel, écriture par l'administrateur seul (règle `cl_settings` à appliquer : `firebase/RULES_A_APPLIQUER.md`).
+- **Qui les lit** : la qualification d'appel (matrice NR, horaires), les relances documentaires, le planificateur
+  (alertes manager, recyclage, réattribution au SLA), la réception des leads (comportement hors horaires) et le navigateur
+  (délai du SLA, SLA suspendu hors horaires).
+- **Sans réglage enregistré** : les valeurs du cahier des charges. Les anciens documents `cl_config/callRules`,
+  `documentRules` et `schedulerRules` ne servent plus qu'à défaut de tout réglage enregistré.
+- **Réattribution automatique au SLA** : désactivée par défaut ; le planificateur confie le lead à un autre télépro (ou à
+  l'équipe de secours) tant qu'il n'est pas pris en charge ; jamais un rappel client promis.
+
+## Centre de paramétrage, produits et versions
+`/parametres` regroupe les modules, les alertes de configuration et les modifications récentes (administrateur). Les
+alertes sont calculées à partir du catalogue du CRM principal (`products`), des checklists, des équipes, des profils et des
+campagnes. `/parametres/versions` relit le journal d'audit (`cl_audit`, 300 entrées les plus récentes) : chaque
+enregistrement d'un réglage y laisse l'ancienne et la nouvelle valeur ; un retour arrière réenregistre l'ancienne
+valeur (nouvelle version, validée comme toute saisie).
+
 ## Données de départ
 Sans elles, un lead reçu va en **file tampon** (comportement voulu, pas une panne). Voir
 [FONCTIONS.md](FONCTIONS.md) : comptes, équipe, configuration du télépro, campagne active, télépro connecté.

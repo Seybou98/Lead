@@ -6,7 +6,7 @@
 // Règle du cahier : seul un changement de statut valide arrête les alertes. Fermer une notification ou ouvrir
 // la fiche ne suffit pas : ici, tout est recalculé depuis les DONNÉES du lead, jamais depuis un clic.
 
-import { DEFAULT_SLA_MS, slaAgeMs, slaLevel, type LeadListItem, type SlaLevel } from '../leads/leadList';
+import { getSlaMs, slaAgeMs, slaLevel, type LeadListItem, type SlaLevel } from '../leads/leadList';
 
 const MIN = 60_000;
 
@@ -100,7 +100,7 @@ export function tickAlerts(prev: AlertState, items: readonly LeadListItem[], uid
   for (const l of slaLeads(items, uid, now)) {
     const age = slaAgeMs(l, now) as number;
     const known = prev.sla[l.id];
-    const overdue = age > DEFAULT_SLA_MS;
+    const overdue = age > getSlaMs();
 
     if (!known) {
       // Lead jamais vu : arrivée (fort) ; s'il est déjà ancien (page ouverte tardivement), simple rappel.
@@ -119,7 +119,7 @@ export function tickAlerts(prev: AlertState, items: readonly LeadListItem[], uid
       continue;
     }
 
-    const interval = age <= DEFAULT_SLA_MS ? SLA_FIRST_INTERVAL_MS : SLA_LATE_INTERVAL_MS;
+    const interval = age <= getSlaMs() ? SLA_FIRST_INTERVAL_MS : SLA_LATE_INTERVAL_MS;
     if (now - known.lastAt >= interval) {
       sla[l.id] = { lastAt: now, breached: known.breached };
       fires.push({ id: `${l.id}:rem:${now}`, kind: 'sla_reminder', leadId: l.id, title: overdue ? 'Lead toujours en attente' : 'Lead à prendre en charge', description: `${who(l)} — ${formatMinSec(age)}`, sound: 'sla' });

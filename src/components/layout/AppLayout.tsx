@@ -28,6 +28,7 @@ import { usePresence } from '../../auth/usePresence';
 import { getNavigation, type NavIconName, type NavItem } from '../../config/navigation';
 import { ROLE_LABELS } from '../../domain/labels';
 import { AlertsProvider } from '../alerts/AlertsProvider';
+import { useSlaRuntimeSync } from '../../pages/settings/useSettings';
 import { AlertBars, AlertBell, AlertToasts } from '../alerts/AlertUI';
 
 const ICONS: Record<NavIconName, ComponentType<{ className?: string }>> = {
@@ -60,6 +61,8 @@ export function AppLayout() {
   const { user, logout } = useAuth();
   const isDesktop = useIsDesktopLg();
   usePresence(user?.uid ?? null);
+  // Réglages du SLA (Paramètres) appliqués aux compteurs de tous les écrans.
+  useSlaRuntimeSync();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 

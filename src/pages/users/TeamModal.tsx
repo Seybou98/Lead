@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { ProductChips } from '../../components/ui/ProductPickers';
+import { useProductCatalog } from '../products/useProductCatalog';
 import { Field, inputClass, Modal, parseList } from '../../components/ui/Modal';
 import { errorMessage, saveTeam } from '../../lib/adminApi';
 import { resolveLeadRole } from '../../config/roles';
@@ -37,7 +39,8 @@ export function TeamModal({
   const [managerId, setManagerId] = useState(team?.managerId ?? '');
   const [secondaryId, setSecondaryId] = useState(team?.secondaryManagerId ?? '');
   const [members, setMembers] = useState<string[]>(team ? [...team.memberIds] : []);
-  const [products, setProducts] = useState((raw?.productCodes ?? []).join(', '));
+  const [products, setProducts] = useState<string[]>(raw?.productCodes ?? []);
+  const catalog = useProductCatalog();
   const [zones, setZones] = useState((raw?.zones ?? []).join(', '));
   const [fallbackId, setFallbackId] = useState(raw?.fallbackTeamId ?? '');
   const [active, setActive] = useState(team?.active ?? true);
@@ -62,7 +65,7 @@ export function TeamModal({
         managerId,
         secondaryManagerId: secondaryId || null,
         memberIds: members,
-        productCodes: parseList(products),
+        productCodes: products,
         zones: parseList(zones),
         fallbackTeamId: fallbackId || null,
         active,
@@ -161,9 +164,11 @@ export function TeamModal({
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Produits de l'équipe" hint="Séparés par des virgules.">
-            <input className={inputClass} value={products} onChange={(e) => setProducts(e.target.value)} />
-          </Field>
+          <div>
+            <span className="text-sm font-medium text-slate-700">Produits de l'équipe</span>
+            <div className="mt-1"><ProductChips selected={products} onChange={setProducts} categories={catalog.categories} ariaLabel="Produits de l'équipe" /></div>
+            <span className="mt-1 block text-xs text-slate-500">Familles du catalogue produits.</span>
+          </div>
           <Field label="Zones de l'équipe" hint="Séparées par des virgules.">
             <input className={inputClass} value={zones} onChange={(e) => setZones(e.target.value)} />
           </Field>

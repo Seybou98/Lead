@@ -107,6 +107,37 @@ const args = (over: Partial<QualifyArgs> = {}): QualifyArgs => ({
 const run = (db: FakeDb, a: QualifyArgs) => qualifyCall(db as never, a);
 const lead = (db: FakeDb) => db.data.get('cl_leads/L1') as Doc & { nr: Doc; sla: Doc; nextAction: Doc | null; lastNote?: Doc; documents?: Doc; quality: Doc };
 
+describe('qualifyCall — checklist du produit', () => {
+  const ask = { kind: 'request_documents' as const, documents: ['attestation'], channel: 'email' as const, promisedAtMs: null };
+  const withLead = (db: FakeDb) => {
+    db.data.set('cl_checklists/pac', { id: 'pac', items: [{ code: 'attestation', label: 'Attestation de ramonage', mandatory: true }, { code: 'identity', label: "Pièce d'identité", mandatory: true }] });
+    return db;
+  };
+  it('demande les pièces de la famille du lead et enregistre leur libellé', async () => {
+    const db = withLead(seed({ productCode: 'PAC' }));
+    const r = await run(db, args({ input: ask }));
+    expect(r.ok).toBe(true);
+    expect(db.data.get('cl_leads/L1/documents/attestation')).toMatchObject({ typeCode: 'attestation', label: 'Attestation de ramonage', mandatory: true, status: 'expected' });
+    expect(lead(db).documents).toMatchObject({ missing: [{ code: 'attestation', label: 'Attestation de ramonage', status: 'expected' }] });
+  });
+  it('une pièce absente de la checklist du produit est refusée', async () => {
+    const db = withLead(seed({ productCode: 'SSC' }));
+    const r = await run(db, args({ input: ask }));
+    expect(r).toMatchObject({ ok: false, code: 'invalid' });
+  });
+  it("sans checklist enregistrée : liste d'origine", async () => {
+    const db = seed({ productCode: 'PAC' });
+    const r = await run(db, args({ input: { ...ask, documents: ['identity'] } }));
+    expect(r.ok).toBe(true);
+    expect(db.data.get('cl_leads/L1/documents/identity')).toMatchObject({ label: "Pièce d'identité" });
+  });
+  it('la checklist « par défaut » éditée sert aux familles sans liste propre', async () => {
+    const db = seed({ productCode: 'POELE' });
+    db.data.set('cl_checklists/default', { id: 'default', items: [{ code: 'attestation', label: 'Attestation', mandatory: false }] });
+    expect((await run(db, args({ input: ask }))).ok).toBe(true);
+  });
+});
+
 describe('qualifyCall — NR', () => {
   it('écrit lead, historique, tentative, action et compteurs de façon cohérente', async () => {
     const db = seed();
@@ -294,5 +325,26 @@ describe('parseCallRules', () => {
   it('une valeur hors bornes retombe sur le défaut', () => {
     expect(parseCallRules({ recycleAfterDays: 9999 }).recycleAfterDays).toBe(DEFAULT_CALL_RULES.recycleAfterDays);
     expect(parseCallRules({ nrDelaysMinutes: [0] }).nrDelaysMinutes).toEqual(DEFAULT_CALL_RULES.nrDelaysMinutes);
+  });
+});
+
+describe('qualifyCall — réglages de Paramètres', () => {
+  it("la matrice NR enregistrée par l'administrateur s'applique (NR2 une heure après, pas trois)", async () => {
+    const db = seed();
+    db.data.set('cl_settings/rules', { nrDelaysMinutes: [60, 120, 180, 240] });
+    await run(db, args());
+    expect(((lead(db).nr as { nextAt: Date }).nextAt).getTime()).toBe(NOW + 3600_000);
+  });
+  it("les jours fermés enregistrés repoussent la tentative au prochain jour ouvré", async () => {
+    const db = seed();
+    // Mercredi 7 octobre : fermé ; NR2 après 3 h tombe donc jeudi à l'ouverture (09:00 Paris = 07:00Z).
+    db.data.set('cl_settings/sla', { schedule: { timezone: 'Europe/Paris', weekly: [1, 2, 3, 4, 5].map((day) => ({ day, start: '09:00', end: '19:00' })), closedDates: ['2026-10-07'] } });
+    await run(db, args());
+    expect(new Date((lead(db).nr as { nextAt: Date }).nextAt).toISOString()).toBe('2026-10-08T07:00:00.000Z');
+  });
+  it('sans réglage enregistré : valeurs du cahier', async () => {
+    const db = seed();
+    await run(db, args());
+    expect(((lead(db).nr as { nextAt: Date }).nextAt).getTime()).toBe(NOW + 3 * 3600_000);
   });
 });

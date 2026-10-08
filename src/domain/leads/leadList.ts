@@ -2,7 +2,10 @@
 
 import type { AssignmentState, DocumentState, LeadStatus, PriorityClass, Temperature } from '../enums';
 import { normalizeText } from '../engine/normalize';
+import { workingElapsedMs, type ScheduleLike } from '../engine/schedule';
 import { CLOSED_LEAD_STATUSES } from '../enums';
+import type { LeadDocsInfo } from '../documents/board';
+import type { ActivityEntry } from './activity';
 
 export interface LeadListItem {
   id: string;
@@ -25,6 +28,10 @@ export interface LeadListItem {
   slaStoppedAtMs: number | null;
   nextAction: { type: string; dueAtMs: number; priority: PriorityClass; reason: string } | null;
   documentsState: DocumentState;
+  /** Résumé documentaire détaillé (écran Documents) ; absent si aucun document n'a été demandé. */
+  docs?: LeadDocsInfo;
+  /** Dernières actions utiles (prise en charge, NR, note, documents), de la plus récente à la plus ancienne. */
+  activity?: ActivityEntry[];
   duplicate: boolean;
   excluded: boolean;
   /** Cycle NR en cours (§8.1) ; absent = aucun NR enregistré. */
@@ -43,16 +50,36 @@ export interface LeadRow extends LeadListItem {
 
 export const DEFAULT_SLA_MS = 5 * 60_000;
 
+/**
+ * Réglages du SLA appliqués dans CE navigateur (Paramètres → SLA et horaires). Un seul état partagé, alimenté une fois
+ * par l'application : tous les compteurs et couleurs lisent la même valeur. Par défaut : les valeurs du cahier.
+ */
+export interface SlaRuntime {
+  slaMs: number;
+  /** Le temps hors horaires ne compte pas dans l'âge du lead. */
+  suspendOutsideHours: boolean;
+  schedule: ScheduleLike | null;
+}
+
+let slaRuntime: SlaRuntime = { slaMs: DEFAULT_SLA_MS, suspendOutsideHours: false, schedule: null };
+export const setSlaRuntime = (r: SlaRuntime): void => {
+  slaRuntime = r;
+};
+export const resetSlaRuntime = (): void => setSlaRuntime({ slaMs: DEFAULT_SLA_MS, suspendOutsideHours: false, schedule: null });
+/** Délai du SLA en vigueur (5 minutes tant qu'aucun réglage n'est chargé). */
+export const getSlaMs = (): number => slaRuntime.slaMs;
+
 /** Âge du lead pour le compteur : uniquement tant qu'aucun statut de traitement n'a été enregistré. */
 export function slaAgeMs(l: Pick<LeadListItem, 'status' | 'slaStartedAtMs' | 'slaStoppedAtMs'>, nowMs: number): number | null {
   if (l.status !== 'new' || l.slaStoppedAtMs !== null || l.slaStartedAtMs === null) return null;
+  if (slaRuntime.suspendOutsideHours && slaRuntime.schedule) return workingElapsedMs(slaRuntime.schedule, l.slaStartedAtMs, nowMs);
   return Math.max(0, nowMs - l.slaStartedAtMs);
 }
 
 export type SlaLevel = 'ok' | 'warning' | 'breached';
 
 /** Couleur progressive (§5.1) : calme jusqu'aux 3/5 du délai, orange ensuite, rouge au dépassement. */
-export function slaLevel(ageMs: number, slaMs = DEFAULT_SLA_MS): SlaLevel {
+export function slaLevel(ageMs: number, slaMs = getSlaMs()): SlaLevel {
   if (ageMs > slaMs) return 'breached';
   if (ageMs >= slaMs * 0.6) return 'warning';
   return 'ok';
