@@ -75,7 +75,7 @@ export function ReasonsPage() {
       {!settings.saved.reasons && !settings.loading && <p className="mt-4 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-900">Aucune liste n&apos;a encore été enregistrée : ce sont les valeurs du cahier des charges qui s&apos;appliquent.</p>}
       {settings.error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Lecture des réglages refusée ou indisponible : vérifiez vos droits et les règles Firestore.</p>}
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+      <div className="mt-5 grid gap-5 2xl:grid-cols-2">
         {REASON_LISTS.map((l) => {
           const items = draft[l];
           const always = COMMENT_ALWAYS_REQUIRED.includes(l);
@@ -91,13 +91,13 @@ export function ReasonsPage() {
                     </div>
                     <input aria-label={`Libellé de ${it.code}`} value={it.label} maxLength={60} onChange={(e) => change((d) => { d[l][i].label = e.target.value; })} className={`${inputCls} min-w-[140px] flex-1 py-1 ${it.active ? '' : 'text-slate-500 line-through'}`} />
                     {!always && (
-                      <label className="flex items-center gap-1.5 text-xs text-slate-600">
+                      <label className="flex items-center gap-1.5 whitespace-nowrap text-xs text-slate-600">
                         <input type="checkbox" checked={it.requireComment} onChange={(e) => change((d) => { d[l][i].requireComment = e.target.checked; })} />
                         Commentaire obligatoire
                       </label>
                     )}
                     <span className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[10px] text-slate-500" title="Code statistique stable">{it.code}</span>
-                    <button type="button" onClick={() => change((d) => { d[l][i].active = !d[l][i].active; })} className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 hover:text-slate-900">
+                    <button type="button" onClick={() => change((d) => { d[l][i].active = !d[l][i].active; })} className="ml-auto inline-flex items-center gap-1 whitespace-nowrap text-xs font-medium text-slate-600 hover:text-slate-900">
                       {it.active ? <><Archive className="h-3.5 w-3.5" /> Archiver</> : <><ArchiveRestore className="h-3.5 w-3.5" /> Réactiver</>}
                     </button>
                   </li>
