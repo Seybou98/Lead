@@ -34,6 +34,10 @@ export interface LeadListItem {
   activity?: ActivityEntry[];
   duplicate: boolean;
   excluded: boolean;
+  /** Motif d'exclusion (faux lead, mauvais numéro) porté par `quality.excludedReason` ; absent si le lead n'est pas exclu. */
+  excludedReason?: string;
+  /** Motif de la clôture, recopié à la qualification (§22.5) ; absent sur les leads clos avant sa mise en place. */
+  closure?: { kind: string; code: string; label: string; category?: string; opposition?: boolean };
   /** Cycle NR en cours (§8.1) ; absent = aucun NR enregistré. */
   nr?: { attempt: number; cycle: number };
   /** Résumé du montage du dossier (recopié par le serveur) ; absent tant qu'aucun brouillon n'a été enregistré. */
@@ -81,6 +85,9 @@ export const setSlaRuntime = (r: SlaRuntime): void => {
 export const resetSlaRuntime = (): void => setSlaRuntime({ slaMs: DEFAULT_SLA_MS, suspendOutsideHours: false, schedule: null });
 /** Délai du SLA en vigueur (5 minutes tant qu'aucun réglage n'est chargé). */
 export const getSlaMs = (): number => slaRuntime.slaMs;
+
+/** Temps écoulé entre deux instants, selon le réglage actif : hors horaires non compté quand il est demandé (§5.1, §22.6). */
+export const slaElapsedMs = (fromMs: number, toMs: number): number => (slaRuntime.suspendOutsideHours && slaRuntime.schedule ? workingElapsedMs(slaRuntime.schedule, fromMs, toMs) : Math.max(0, toMs - fromMs));
 
 /** Âge du lead pour le compteur : uniquement tant qu'aucun statut de traitement n'a été enregistré. */
 export function slaAgeMs(l: Pick<LeadListItem, 'status' | 'slaStartedAtMs' | 'slaStoppedAtMs'>, nowMs: number): number | null {

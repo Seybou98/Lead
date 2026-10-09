@@ -33,11 +33,11 @@ Ce qui fonctionne aujourd'hui, de bout en bout, sur la base de DEV (crm-pose-dev
   - le manager pilote : cockpit, équipe, réattribution, absences, transfert de portefeuille ; un planificateur
     serveur (toutes les 5 minutes) escalade, recycle, attribue la file tampon et reprend les transmissions en échec.
 
-Ce qui reste : les autres rapports (télépros, pipeline documentaire, exports programmés, objectifs, rentabilité),
+Ce qui reste : les autres rapports (exports programmés, objectifs, rentabilité),
 le constructeur de qualification, les communications (SMS, email, WhatsApp), la partie de la vente à distance qui dépend de prestataires (contrat PDF, signature électronique,
 financement), le hub d'intégrations, les règles Storage, la mise en production, puis le Lot 6 (hors V1).
 
-Qualité : 1562 tests unitaires (76 fichiers) ; typecheck de l'application, des fonctions Netlify et des
+Qualité : 1623 tests unitaires (79 fichiers) ; typecheck de l'application, des fonctions Netlify et des
 fonctions Firebase ; build de production OK ; Lead compile, se construit et se teste seul, copié hors du projet.
 Recettes réelles sur la base de DEV : 28/28 (fonctions serveur), 34/34 (montage et vente), 29/29 (transmission
 avec Storage et IGN réels), 31/31 (données transmises et suivi de la vente), 16/16 (retour des statuts), 4/4 (verrous de conversion réglés), 13/13 (file tampon et réattribution
@@ -433,6 +433,25 @@ PHASE 5 — Lot 5, pilotage et reporting                                        
           - Performance des campagnes (fig. 31) : données corrigées ou brutes (§22.5), cartes, tableau (leads bruts et
             valides, CPL, contact, documents, ventes, installées, coût par vente), coût par vente par campagne,
             panneau de la campagne (budget et dépenses, qualité des données, parcours) ; export CSV.
+          - Comparaison des télépros (fig. 32) : leads valides attribués, SLA respecté (hors horaires non compté si le
+            réglage le demande), contact, documents demandés / complets, ventes, lead → vente ; ratios du §22.6 avec
+            leur volume, « volume faible » sous 10 leads valides, nuage taux / volume, fiche du télépro (entonnoir et
+            taux de passage), chaque nombre ouvrant la liste exacte ; export CSV. Non couvert : jours travaillés,
+            absences individuelles, objectifs (aucune donnée).
+          - Performance documentaire et délais (fig. 33) : dossiers demandés, pièce reçue, complets, montés avec taux de
+            passage, délai médian de complétude, relances moyennes, abandon documentaire, délais par étape (médiane
+            et nombre de dossiers), goulots (en attente de pièces au-delà de 3, 5, 7 ou 14 jours ; complets en attente
+            de montage plus de 24 h), pièces et motifs de non-conformité les plus fréquents ; chaque nombre ouvre la
+            liste ; export CSV. Non calculé : « demande → première pièce » (la date de la première pièce n'est pas
+            conservée), seuils de délai pas encore réglables.
+          - Qualité des leads (§22.5) : par source, campagne, produit, zone (département) ou télépro ; reçus (brut),
+            valides (corrigé), exclus, doublons, faux leads, coordonnées invalides, injoignables, inéligibles, non
+            intéressés, abandon documentaire, taux de mauvaise qualité ; bascule données corrigées / brutes ; alerte
+            seulement au-delà de 10 leads et de 10 points au-dessus de l'ensemble ; tableau des motifs ; chaque nombre
+            ouvre la liste exacte ; export CSV. Le motif de clôture (non-intérêt, inéligibilité par catégorie, faux
+            lead, opposition) est désormais recopié sur le lead à la qualification (champ closure) : les leads clos
+            avant cette version apparaissent avec « Motif non renseigné ». Pas de code propre pour « non-propriétaire »
+            et « mauvais produit ».
           - Filtres période (mois, mois précédent, 30 jours, trimestre), source, produit, télépro.
   [PARTIEL] Rapports : « intéressés » se déduit du statut actuel (plancher, aucun historique des statuts) ; les dates
           d'étape sont celles que porte le lead (dernière demande de pièces, dossier complet, dernière mise à jour du
@@ -441,8 +460,7 @@ PHASE 5 — Lot 5, pilotage et reporting                                        
   [À FAIRE] Rapports : filtres équipe, publicité, formulaire, zone, offre, comparaison avec l'année précédente,
           granularité jour / mois, filtres partageables par URL ; objectifs et écart à l'objectif (§22.8, aucun
           objectif n'existe en base, donc ni jauge ni « écart objectif » du tableau des campagnes) ; marge, valeur et
-          rentabilité (pas de chiffre d'affaires ni de coût d'achat en base) ; vues Télépros et équipes (fig. 32),
-          Pipeline documentaire et délais (fig. 33), Qualité des leads par motif ; exports programmés, Excel, PDF et
+          rentabilité (pas de chiffre d'affaires ni de coût d'achat en base) ; exports programmés, Excel, PDF et
           API (fig. 34) ; correction ou exclusion d'un lead avec motif (§22.5) ; coûts importés (CSV, Meta, Google).
 
 PHASE 6 — Sections 23 et 24                                                                 [À FAIRE]
@@ -529,16 +547,18 @@ principal…) restent à confirmer par écrit.
 
   1. (fait) Documents, pilotage manager, planificateur serveur, paramétrage SLA / horaires / NR / documents.
   2. (fait) Conversion : montage, verrous, validation manager, vente, transmission, espace Ventes et suivi manuel.
-  3. Recette avec de vrais leads : brancher Pabbly (2e étape d'envoi), vérifier la file tampon, la réattribution,
-     les dossiers et les ventes sur ces leads, dans le navigateur avec une vraie connexion.
-  4. Règles Storage : fichier prêt, à tester dans le simulateur puis à publier ; ensuite mise en production des fonctions déjà prêtes.
-  5. (fait) Retour des statuts du CRM principal (§24.8), installations et facturations dans les tableaux de campagne
+  3. (fait) Retour des statuts du CRM principal (§24.8), installations et facturations dans les tableaux de campagne
      et de télépro, verrous de conversion réglables, rapports Direction et Campagnes.
-  6. (fait) Motifs et listes administrables (§21.6). Paramétrage restant : qualification conditionnelle (figs. 25-29).
-  7. Rapports restants : télépros, pipeline documentaire, qualité des leads, objectifs, exports programmés (figs. 32-34),
+  4. (fait) Motifs et listes administrables (§21.6). Paramétrage restant : qualification conditionnelle (figs. 25-29).
+  5. Rapports restants : objectifs, exports programmés (fig. 34) (télépros, documents et qualité faits),
      puis communications (SMS, email, WhatsApp).
-  8. Partie de la vente à distance qui dépend de prestataires : contrat PDF versionné, signature électronique,
+  6. Partie de la vente à distance qui dépend de prestataires : contrat PDF versionné, signature électronique,
      financement. À lancer quand les modèles juridiques et les prestataires sont choisis.
+  7. Recette avec de vrais leads (en dernier, avec l'équipe) : brancher Pabbly (2e étape d'envoi), vérifier la file
+     tampon, la réattribution, les dossiers et les ventes sur ces leads, dans le navigateur avec une vraie connexion.
+  8. Règles Storage et mise en production des fonctions (en dernier) : fichier prêt, à tester dans le simulateur puis
+     à publier une fois le rôle « multiservices » accordé par le propriétaire du projet ; ensuite mise en production
+     des fonctions déjà prêtes.
   9. Mise en production complète (§5), recette métier, puis Phase 6.
 
 Chaque étape s'accompagne de tests unitaires, d'une vérification visuelle contre la maquette et d'une
@@ -551,7 +571,7 @@ recette sur la base de DEV.
 
   cd Lead
   npm run dev                       application + fonctions sur http://localhost:5180
-  npm test                          les 1562 tests
+  npm test                          les 1623 tests
   node scripts/send-test-leads.mjs --url http://localhost:5180 --secret <CRM_SHARED_SECRET> --count 5
                                     envoie de faux leads (option --scenario mix pour les cas limites)
   node scripts/test-file-tampon.mjs [--keep]

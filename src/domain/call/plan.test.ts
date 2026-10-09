@@ -377,3 +377,24 @@ describe('motifs modifiables (Paramètres → Motifs et listes)', () => {
     expect(ko(input, c2).errors.temperature).toBeTruthy();
   });
 });
+
+describe('motif de clôture conservé sur le lead (qualité des leads, §22.5)', () => {
+  it('non-intérêt : code, libellé et opposition', () => {
+    expect(ok({ kind: 'close_not_interested', motive: 'no_more_contact', comment: 'stop', followUp: 'close', opposition: false }).closure).toEqual({ kind: 'not_interested', code: 'no_more_contact', label: 'Ne souhaite plus être contacté', opposition: true });
+  });
+  it('inéligible : catégorie et motif précis', () => {
+    const p = ok({ kind: 'close_ineligible', category: 'technical', motive: 'insufficient_surface', product: 'PAC Air/Eau', justification: 'Appartement sans emplacement.' });
+    expect(p.closure).toMatchObject({ kind: 'ineligible', code: 'insufficient_surface', category: 'technical' });
+  });
+  it('faux lead et mauvais numéro', () => {
+    expect(ok({ kind: 'close_fake_lead', motive: 'spam', comment: 'Test', requestManagerCheck: false }).closure).toMatchObject({ kind: 'fake_lead', code: 'spam' });
+    expect(ok({ kind: 'close_wrong_number' }).closure).toMatchObject({ kind: 'fake_lead', code: 'invalid_number' });
+  });
+  it('un résultat qui ne clôture pas n’a pas de clôture', () => {
+    expect(ok({ kind: 'no_answer' }).closure).toBeUndefined();
+  });
+  it('le libellé suit la liste en vigueur au moment de la saisie', () => {
+    const c2 = ctx({ rules: { ...DEFAULT_CALL_RULES, reasons: catalogOf(parseReasonSettings({ lists: { refusal: [{ code: 'price', label: 'Trop cher pour lui', active: true }] } })) } });
+    expect(ok({ kind: 'close_not_interested', motive: 'price', comment: 'x', followUp: 'close', opposition: false }, c2).closure?.label).toBe('Trop cher pour lui');
+  });
+});

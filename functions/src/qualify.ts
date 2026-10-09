@@ -145,6 +145,8 @@ export async function qualifyCall(db: Firestore, args: QualifyArgs): Promise<Qua
       patch['quality.excluded'] = true;
       patch['quality.excludedReason'] = plan.quality.reason;
     }
+    // Pas de valeur `undefined` dans le document : Firestore la refuse.
+    if (plan.closure) patch.closure = { ...Object.fromEntries(Object.entries(plan.closure).filter(([, v]) => v !== undefined)), at };
     if (plan.documents) {
       const mandatory = plan.documents.types.filter((t) => t.mandatory).length;
       patch['documents.state'] = 'requested';

@@ -101,6 +101,15 @@ export interface PlannedAction {
   dedupeKey: string;
 }
 
+/** Clôture d'un lead : famille, code stable du motif, libellé au moment de la saisie, catégorie d'inéligibilité, opposition. */
+export interface LeadClosure {
+  kind: 'not_interested' | 'ineligible' | 'fake_lead';
+  code: string;
+  label: string;
+  category?: string;
+  opposition?: boolean;
+}
+
 export type LoadBucket = 'newLeads' | 'callbacks' | 'interested' | 'documents' | 'filesToBuild' | 'recycling';
 
 export interface QualificationPlan {
@@ -123,6 +132,8 @@ export interface QualificationPlan {
     nextFollowUpAtMs: number | null;
   };
   quality?: { excluded: true; reason: string };
+  /** Motif de la clôture (non-intérêt, inéligibilité, faux lead), recopié sur le lead pour la qualité des leads (§22.5). */
+  closure?: LeadClosure;
   /** Variation des compteurs du profil du télépro propriétaire. */
   loadDelta: Partial<Record<LoadBucket, number>>;
   callAttempt: {
@@ -249,6 +260,7 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
   let note: string | null = null;
   let documents: QualificationPlan['documents'];
   let quality: QualificationPlan['quality'];
+  let closure: QualificationPlan['closure'];
   let notifyManagers: QualificationPlan['notifyManagers'] = null;
   let nrNumber: number | null = null;
   let reason: string | undefined;
@@ -373,6 +385,7 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
       reason = R.active.refusal[input.motive];
       meta.motive = input.motive;
       meta.opposition = opposition;
+      closure = { kind: 'not_interested', code: input.motive, label: R.active.refusal[input.motive], opposition };
       if (input.followUp === 'recycle') {
         status = 'recycling';
         const recycleAt = input.recycleAtMs as number;
@@ -400,6 +413,7 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
       meta.category = input.category;
       meta.motive = input.motive;
       meta.product = product;
+      closure = { kind: 'ineligible', code: input.motive, label: reason, category: input.category };
       const alt = text(input.alternativeProduct, 100);
       if (alt) meta.alternativeProduct = alt;
       summary = `Lead déclaré inéligible (${reason.toLowerCase()}).${alt ? ` Solution alternative proposée : ${alt}.` : ''}`;
@@ -414,6 +428,7 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
       status = 'fake_lead';
       reason = R.active.fake_lead[input.motive];
       quality = { excluded: true, reason: input.motive };
+      closure = { kind: 'fake_lead', code: input.motive, label: reason };
       meta.motive = input.motive;
       if (input.requestManagerCheck === true) {
         meta.managerCheckRequested = true;
@@ -429,6 +444,7 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
       reason = reasonLabel(R, 'fake_lead', 'invalid_number');
       note = text(input.comment, 500) || null;
       quality = { excluded: true, reason: 'invalid_number' };
+      closure = { kind: 'fake_lead', code: 'invalid_number', label: reason };
       meta.motive = 'invalid_number';
       summary = 'Mauvais numéro enregistré. Le lead est retiré de votre file et conservé pour l\'analyse de la campagne.';
       break;
@@ -443,6 +459,7 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
       status = 'not_interested';
       subStatus = 'other';
       reason = 'Autre';
+      closure = { kind: 'not_interested', code: 'other', label: 'Autre' };
       summary = 'Lead clôturé. Le motif reste visible dans l\'historique.';
       break;
     }
@@ -476,6 +493,7 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
       lastNote: note,
       documents,
       quality,
+      closure,
       loadDelta: loadDeltaFor(lead.status, status),
       callAttempt: {
         result: input.kind,

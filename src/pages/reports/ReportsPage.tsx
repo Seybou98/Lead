@@ -12,8 +12,18 @@ import { PERIOD_LABELS, PERIODS, periodRange, type PeriodKey } from '../../domai
 import { inputCls } from '../settings/settingsUi';
 import { useNow } from '../leads/useLeadsData';
 import { useReportsData, type ReportsData } from './useReportsData';
+import { TeleprosView } from './TeleprosView';
+import { DocumentsView } from './DocumentsView';
+import { QualityView } from './QualityView';
 
-type View = 'direction' | 'campaigns';
+type View = 'direction' | 'campaigns' | 'telepros' | 'documents' | 'quality';
+const VIEW_TEXT: Record<View, { title: string; subtitle: string }> = {
+  direction: { title: 'Rapport Direction', subtitle: 'Vue consolidée de l’acquisition à la vente.' },
+  campaigns: { title: 'Performance des campagnes', subtitle: 'Rentabilité et qualité des campagnes sur la période.' },
+  telepros: { title: 'Performance des télépros', subtitle: 'Comparez les résultats à périmètre équivalent.' },
+  documents: { title: 'Performance documentaire & délais', subtitle: 'Pipeline des pièces, délais par étape et goulots d’étranglement.' },
+  quality: { title: 'Qualité des leads', subtitle: 'Doublons, faux leads, coordonnées invalides, inéligibilité : par source, campagne, produit, zone et télépro.' },
+};
 
 const toStat = (l: LeadListItem): LeadStatView => ({ campaignId: l.campaignId, status: l.status, receivedAtMs: l.receivedAtMs, documentsState: l.documentsState, duplicate: l.duplicate, excluded: l.excluded, commercialState: l.commercialState ?? null, financialState: l.financialState ?? null, mainStage: l.mainStatus?.stage ?? null });
 const fmtInt = (n: number | null) => (n === null ? '—' : n.toLocaleString('fr-FR'));
@@ -44,11 +54,11 @@ export function ReportsView({ data, nowOverride, initialView = 'direction' }: { 
     <div className="w-full">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">{view === 'direction' ? 'Rapport Direction' : 'Performance des campagnes'}</h1>
-          <p className="mt-1 text-slate-500">{view === 'direction' ? 'Vue consolidée de l’acquisition à la vente.' : 'Rentabilité et qualité des campagnes sur la période.'}</p>
+          <h1 className="text-2xl font-bold text-slate-900">{VIEW_TEXT[view].title}</h1>
+          <p className="mt-1 text-slate-500">{VIEW_TEXT[view].subtitle}</p>
         </div>
         <div role="tablist" aria-label="Rapports" className="flex rounded-lg border border-slate-200 bg-white p-1 text-sm">
-          {([['direction', 'Direction'], ['campaigns', 'Campagnes']] as const).map(([k, label]) => (
+          {([['direction', 'Direction'], ['campaigns', 'Campagnes'], ['telepros', 'Télépros'], ['documents', 'Documents'], ['quality', 'Qualité']] as const).map(([k, label]) => (
             <button key={k} role="tab" aria-selected={view === k} type="button" onClick={() => setView(k)} className={cn('rounded-md px-4 py-1.5 font-medium', view === k ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50')}>{label}</button>
           ))}
         </div>
@@ -59,26 +69,30 @@ export function ReportsView({ data, nowOverride, initialView = 'direction' }: { 
         <select aria-label="Source" value={sourceId} onChange={(e) => setSourceId(e.target.value)} className={inputCls}><option value="">Toutes les sources</option>{data.sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
         <select aria-label="Produit" value={product} onChange={(e) => setProduct(e.target.value)} className={inputCls}><option value="">Tous les produits</option>{products.map((p) => <option key={p}>{p}</option>)}</select>
         <select aria-label="Télépro" value={owner} onChange={(e) => setOwner(e.target.value)} className={inputCls}><option value="">Tous les télépros</option>{owners.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</select>
-        {view === 'direction' ? (
+        {view === 'direction' || view === 'telepros' || view === 'documents' ? (
           <div role="radiogroup" aria-label="Mode de date" className="ml-auto flex rounded-lg border border-slate-200 bg-white p-0.5">
             {(Object.keys(DATE_MODE_LABELS) as DateMode[]).map((m) => (
               <button key={m} role="radio" aria-checked={mode === m} type="button" onClick={() => setMode(m)} title={m === 'event' ? 'Chaque étape est comptée à sa date réelle.' : 'Toutes les étapes sont rattachées à la date de réception du lead.'} className={cn('rounded-md px-3 py-1.5 text-xs font-medium', mode === m ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' : 'text-slate-500 hover:text-slate-800')}>{DATE_MODE_LABELS[m]}</button>
             ))}
           </div>
-        ) : (
+        ) : view === 'campaigns' ? (
           <div role="radiogroup" aria-label="Lecture des données" className="ml-auto flex rounded-lg border border-slate-200 bg-white p-0.5">
             {([[false, 'Données corrigées'], [true, 'Données brutes']] as const).map(([v, label]) => (
               <button key={label} role="radio" aria-checked={raw === v} type="button" onClick={() => setRaw(v)} title={v ? 'Tous les événements enregistrés, doublons et faux leads compris.' : 'Hors doublons, faux leads et leads exclus (§22.5).'} className={cn('rounded-md px-3 py-1.5 text-xs font-medium', raw === v ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' : 'text-slate-500 hover:text-slate-800')}>{label}</button>
             ))}
           </div>
-        )}
+        ) : null}
         {active > 0 && <button type="button" onClick={() => { setSourceId(''); setProduct(''); setOwner(''); }} className="text-xs font-medium text-blue-700 hover:underline">Réinitialiser les filtres ({active})</button>}
       </div>
 
       {data.error && <p role="alert" className="mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="h-4 w-4" /> {data.error}</p>}
       {data.truncated && <p role="status" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Seuls les leads les plus récents sont chargés : les chiffres peuvent être incomplets.</p>}
 
-      {view === 'direction' ? <DirectionView data={data} filters={filters} now={now} /> : <CampaignsView data={data} filters={filters} raw={raw} now={now} />}
+      {view === 'direction' && <DirectionView data={data} filters={filters} now={now} />}
+      {view === 'campaigns' && <CampaignsView data={data} filters={filters} raw={raw} now={now} />}
+      {view === 'telepros' && <TeleprosView data={data} filters={filters} now={now} />}
+      {view === 'documents' && <DocumentsView data={data} filters={filters} now={now} />}
+      {view === 'quality' && <QualityView data={data} filters={filters} now={now} />}
     </div>
   );
 }
