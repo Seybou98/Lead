@@ -11,6 +11,7 @@ import {
   type QualifyLead,
 } from './plan';
 import type { CallOutcomeInput } from './outcomes';
+import { catalogOf, parseReasonSettings } from '../settings/reasons';
 
 const TZ = 'Europe/Paris';
 const MIN = 60_000;
@@ -345,5 +346,34 @@ describe('formatWhen', () => {
   it('s’exprime dans le fuseau du planning, pas celui du serveur', () => {
     // 22:30 UTC mardi = 00:30 mercredi à Paris : « aujourd'hui » pour un instant à Paris ce mercredi
     expect(formatWhen(Date.UTC(2026, 9, 6, 22, 30), Date.UTC(2026, 9, 7, 8, 0), TZ)).toBe("aujourd'hui à 00:30");
+  });
+});
+
+describe('motifs modifiables (Paramètres → Motifs et listes)', () => {
+  const cat = catalogOf(parseReasonSettings({ lists: {
+    refusal: [{ code: 'c_deja_equipe', label: 'Déjà équipé', active: true }, { code: 'competitor', label: 'Concurrent', active: false }],
+    bad_moment: [{ code: 'at_work', label: 'Au travail', active: true, requireComment: true }],
+    ineligible_zone: [{ code: 'c_hors_ile', label: 'Hors île', active: true }],
+  } }));
+  const c = () => ctx({ rules: { ...DEFAULT_CALL_RULES, reasons: cat } });
+  it('un motif ajouté est accepté et son libellé part dans l’historique', () => {
+    const p = ok({ kind: 'close_not_interested', motive: 'c_deja_equipe', comment: 'Pompe installée', followUp: 'close', opposition: false }, c());
+    expect(p.status).toBe('not_interested');
+    expect(p.events.map((e) => e.reason)).toContain('Déjà équipé');
+  });
+  it('un motif archivé n’est plus accepté à la saisie', () => {
+    expect(ko({ kind: 'close_not_interested', motive: 'competitor', comment: 'x', followUp: 'close', opposition: false }, c()).errors.motive).toBeTruthy();
+  });
+  it('commentaire obligatoire pour un mauvais moment si la liste l’exige', () => {
+    expect(ko({ kind: 'bad_moment', atMs: NOW + HOUR, reason: 'at_work', confirmed: true }, c()).errors.note).toBeTruthy();
+  });
+  it('un motif d’inéligibilité ajouté dans une catégorie est accepté', () => {
+    const p = ok({ kind: 'close_ineligible', category: 'zone', motive: 'c_hors_ile', product: 'PAC Air/Eau', justification: 'Adresse hors de l’île.' }, c());
+    expect(p.status).toBe('ineligible');
+  });
+  it('une température archivée n’est plus acceptée', () => {
+    const c2 = ctx({ rules: { ...DEFAULT_CALL_RULES, reasons: catalogOf(parseReasonSettings({ lists: { temperature: [{ code: 'warm', label: 'Tiède', active: false }] } })) } });
+    const input = { kind: 'interested', temperature: 'warm', reason: 'financing', nextAction: 'call', nextActionAtMs: NOW + DAY, comment: 'ok' } as CallOutcomeInput;
+    expect(ko(input, c2).errors.temperature).toBeTruthy();
   });
 });

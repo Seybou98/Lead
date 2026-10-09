@@ -195,6 +195,10 @@ et `transmit` (reprise manuelle : manager du lead ou administrateur ; `decision:
   et financement saisis par l'équipe, contrôle l'enchaînement, trace chaque étape et pose la date de sécurisation (signée ET
   paiement confirmé ou financement accepté). Il ne signe, n'encaisse ni ne finance lui-même : prestataires de signature et
   organismes de financement non branchés.
+- Retour des statuts (`functions/src/mainSync.ts`, règles dans `src/domain/mainSync/mainStatus.ts`) : le planificateur relit,
+  sans rien y écrire, `dossiers`, `clients` et `subventions` du CRM principal et répercute l'étape sur le lead et la vente
+  (historique, notifications, jalons, annulation = retrait des ventes nettes). Les valeurs reconnues sont copiées du CRM
+  principal : à mettre à jour si ses statuts changent. Rapport du passage : `mainRead`, `mainChanged`, `mainCancelled`.
 - Variables facultatives : `FIREBASE_STORAGE_BUCKET` (défaut `<projet>.firebasestorage.app`) pour la copie des pièces ;
   `VITE_MAIN_CRM_URL` (dans l'application) pour le lien « Voir le dossier CRM ».
 - Aucune règle Firestore supplémentaire : les règles actuelles couvrent ces chemins en lecture, l'écriture reste au serveur.

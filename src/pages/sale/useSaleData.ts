@@ -25,6 +25,8 @@ export interface SaleLead {
   commercialState: string;
   financialState: string;
   securedAtMs: number | null;
+  /** Étape du dossier dans le CRM principal (retour des statuts). */
+  mainStatus: { stage: string; label: string; changedAtMs: number | null } | null;
   saleTrack: { offerSentAtMs: number | null; signedAtMs: number | null; depositCents: number | null; financingOrganism: string | null; reminderCount: number; lastReminderAtMs: number | null };
 }
 
@@ -51,6 +53,9 @@ export interface ConversionView {
   attempts: number;
   documentsTransferred: boolean;
   documentsCount: number;
+  historyCount: number;
+  /** Dernière tentative de transmission. */
+  lastAttemptAtMs: number | null;
   linkedExisting: boolean;
   lastError: { code: string; message: string; duplicates: { id: string; clientNumber: string }[] } | null;
 }
@@ -109,6 +114,7 @@ export function useSaleData(leadId: string): SaleData {
               commercialState: str(d.commercialState) || 'none',
               financialState: str(d.financialState) || 'none',
               securedAtMs: ms(d.securedAt),
+              mainStatus: d.mainStatus && typeof d.mainStatus.stage === 'string' ? { stage: d.mainStatus.stage, label: str(d.mainStatus.label), changedAtMs: ms(d.mainStatus.changedAt) } : null,
               saleTrack: {
                 offerSentAtMs: ms(d.saleTrack?.offerSentAt),
                 signedAtMs: ms(d.saleTrack?.signedAt),
@@ -188,6 +194,8 @@ export function useSaleData(leadId: string): SaleData {
                   attempts: Number(d.attempts ?? 0),
                   documentsTransferred: d.documentsTransferred === true,
                   documentsCount: Number(d.documentsCount ?? 0),
+                  historyCount: Number(d.historyCount ?? 0),
+                  lastAttemptAtMs: ms(d.lastAttemptAt),
                   linkedExisting: d.linkedExisting === true,
                   lastError: d.lastError
                     ? { code: str(d.lastError.code), message: str(d.lastError.message), duplicates: Array.isArray(d.lastError.extra?.duplicates) ? d.lastError.extra.duplicates.map((x: { id?: string; clientNumber?: string }) => ({ id: str(x.id), clientNumber: str(x.clientNumber) })) : [] }

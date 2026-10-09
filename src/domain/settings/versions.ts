@@ -3,12 +3,13 @@
 // Un « retour arrière » ne détruit aucune version : il enregistre à nouveau l'ancienne valeur, ce qui crée une NOUVELLE
 // version (équivalente à l'ancienne), elle-même tracée. Fonctions pures.
 
+import { REASON_LIST_LABELS, type ReasonList } from './reasons';
 import { formatWeeklySchedule } from '../admin/scheduleFormat';
 import { formatDelay, OUTSIDE_HOURS_LABELS, type OutsideHours } from './settings';
 
-export type VersionModule = 'sla' | 'rules' | 'checklist';
+export type VersionModule = 'sla' | 'rules' | 'conversion' | 'reasons' | 'checklist';
 
-export const MODULE_LABELS: Record<VersionModule, string> = { sla: 'SLA et horaires', rules: 'Cycles NR, rappels et documents', checklist: 'Checklists documentaires' };
+export const MODULE_LABELS: Record<VersionModule, string> = { sla: 'SLA et horaires', rules: 'Cycles NR, rappels et documents', conversion: 'Verrous de conversion', reasons: 'Motifs et listes', checklist: 'Checklists documentaires' };
 
 /** Une ligne du journal d'audit (cl_audit), telle que lue. */
 export interface AuditRow {
@@ -49,6 +50,8 @@ const yes = (v: unknown) => (v === true ? 'Activée' : 'Désactivée');
 export function moduleOf(row: Pick<AuditRow, 'entityType' | 'entityId' | 'action'>): VersionModule | null {
   if (row.entityType === 'settings' && row.entityId === 'sla') return 'sla';
   if (row.entityType === 'settings' && row.entityId === 'rules') return 'rules';
+  if (row.entityType === 'settings' && row.entityId === 'conversion') return 'conversion';
+  if (row.entityType === 'settings' && row.entityId === 'reasons') return 'reasons';
   if (row.entityType === 'checklist') return 'checklist';
   return null;
 }
@@ -78,6 +81,29 @@ export function describeChanges(module: VersionModule, beforeRaw: unknown, after
     if (!same(bs.weekly, as.weekly)) out.push(`Horaires : ${formatWeeklySchedule(arr(as.weekly) as never)}`);
     if (!same(bs.timezone, as.timezone)) out.push(`Fuseau horaire : ${String(as.timezone)}`);
     if (!same(bs.closedDates, as.closedDates)) out.push(`Jours fermés : ${arr(as.closedDates).length ? arr(as.closedDates).join(', ') : 'aucun'}`);
+  } else if (module === 'reasons') {
+    const b = rec(before.lists);
+    const a = rec(after.lists);
+    for (const list of Object.keys(a)) {
+      const title = REASON_LIST_LABELS[list as ReasonList]?.title ?? list;
+      const bi = arr(b[list]).map((i) => rec(i));
+      const ai = arr(a[list]).map((i) => rec(i));
+      const byCode = new Map(bi.map((i) => [i.code, i]));
+      for (const it of ai) {
+        const old = byCode.get(it.code);
+        if (!old) { if (!first) out.push(`${title} : valeur ajoutée « ${String(it.label)} »`); continue; }
+        if (old.label !== it.label) out.push(`${title} : « ${String(old.label)} » renommé « ${String(it.label)} »`);
+        if (old.active !== it.active) out.push(`${title} : « ${String(it.label)} » ${it.active === true ? 'réactivée' : 'archivée'}`);
+        if ((old.requireComment === true) !== (it.requireComment === true)) out.push(`${title} : commentaire ${it.requireComment === true ? 'obligatoire' : 'facultatif'} pour « ${String(it.label)} »`);
+      }
+      if (!first && !same(bi.map((i) => i.code), ai.filter((i) => byCode.has(i.code)).map((i) => i.code)) && ai.length === bi.length) out.push(`${title} : ordre modifié`);
+    }
+    if (first) out.push(`Listes de motifs enregistrées (${Object.keys(a).length} listes)`);
+  } else if (module === 'conversion') {
+    line('Remise maximale sans validation', before.maxDiscountPct, after.maxDiscountPct, (v) => `${v} %`);
+    line('Éligibilité aux aides', before.requireEligibility, after.requireEligibility, (v) => (v === true ? 'exigée (sinon validation du manager)' : 'non exigée'));
+    line('Qualification RGE', before.requireRge, after.requireRge, (v) => (v === true ? 'exigée' : 'non exigée'));
+    line('Consentement du client', before.requireConsent, after.requireConsent, (v) => (v === true ? 'exigé (sinon validation du manager)' : 'non exigé'));
   } else if (module === 'rules') {
     const bn = arr(before.nrDelaysMinutes) as number[];
     const an = arr(after.nrDelaysMinutes) as number[];

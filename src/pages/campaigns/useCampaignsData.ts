@@ -65,6 +65,9 @@ function toLead(d: DocumentData): LeadStatView | null {
     documentsState: (d.documents?.state ?? 'none') as DocumentState,
     duplicate: !!d.quality?.duplicateOf,
     excluded: d.quality?.excluded === true,
+    commercialState: typeof d.commercialState === 'string' ? d.commercialState : null,
+    financialState: typeof d.financialState === 'string' ? d.financialState : null,
+    mainStage: typeof d.mainStatus?.stage === 'string' ? d.mainStatus.stage : null,
   };
 }
 

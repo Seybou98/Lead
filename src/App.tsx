@@ -12,6 +12,8 @@ import { SlaHoursPage } from './pages/settings/SlaHoursPage';
 import { ProductsPage } from './pages/settings/ProductsPage';
 import { VersionsPage } from './pages/settings/VersionsPage';
 import { RulesPage } from './pages/settings/RulesPage';
+import { ConversionRulesPage } from './pages/settings/ConversionRulesPage';
+import { ReasonsPage } from './pages/settings/ReasonsPage';
 import { CockpitPage } from './pages/cockpit/CockpitPage';
 import { TeamPage } from './pages/cockpit/TeamPage';
 import { TelecallerPage } from './pages/portfolio/TelecallerPage';
@@ -26,6 +28,9 @@ import { JournalPage } from './pages/journal/JournalPage';
 import { LeadsListPage } from './pages/leads/LeadsListPage';
 import { LeadFilePage } from './pages/leads/LeadFilePage';
 import { MyDayPage } from './pages/myday/MyDayPage';
+import { IntegrationsPage } from './pages/transmission/IntegrationsPage';
+import { TransmissionPage } from './pages/transmission/TransmissionPage';
+import { ReportsPage } from './pages/reports/ReportsPage';
 import { DossiersPage } from './pages/dossiers/DossiersPage';
 import { DossierPage } from './pages/dossiers/DossierPage';
 import { SalesPage } from './pages/sales/SalesPage';
@@ -72,7 +77,7 @@ export default function App() {
         <Route path="/equipe" element={<TeamPage />} />
         <Route path="/leads" element={<LeadsListPage basePath="/leads" />} />
         <Route path="/leads/:leadId" element={<LeadFilePage listPath="/leads" />} />
-        <Route path="/rapports" element={page('Rapports', 'KPI, entonnoir et rentabilité.', '§22', 'Phase 5')} />
+        <Route path="/rapports" element={<ReportsPage />} />
 
         {/* Communs */}
         <Route path="/documents" element={<DocumentsPage />} />
@@ -89,7 +94,8 @@ export default function App() {
         <Route path="/utilisateurs/:uid" element={<ManagerOnly><TelecallerPage /></ManagerOnly>} />
         <Route path="/utilisateurs/:uid/absence" element={<ManagerOnly><AbsencePage /></ManagerOnly>} />
         <Route path="/utilisateurs/:uid/transfert" element={<ManagerOnly><TransferPage /></ManagerOnly>} />
-        <Route path="/integrations" element={page('Intégrations', 'Connecteurs, journal et reprises.', '§24', 'Phase 6')} />
+        <Route path="/integrations" element={<IntegrationsPage />} />
+        <Route path="/integrations/transmission" element={<TransmissionPage />} />
         <Route path="/parametres" element={<SettingsHome />} />
         <Route path="/parametres/attribution" element={<AssignmentRulesPage />} />
         <Route path="/parametres/documents" element={<ChecklistsPage />} />
@@ -97,6 +103,8 @@ export default function App() {
         <Route path="/parametres/produits" element={<ProductsPage />} />
         <Route path="/parametres/versions" element={<VersionsPage />} />
         <Route path="/parametres/cycles" element={<RulesPage />} />
+        <Route path="/parametres/conversion" element={<ConversionRulesPage />} />
+        <Route path="/parametres/motifs" element={<ReasonsPage />} />
         <Route path="/parametres/*" element={page('Paramètres', 'SLA, horaires, NR, checklists, motifs — versionnés.', '§14, §21', 'Phase 2 / 5')} />
         <Route path="/journal" element={<JournalPage />} />
 

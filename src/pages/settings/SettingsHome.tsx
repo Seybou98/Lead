@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, BookOpen, CheckCircle2, Clock, FileText, GitBranch, History, ListChecks, Mail, Package, Repeat, Route as RouteIcon, Tag, Workflow } from 'lucide-react';
+import { AlertTriangle, ArrowRight, BookOpen, CheckCircle2, Clock, FileText, GitBranch, History, ListChecks, Mail, Package, Repeat, Route as RouteIcon, ShieldCheck, Tag, Workflow } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { sinceLabel } from '../../domain/cockpit/cockpit';
 import { SchedulerStatusCard } from './SchedulerStatusCard';
@@ -9,6 +9,8 @@ import { useConfigData } from './useConfigData';
 const MODULE_OF: Record<string, { label: string; href: string }> = {
   'settings:sla': { label: 'SLA et horaires', href: '/parametres/sla' },
   'settings:rules': { label: 'Cycles NR et relances', href: '/parametres/cycles' },
+  'settings:conversion': { label: 'Verrous de conversion', href: '/parametres/conversion' },
+  'settings:reasons': { label: 'Motifs et listes', href: '/parametres/motifs' },
   checklist: { label: 'Documents', href: '/parametres/documents' },
   campaign: { label: 'Campagnes', href: '/campagnes' },
   team: { label: 'Équipes', href: '/utilisateurs' },
@@ -20,7 +22,7 @@ const MODULE_OF: Record<string, { label: string; href: string }> = {
 const initials = (n: string) => n.split(/\s+/).filter(Boolean).map((p) => p[0]).join('').toUpperCase().slice(0, 2) || '?';
 
 function moduleKey(entityType: string, entityId: string): string | null {
-  if (entityType === 'settings') return entityId === 'rules' ? 'settings:rules' : entityId.startsWith('sla') ? 'settings:sla' : null;
+  if (entityType === 'settings') return entityId === 'rules' ? 'settings:rules' : entityId === 'conversion' ? 'settings:conversion' : entityId === 'reasons' ? 'settings:reasons' : entityId.startsWith('sla') ? 'settings:sla' : null;
   return entityType in MODULE_OF ? entityType : null;
 }
 
@@ -55,15 +57,16 @@ export function SettingsHome() {
     { title: 'Qualification', subtitle: 'Formulaire de fin d’appel', icon: BookOpen, tone: 'bg-amber-100 text-amber-600', chip: { tone: 'grey', label: 'À venir' } },
     { title: 'Documents', subtitle: `${data.checklistCount} checklist${data.checklistCount > 1 ? 's' : ''} enregistrée${data.checklistCount > 1 ? 's' : ''}`, icon: FileText, tone: 'bg-red-100 text-red-500', href: '/parametres/documents', chip: checklistAlerts.length ? { tone: 'red', label: `${checklistAlerts.length} sans checklist` } : { tone: 'green', label: 'À jour' } },
     { title: 'Workflows & statuts', subtitle: 'Parcours du lead', icon: Workflow, tone: 'bg-emerald-100 text-emerald-600', chip: { tone: 'grey', label: 'À venir' } },
-    { title: 'Motifs & listes', subtitle: 'Motifs de clôture, de rappel…', icon: ListChecks, tone: 'bg-violet-100 text-violet-600', chip: { tone: 'grey', label: 'À venir' } },
     { title: 'Règles de conversion', subtitle: 'Critères de création de la vente', icon: GitBranch, tone: 'bg-orange-100 text-orange-600', chip: { tone: 'grey', label: 'Avec le lot Conversion' } },
     { title: 'Communications', subtitle: 'Aucun canal d’envoi en V1', icon: Mail, tone: 'bg-blue-100 text-blue-600', chip: { tone: 'grey', label: 'À venir' } },
-    { title: 'Versions & publication', subtitle: `${data.audit.filter((a) => moduleKey(a.entityType, a.entityId) && ['settings:sla', 'settings:rules', 'checklist'].includes(moduleKey(a.entityType, a.entityId) as string)).length} enregistrement(s) tracé(s)`, icon: Tag, tone: 'bg-indigo-100 text-indigo-600', href: '/parametres/versions', chip: { tone: 'blue', label: 'Historique' } },
+    { title: 'Versions & publication', subtitle: `${data.audit.filter((a) => moduleKey(a.entityType, a.entityId) && ['settings:sla', 'settings:rules', 'settings:conversion', 'settings:reasons', 'checklist'].includes(moduleKey(a.entityType, a.entityId) as string)).length} enregistrement(s) tracé(s)`, icon: Tag, tone: 'bg-indigo-100 text-indigo-600', href: '/parametres/versions', chip: { tone: 'blue', label: 'Historique' } },
   ];
   const run: ModuleCard[] = [
     { title: "Règles d'attribution", subtitle: 'Critères, ordre de priorité, plafond, simulation', icon: RouteIcon, tone: 'bg-blue-100 text-blue-600', href: '/parametres/attribution', chip: { tone: 'blue', label: 'Par campagne' } },
     { title: 'SLA & horaires', subtitle: 'Délais, réattribution, horaires, jours fermés', icon: Clock, tone: 'bg-blue-100 text-blue-600', href: '/parametres/sla', chip: data.settings.saved.sla ? { tone: 'green', label: 'Enregistré' } : { tone: 'amber', label: 'Valeurs du cahier' } },
     { title: 'Cycles NR, rappels et documents', subtitle: 'Matrice NR1 à NR5, recyclage, relances', icon: Repeat, tone: 'bg-blue-100 text-blue-600', href: '/parametres/cycles', chip: data.settings.saved.rules ? { tone: 'green', label: 'Enregistré' } : { tone: 'amber', label: 'Valeurs du cahier' } },
+    { title: 'Verrous de conversion', subtitle: 'Remise maximale, éligibilité, RGE, consentement', icon: ShieldCheck, tone: 'bg-blue-100 text-blue-600', href: '/parametres/conversion', chip: data.settings.saved.conversion ? { tone: 'green', label: 'Enregistré' } : { tone: 'amber', label: 'Valeurs du cahier' } },
+    { title: 'Motifs & listes', subtitle: 'Valeurs administrables, codes statistiques et archivage', icon: ListChecks, tone: 'bg-blue-100 text-blue-600', href: '/parametres/motifs', chip: data.settings.saved.reasons ? { tone: 'green', label: 'Enregistré' } : { tone: 'amber', label: 'Valeurs du cahier' } },
   ];
 
   const recent = useMemo(

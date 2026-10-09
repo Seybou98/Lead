@@ -144,6 +144,38 @@ describe('computeCampaignStats', () => {
   });
 });
 
+describe('installations et facturations (retour du CRM principal, §24.8)', () => {
+  const c = camp('a');
+  const sold = (stage: string | null, over: Partial<LeadStatView> = {}) => lead('a', { status: 'converted', commercialState: 'sale_committed', mainStage: stage, ...over });
+  const stats = (leads: LeadStatView[]) => computeCampaignStats([c], leads, [], { fromMs: null, toMs: null })[0];
+  it('compte validées, installées et facturées, cumulatives', () => {
+    const s = stats([sold('dossier_validated'), sold('installed'), sold('invoiced'), sold(null)]);
+    expect(s).toMatchObject({ sales: 4, validated: 3, installed: 2, invoiced: 1, cancelled: 0 });
+  });
+  it('une vente annulée (côté CRM principal ou côté Leads) sort des ventes nettes', () => {
+    const s = stats([sold('installed'), sold('cancelled'), sold(null, { commercialState: 'retracted' })]);
+    expect(s).toMatchObject({ sales: 1, cancelled: 2, installed: 1 });
+  });
+  it('une vente en cours de transmission compte ; un lead sans vente non', () => {
+    expect(stats([lead('a', { status: 'transmitting', commercialState: 'sale_committed' }), lead('a', { status: 'interested' })]).sales).toBe(1);
+  });
+  it('sécurisées : signées et réglées', () => {
+    expect(stats([sold(null, { commercialState: 'signed', financialState: 'payment_confirmed' }), sold(null)]).secured).toBe(1);
+  });
+  it('le coût par vente se calcule sur les ventes nettes', () => {
+    const r = computeCampaignStats([c], [sold(null), sold('cancelled')], [{ campaignId: 'a', amountCents: 10_000, atMs: T0 }], { fromMs: null, toMs: null })[0];
+    expect(r.costPerSaleCents).toBe(10_000);
+  });
+  it('les totaux additionnent les lignes, avec le taux d’installation', () => {
+    const rows = computeCampaignStats([c, camp('b')], [sold('installed'), sold('invoiced'), lead('b', { status: 'converted', commercialState: 'sale_committed', mainStage: 'scheduled' }), sold('cancelled')], [], { fromMs: null, toMs: null });
+    const t = computeTotals(rows);
+    expect(t).toMatchObject({ sales: 3, installed: 2, invoiced: 1, cancelled: 1, installRate: 66.7 });
+  });
+  it('un lead exclu ou un doublon n’entre jamais dans ces chiffres', () => {
+    expect(stats([sold('installed', { excluded: true }), sold('installed', { duplicate: true })])).toMatchObject({ sales: 0, installed: 0 });
+  });
+});
+
 describe('computeTotals', () => {
   const rows = computeCampaignStats(
     [camp('a'), camp('b')],
@@ -163,7 +195,7 @@ describe('computeTotals', () => {
     expect(t.cplCents).toBe(Math.round(11_000 / 16));
   });
   it('aucune ligne : tout à zéro ou null', () => {
-    expect(computeTotals([])).toEqual({ spendCents: null, leads: 0, duplicates: 0, fakeLeads: 0, cplCents: null, docsComplete: 0, sales: 0, costPerSaleCents: null });
+    expect(computeTotals([])).toEqual({ spendCents: null, leads: 0, duplicates: 0, fakeLeads: 0, cplCents: null, docsComplete: 0, sales: 0, cancelled: 0, secured: 0, installed: 0, invoiced: 0, costPerSaleCents: null, installRate: null });
   });
 });
 
@@ -245,5 +277,29 @@ describe('sortCampaignRows', () => {
   });
   it('tri par source via le nom fourni', () => {
     expect(sortCampaignRows(rows, 'source', 'asc', (id) => ({ meta: 'Meta', google: 'Google' })[id] ?? id).map((r) => r.campaign.sourceId)).toEqual(['google', 'meta', 'meta']);
+  });
+});
+
+describe('lecture brute et corrigée (§22.5)', () => {
+  const c = camp('a');
+  const leads = [lead('a'), lead('a', { duplicate: true }), lead('a', { status: 'fake_lead' }), lead('a', { excluded: true }), lead('a', { status: 'interested' })];
+  const run = (mode: 'corrected' | 'raw') => computeCampaignStats([c], leads, [], { fromMs: null, toMs: null }, mode)[0];
+  it('corrigée : doublons, faux leads et exclus sortent des leads valides', () => {
+    expect(run('corrected')).toMatchObject({ leads: 2, gross: 5, duplicates: 1, fakeLeads: 1 });
+  });
+  it('brute : tous les leads enregistrés comptent, les volumes exclus restent visibles', () => {
+    expect(run('raw')).toMatchObject({ leads: 5, gross: 5, duplicates: 1, fakeLeads: 1 });
+  });
+  it('par défaut : corrigée', () => expect(computeCampaignStats([c], leads, [], { fromMs: null, toMs: null })[0].leads).toBe(2));
+  it('le CPL suit la lecture : plus de leads, coût par lead plus bas', () => {
+    const sp = [{ campaignId: 'a', amountCents: 10_000, atMs: T0 }];
+    const cor = computeCampaignStats([c], leads, sp, { fromMs: null, toMs: null }, 'corrected')[0];
+    const raw = computeCampaignStats([c], leads, sp, { fromMs: null, toMs: null }, 'raw')[0];
+    expect(cor.cplCents).toBe(5000);
+    expect(raw.cplCents).toBe(2000);
+  });
+  it('taux de contact : contactés / leads de la lecture, null sans lead', () => {
+    expect(run('corrected').contactRate).toBe(50);
+    expect(computeCampaignStats([camp('z')], [], [], { fromMs: null, toMs: null })[0].contactRate).toBeNull();
   });
 });

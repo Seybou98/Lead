@@ -4,7 +4,7 @@
 import { httpsCallable } from 'firebase/functions';
 import { functions } from './firebase';
 import { resolveWriteMode } from './adminErrors';
-import { deleteChecklistDirect, deleteSlaOverrideDirect, saveRulesDirect, saveSlaDirect, saveSlaOverrideDirect, saveAssignmentConfigDirect, saveChecklistDirect, saveCampaignDirect, saveProfileDirect, saveSourceDirect, saveSpendDirect, saveTeamDirect } from './adminWrites';
+import { deleteChecklistDirect, deleteSlaOverrideDirect, saveConversionDirect, saveReasonsDirect, saveRulesDirect, saveSlaDirect, saveSlaOverrideDirect, saveAssignmentConfigDirect, saveChecklistDirect, saveCampaignDirect, saveProfileDirect, saveSourceDirect, saveSpendDirect, saveTeamDirect } from './adminWrites';
 
 export interface AdminResult {
   ok: true;
@@ -124,5 +124,7 @@ export const deleteChecklist = (key: string): Promise<AdminResult> => deleteChec
 /** Réglages d'administration (SLA et horaires, cycles NR) : écriture directe, protégée par les règles Firestore. */
 export const saveSla = (input: unknown): Promise<AdminResult> => saveSlaDirect(input);
 export const saveRules = (input: unknown): Promise<AdminResult> => saveRulesDirect(input);
+export const saveConversion = (input: unknown): Promise<AdminResult> => saveConversionDirect(input);
+export const saveReasons = (input: unknown): Promise<AdminResult> => saveReasonsDirect(input);
 export const saveSlaOverride = (input: unknown): Promise<AdminResult> => saveSlaOverrideDirect(input);
 export const deleteSlaOverride = (campaignId: string): Promise<AdminResult> => deleteSlaOverrideDirect(campaignId);

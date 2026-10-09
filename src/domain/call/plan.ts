@@ -12,18 +12,13 @@ import {
   type Temperature,
 } from '../enums';
 import { nextWorkingTime, type ScheduleLike } from '../engine/schedule';
+import { DEFAULT_REASON_CATALOG, INELIGIBLE_LIST, reasonLabel, type ReasonCatalog } from '../settings/reasons';
 import {
-  BAD_MOMENT_REASONS,
-  CALLBACK_REASONS,
   DEFAULT_DOCUMENT_TYPES,
   DOCUMENT_CHANNELS,
-  FAKE_LEAD_MOTIVES,
   INELIGIBLE_CATEGORIES,
-  INELIGIBLE_MOTIVES,
   INTEREST_NEXT_ACTIONS,
-  INTEREST_REASONS,
   OUTCOME_LABELS,
-  REFUSAL_MOTIVES,
   type CallOutcomeInput,
   type CallOutcomeKind,
   type DocumentChannelKey,
@@ -46,6 +41,8 @@ export interface CallRules {
   promisedMarginMinutes: number;
   schedule: ScheduleLike;
   documentTypes: readonly DocumentTypeDef[];
+  /** Listes de motifs modifiables (Paramètres) ; absent : les valeurs d'origine. */
+  reasons?: ReasonCatalog;
 }
 
 /** Valeurs initiales proposées par le cahier des charges ; elles seront modifiables dans Paramètres. */
@@ -148,7 +145,7 @@ export type PlanResult =
 // ── Aides ────────────────────────────────────────────────────────────────────
 
 /** Clé propre uniquement : « constructor » ou « __proto__ » ne sont jamais un motif valide. */
-const has = (obj: object, key: unknown): boolean => typeof key === 'string' && Object.prototype.hasOwnProperty.call(obj, key);
+const hasKey = (obj: object, key: unknown): boolean => typeof key === 'string' && Object.prototype.hasOwnProperty.call(obj, key);
 
 const text = (v: unknown, max: number): string => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
@@ -218,6 +215,8 @@ function checkWhen(errors: Record<string, string>, field: string, atMs: unknown,
 export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): PlanResult {
   const { lead, nowMs, rules } = ctx;
   const tz = rules.schedule.timezone;
+  const R = rules.reasons ?? DEFAULT_REASON_CATALOG;
+  const has = hasKey;
 
   if (!lead.ownerId) return { ok: false, code: 'unavailable', message: "Ce lead n'a pas de propriétaire : il doit d'abord être attribué.", errors: {} };
   if (ctx.actorRole !== 'admin' && lead.ownerId !== ctx.actorId) {
@@ -284,14 +283,14 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
 
     case 'callback': {
       checkWhen(errors, 'atMs', input.atMs, nowMs, 'Rappel');
-      if (!has(CALLBACK_REASONS, input.reason)) errors.reason = 'Rappel : le motif est obligatoire.';
+      if (!has(R.active.callback, input.reason)) errors.reason = 'Rappel : le motif est obligatoire.';
       note = text(input.comment, 500);
       if (!note) errors.comment = 'Rappel : le commentaire est obligatoire.';
       if (input.confirmed !== true) errors.confirmed = 'Confirmez que le créneau a été validé avec le client.';
       if (Object.keys(errors).length) return fail();
       status = 'callback';
-      nextAction = action('client_callback', 'P0', input.atMs, `Rappel promis : ${CALLBACK_REASONS[input.reason].toLowerCase()}`);
-      reason = CALLBACK_REASONS[input.reason];
+      nextAction = action('client_callback', 'P0', input.atMs, `Rappel promis : ${R.active.callback[input.reason].toLowerCase()}`);
+      reason = R.active.callback[input.reason];
       meta.reason = input.reason;
       summary = `Rappel programmé ${formatWhen(input.atMs, nowMs, tz)}. Il apparaîtra dans votre file à l'heure prévue.`;
       break;
@@ -299,14 +298,15 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
 
     case 'bad_moment': {
       checkWhen(errors, 'atMs', input.atMs, nowMs, 'Rappel rapide', 3 * DAY);
-      if (!has(BAD_MOMENT_REASONS, input.reason)) errors.reason = 'Rappel rapide : le motif est obligatoire.';
+      if (!has(R.active.bad_moment, input.reason)) errors.reason = 'Rappel rapide : le motif est obligatoire.';
+      else if (R.commentRequired.bad_moment.includes(input.reason) && !text(input.note, 250)) errors.note = `Rappel rapide : le commentaire est obligatoire pour « ${R.active.bad_moment[input.reason]} ».`;
       if (input.confirmed !== true) errors.confirmed = 'Confirmez que le créneau a été validé avec le client.';
       if (Object.keys(errors).length) return fail();
       status = 'callback';
       subStatus = 'bad_moment';
       note = text(input.note, 250) || null;
-      nextAction = action('short_callback', 'P1', input.atMs, `Mauvais moment : ${BAD_MOMENT_REASONS[input.reason].toLowerCase()}`);
-      reason = BAD_MOMENT_REASONS[input.reason];
+      nextAction = action('short_callback', 'P1', input.atMs, `Mauvais moment : ${R.active.bad_moment[input.reason].toLowerCase()}`);
+      reason = R.active.bad_moment[input.reason];
       meta.reason = input.reason;
       meta.countsAsNr = false;
       summary = `Rappel rapide programmé ${formatWhen(input.atMs, nowMs, tz)}. Ce résultat ne compte pas comme un NR.`;
@@ -315,16 +315,16 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
 
     case 'interested': {
       checkWhen(errors, 'nextActionAtMs', input.nextActionAtMs, nowMs, 'Prochaine action');
-      if (!has(INTEREST_REASONS, input.reason)) errors.reason = 'Intéressé : le motif de non-avancement immédiat est obligatoire.';
+      if (!has(R.active.interest, input.reason)) errors.reason = 'Intéressé : le motif de non-avancement immédiat est obligatoire.';
       if (!has(INTEREST_NEXT_ACTIONS, input.nextAction)) errors.nextAction = 'Un prospect intéressé ne peut pas être enregistré sans prochaine action.';
-      if (!['hot', 'warm', 'to_work'].includes(input.temperature)) errors.temperature = 'Choisissez la température du lead.';
+      if (!has(R.active.temperature, input.temperature)) errors.temperature = 'Choisissez la température du lead.';
       note = text(input.comment, 1000);
       if (!note) errors.comment = 'Intéressé : le commentaire commercial est obligatoire.';
       if (Object.keys(errors).length) return fail();
       status = 'interested';
       temperature = input.temperature;
-      nextAction = action('interested_followup', 'P2', input.nextActionAtMs, `${INTEREST_NEXT_ACTIONS[input.nextAction]} — ${INTEREST_REASONS[input.reason].toLowerCase()}`);
-      reason = INTEREST_REASONS[input.reason];
+      nextAction = action('interested_followup', 'P2', input.nextActionAtMs, `${INTEREST_NEXT_ACTIONS[input.nextAction]} — ${R.active.interest[input.reason].toLowerCase()}`);
+      reason = R.active.interest[input.reason];
       meta.reason = input.reason;
       meta.nextAction = input.nextAction;
       meta.temperature = input.temperature;
@@ -363,30 +363,31 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
     }
 
     case 'close_not_interested': {
-      if (!has(REFUSAL_MOTIVES, input.motive)) errors.motive = 'Non intéressé : le motif du refus est obligatoire.';
+      if (!has(R.active.refusal, input.motive)) errors.motive = 'Non intéressé : le motif du refus est obligatoire.';
       note = text(input.comment, 1000);
       if (!note) errors.comment = 'Non intéressé : le commentaire est obligatoire.';
       const opposition = input.opposition === true || input.motive === 'no_more_contact';
       if (opposition && input.followUp === 'recycle') errors.followUp = 'Un lead qui refuse tout contact ne peut pas être recyclé.';
       if (input.followUp === 'recycle') checkWhen(errors, 'recycleAtMs', input.recycleAtMs, nowMs, 'Recyclage', 2 * 365 * DAY);
       if (Object.keys(errors).length) return fail();
-      reason = REFUSAL_MOTIVES[input.motive];
+      reason = R.active.refusal[input.motive];
       meta.motive = input.motive;
       meta.opposition = opposition;
       if (input.followUp === 'recycle') {
         status = 'recycling';
         const recycleAt = input.recycleAtMs as number;
-        nextAction = action('recycle', 'P4', recycleAt, `Recyclage programmé : ${REFUSAL_MOTIVES[input.motive].toLowerCase()}`);
+        nextAction = action('recycle', 'P4', recycleAt, `Recyclage programmé : ${R.active.refusal[input.motive].toLowerCase()}`);
         summary = `Refus enregistré. Recyclage programmé ${formatWhen(recycleAt, nowMs, tz)}.`;
       } else {
         status = 'not_interested';
-        summary = `Lead clôturé : ${REFUSAL_MOTIVES[input.motive].toLowerCase()}. Le motif reste visible dans l'historique.`;
+        summary = `Lead clôturé : ${R.active.refusal[input.motive].toLowerCase()}. Le motif reste visible dans l'historique.`;
       }
       break;
     }
 
     case 'close_ineligible': {
-      const motives = INELIGIBLE_MOTIVES[input.category];
+      const list = has(INELIGIBLE_LIST, input.category) ? INELIGIBLE_LIST[input.category] : null;
+      const motives = list ? R.active[list] : null;
       if (!has(INELIGIBLE_CATEGORIES, input.category) || !motives) errors.category = "Inéligible : la catégorie est obligatoire.";
       else if (!has(motives, input.motive)) errors.motive = 'Inéligible : le motif précis est obligatoire.';
       const product = text(input.product, 100);
@@ -395,7 +396,7 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
       if (!note) errors.justification = 'Inéligible : la justification est obligatoire.';
       if (Object.keys(errors).length) return fail();
       status = 'ineligible';
-      reason = INELIGIBLE_MOTIVES[input.category][input.motive];
+      reason = (motives as Record<string, string>)[input.motive];
       meta.category = input.category;
       meta.motive = input.motive;
       meta.product = product;
@@ -406,12 +407,12 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
     }
 
     case 'close_fake_lead': {
-      if (!has(FAKE_LEAD_MOTIVES, input.motive)) errors.motive = 'Faux lead : le motif est obligatoire.';
+      if (!has(R.active.fake_lead, input.motive)) errors.motive = 'Faux lead : le motif est obligatoire.';
       note = text(input.comment, 1000);
       if (!note) errors.comment = 'Faux lead : le commentaire / constat est obligatoire.';
       if (Object.keys(errors).length) return fail();
       status = 'fake_lead';
-      reason = FAKE_LEAD_MOTIVES[input.motive];
+      reason = R.active.fake_lead[input.motive];
       quality = { excluded: true, reason: input.motive };
       meta.motive = input.motive;
       if (input.requestManagerCheck === true) {
@@ -424,7 +425,8 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
 
     case 'close_wrong_number': {
       status = 'fake_lead';
-      reason = FAKE_LEAD_MOTIVES.invalid_number;
+      // « Mauvais numéro » est un résultat du moteur : sa valeur reste lisible même si elle est archivée dans la liste.
+      reason = reasonLabel(R, 'fake_lead', 'invalid_number');
       note = text(input.comment, 500) || null;
       quality = { excluded: true, reason: 'invalid_number' };
       meta.motive = 'invalid_number';

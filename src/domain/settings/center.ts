@@ -54,7 +54,7 @@ export function productCoverage(input: CoverageInput): ProductCoverage[] {
  * Anomalies de configuration. « Bloquante » : des leads réels sont déjà touchés (campagne active sans télépro éligible).
  * « Avertissement » : à corriger, sans effet immédiat sur un lead.
  */
-export function buildConfigAlerts(input: CoverageInput, ctx: { sla: SlaSettings; settingsSaved: { sla: boolean; rules: boolean } }): ConfigAlert[] {
+export function buildConfigAlerts(input: CoverageInput, ctx: { sla: SlaSettings; settingsSaved: { sla: boolean; rules: boolean; conversion?: boolean; reasons?: boolean } }): ConfigAlert[] {
   const out: ConfigAlert[] = [];
   const known = new Set(input.categories.map(normalizeText));
 
@@ -85,6 +85,8 @@ export function buildConfigAlerts(input: CoverageInput, ctx: { sla: SlaSettings;
   }
 
   if (!ctx.settingsSaved.sla) out.push({ id: 'sla-unsaved', level: 'warning', title: 'SLA et horaires non enregistrés', detail: 'Les valeurs du cahier des charges s’appliquent ; enregistrez-les pour les valider.', href: '/parametres/sla' });
+  if (ctx.settingsSaved.reasons === false) out.push({ id: 'reasons-unsaved', level: 'warning', title: 'Motifs et listes non enregistrés', detail: 'Les motifs d’origine s’appliquent ; enregistrez les listes pour les valider et les adapter.', href: '/parametres/motifs' });
+  if (ctx.settingsSaved.conversion === false) out.push({ id: 'conversion-unsaved', level: 'warning', title: 'Verrous de conversion non enregistrés', detail: 'Les valeurs du cahier des charges s’appliquent (remise maximale de 5 %) ; enregistrez-les pour les valider.', href: '/parametres/conversion' });
   if (!ctx.settingsSaved.rules) out.push({ id: 'rules-unsaved', level: 'warning', title: 'Cycles NR et relances non enregistrés', detail: 'Les valeurs du cahier des charges s’appliquent ; enregistrez-les pour les valider.', href: '/parametres/cycles' });
   if (ctx.sla.autoReassign && !ctx.sla.fallbackTeamId) {
     out.push({ id: 'fallback-missing', level: 'warning', title: 'Réattribution automatique sans équipe de secours', detail: 'Sans équipe de secours, un lead non pris en charge ne peut passer qu’à l’équipe habituelle.', href: '/parametres/sla' });

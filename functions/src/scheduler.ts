@@ -24,6 +24,7 @@ import { displayName, readPublishedConfig, toCampaignInfo } from './ingest';
 import { parseCallRules } from './qualify';
 import { reassignLead } from './reassign';
 import { loadCampaignSla, loadSchedulerRules } from './settings';
+import { syncMainStatuses } from './mainSync';
 import { backoffMinutes, MAX_AUTO_ATTEMPTS, transmitConversion, type StorageLike } from './transmission';
 import { DEFAULT_SLA_SETTINGS, type SlaSettings } from '../../src/domain/settings/settings';
 
@@ -46,6 +47,10 @@ export interface SchedulerReport {
   /** Transmissions au CRM principal reprises avec succès / alertes administrateur envoyées (échecs répétés). */
   transmitted: number;
   transmissionAlerts: number;
+  /** Statuts du CRM principal relus : dossiers lus, étapes qui ont changé, ventes annulées côté CRM principal. */
+  mainRead: number;
+  mainChanged: number;
+  mainCancelled: number;
   errors: string[];
 }
 
@@ -111,7 +116,7 @@ export function toSchedLead(id: string, d: DocumentData): SchedLead {
 const alreadyExists = (e: unknown) => (e as { code?: number | string })?.code === 6 || /already exists/i.test((e as Error)?.message ?? '');
 
 export async function runScheduler(db: Firestore, nowMs: number, deps: SchedulerDeps = {}): Promise<SchedulerReport> {
-  const report: SchedulerReport = { atMs: nowMs, leadsRead: 0, escalations: 0, recycled: 0, archived: 0, assigned: 0, slaReassigned: 0, absencesStarted: 0, absencesEnded: 0, returned: 0, stillWaiting: 0, transmitted: 0, transmissionAlerts: 0, errors: [] };
+  const report: SchedulerReport = { atMs: nowMs, leadsRead: 0, escalations: 0, recycled: 0, archived: 0, assigned: 0, slaReassigned: 0, absencesStarted: 0, absencesEnded: 0, returned: 0, stillWaiting: 0, transmitted: 0, transmissionAlerts: 0, mainRead: 0, mainChanged: 0, mainCancelled: 0, errors: [] };
   const at = new Date(nowMs);
   const guard = async (label: string, fn: () => Promise<void>) => {
     try {
@@ -461,6 +466,15 @@ export async function runScheduler(db: Firestore, nowMs: number, deps: Scheduler
         else if (r.code !== 'busy') report.errors.push(`transmission ${c.id} : ${r.message}`.slice(0, 200));
       });
     }
+  });
+
+  // ── 7. Retour des statuts du CRM principal (§24.8) : lecture seule, répercutée sur les leads et les ventes ──
+  await guard('statuts du CRM principal', async () => {
+    const r = await syncMainStatuses(db, nowMs);
+    report.mainRead = r.read;
+    report.mainChanged = r.changed;
+    report.mainCancelled = r.cancelled;
+    report.errors.push(...r.errors);
   });
 
   // Trace du dernier passage (lisible par le personnel : cl_config est en lecture seule côté navigateur).

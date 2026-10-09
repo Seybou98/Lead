@@ -3,12 +3,13 @@ import { getDownloadURL, ref } from 'firebase/storage';
 import { AlertTriangle, Check, CheckCircle2, Clock, ExternalLink, FileText, Hammer, Paperclip, RefreshCw, Send, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { storage } from '../../lib/firebase';
-import { DOCUMENT_KO_REASONS, type DocumentKoReason, type DocumentStatus, type LeadStatus } from '../../domain/enums';
+import { type DocumentKoReason, type DocumentStatus, type LeadStatus } from '../../domain/enums';
 import { DOCUMENT_CHANNELS } from '../../domain/call/outcomes';
-import { DOCUMENT_STATUS_LABELS, documentLabel, KO_REASON_LABELS, summarizeDocuments, type DocRow } from '../../domain/documents/plan';
+import { DOCUMENT_STATUS_LABELS, documentLabel, koLabel, summarizeDocuments, type DocRow } from '../../domain/documents/plan';
 import { checkFile, sendDocumentAction, uploadDocumentFile } from '../../lib/documentsApi';
 import { DecisionModal, FollowUpModal } from './DocumentModals';
 import { useLeadPieces, type PieceView } from './useLeadPieces';
+import { useSettings } from '../settings/useSettings';
 
 const STATUS_STYLE: Record<DocumentStatus, string> = {
   expected: 'bg-slate-100 text-slate-600',
@@ -64,11 +65,16 @@ export function LeadDocumentsPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [rejecting, setRejecting] = useState<string | null>(null);
-  const [koReason, setKoReason] = useState<DocumentKoReason>('unreadable');
+  const { reasonCatalog } = useSettings();
+  const koReasons = reasonCatalog.active.document_ko;
+  const commentRequired = reasonCatalog.commentRequired.document_ko;
+  const [koReasonChoice, setKoReason] = useState<DocumentKoReason>('unreadable');
+  // Le motif choisi doit exister dans la liste active ; sinon on retombe sur le premier.
+  const koReason = koReasons[koReasonChoice] ? koReasonChoice : (Object.keys(koReasons)[0] ?? 'other');
   const [koComment, setKoComment] = useState('');
   const [channel, setChannel] = useState<keyof typeof DOCUMENT_CHANNELS>('whatsapp');
 
-  const rows: DocRow[] = pieces.map((p) => ({ code: p.code, label: p.label, mandatory: p.mandatory, status: p.status, koReason: p.koReason }));
+  const rows: DocRow[] = pieces.map((p) => ({ code: p.code, label: p.label, mandatory: p.mandatory, status: p.status, koReason: p.koReason, koReasonLabel: p.koReasonLabel }));
   const summary = summarizeDocuments(rows);
   const showFollow = follow || openFollowUp === true;
   const closeFollow = () => {
@@ -164,6 +170,8 @@ export function LeadDocumentsPanel({
               onChannel={setChannel}
               rejecting={rejecting === p.code}
               koReason={koReason}
+              koReasons={koReasons}
+              koCommentRequired={commentRequired.includes(koReason)}
               koComment={koComment}
               onKoReason={setKoReason}
               onKoComment={setKoComment}
@@ -231,6 +239,8 @@ function PieceRow(props: {
   onChannel: (c: keyof typeof DOCUMENT_CHANNELS) => void;
   rejecting: boolean;
   koReason: DocumentKoReason;
+  koReasons: Record<string, string>;
+  koCommentRequired: boolean;
   koComment: string;
   onKoReason: (r: DocumentKoReason) => void;
   onKoComment: (v: string) => void;
@@ -268,7 +278,7 @@ function PieceRow(props: {
           <p className="text-xs text-slate-500">
             {p.receivedAtMs !== null && <>Reçu le {when(p.receivedAtMs)}{p.channel ? ` · ${p.channel === 'upload' ? 'Dépôt' : (DOCUMENT_CHANNELS as Record<string, string>)[p.channel] ?? p.channel}` : ''}</>}
             {p.receivedAtMs === null && 'Pas encore reçu'}
-            {p.koReason && <span className="text-red-600"> · {KO_REASON_LABELS[p.koReason]}{p.koComment ? ` — ${p.koComment}` : ''}</span>}
+            {p.koReason && <span className="text-red-600"> · {koLabel(p)}{p.koComment ? ` — ${p.koComment}` : ''}</span>}
           </p>
           {p.file && (
             <button type="button" onClick={props.onOpen} className="mt-0.5 inline-flex items-center gap-1 text-xs text-blue-700 hover:underline">
@@ -316,11 +326,11 @@ function PieceRow(props: {
         <div className="mt-2.5 space-y-2 rounded-lg bg-red-50/60 p-3 pl-4">
           <div className="flex flex-wrap items-center gap-2">
             <select aria-label="Motif de non-conformité" value={props.koReason} onChange={(e) => props.onKoReason(e.target.value as DocumentKoReason)} className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm">
-              {DOCUMENT_KO_REASONS.map((k) => (
-                <option key={k} value={k}>{KO_REASON_LABELS[k]}</option>
+              {Object.entries(props.koReasons).map(([k, v]) => (
+                <option key={k} value={k}>{v}</option>
               ))}
             </select>
-            <input aria-label="Commentaire" value={props.koComment} maxLength={300} onChange={(e) => props.onKoComment(e.target.value)} placeholder={props.koReason === 'other' ? 'Précisez (obligatoire)' : 'Commentaire (facultatif)'} className="min-w-[200px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm" />
+            <input aria-label="Commentaire" value={props.koComment} maxLength={300} onChange={(e) => props.onKoComment(e.target.value)} placeholder={props.koCommentRequired ? 'Précisez (obligatoire)' : 'Commentaire (facultatif)'} className="min-w-[200px] flex-1 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm" />
           </div>
           <div className="flex gap-2">
             <button type="button" disabled={working} onClick={() => props.onCheck('non_conform')} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60">Confirmer : non conforme</button>

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { catalogOf, parseReasonSettings } from '../settings/reasons';
 import {
   buildReminderMessage,
   DEFAULT_DOCUMENT_RULES,
@@ -101,7 +102,7 @@ describe('résumé recopié sur le lead (écran Documents)', () => {
   it('liste les pièces manquantes ou rejetées, compte les pièces à contrôler, date la dernière réception', () => {
     const docs = [row('identity', 'non_conform', true, 'expired'), row('tax_notice', 'expected'), row('proof_of_address', 'received'), row('bank_details', 'conform', false)];
     const p = ok({ kind: 'receive', code: 'tax_notice' }, ctx({ docs }));
-    expect(p.leadDocuments.missing).toEqual([{ code: 'identity', label: null, status: 'non_conform', koReason: 'expired' }]);
+    expect(p.leadDocuments.missing).toEqual([{ code: 'identity', label: null, status: 'non_conform', koReason: 'expired', koReasonLabel: null }]);
     expect(p.summary.toCheck).toBe(2);
     expect(p.leadDocuments.lastReceivedAtMs).toBe(NOW);
     expect(p.leadDocuments.completedAtMs).toBeUndefined();
@@ -162,6 +163,15 @@ describe('contrôle d\'une pièce', () => {
     expect(refused({ kind: 'check', code: 'identity', verdict: 'non_conform' }, ctx({ docs: received })).message).toMatch(/motif/i);
     expect(refused({ kind: 'check', code: 'identity', verdict: 'non_conform', koReason: 'bogus' as never }, ctx({ docs: received })).code).toBe('invalid');
     expect(refused({ kind: 'check', code: 'identity', verdict: 'non_conform', koReason: 'other' }, ctx({ docs: received })).message).toMatch(/commentaire/i);
+  });
+  it('motifs modifiables : valeur ajoutée acceptée et conservée avec son libellé, valeur archivée refusée', () => {
+    const cat = catalogOf(parseReasonSettings({ lists: { document_ko: [{ code: 'c_tampon', label: 'Tampon absent', active: true, requireComment: true }, { code: 'expired', label: 'Expiré', active: false }] } }));
+    const c = ctx({ docs: received, rules: { ...rules, reasons: cat } });
+    expect(refused({ kind: 'check', code: 'identity', verdict: 'non_conform', koReason: 'c_tampon' }, c).message).toMatch(/commentaire/i);
+    const p = ok({ kind: 'check', code: 'identity', verdict: 'non_conform', koReason: 'c_tampon', comment: 'page 2' }, c);
+    expect(p.events[0].reason).toBe('Tampon absent');
+    expect(p.leadDocuments.missing[0]).toMatchObject({ koReason: 'c_tampon', koReasonLabel: 'Tampon absent' });
+    expect(refused({ kind: 'check', code: 'identity', verdict: 'non_conform', koReason: 'expired' }, c).code).toBe('invalid');
   });
   it('non conforme : la pièce sort de la progression et une action « redemander » est créée, citant la pièce', () => {
     const p = ok({ kind: 'check', code: 'identity', verdict: 'non_conform', koReason: 'unreadable' }, ctx({ docs: received }));

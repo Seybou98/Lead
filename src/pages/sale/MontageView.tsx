@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Euro, FileText, Home, Lock, Plus, Save, Send, ShieldCheck, Trash2, UserRound } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { canCreateSale, DEFAULT_CONVERSION_RULES, evaluateControls, lockReason } from '../../domain/conversion/controls';
+import { canCreateSale, evaluateControls, lockReason } from '../../domain/conversion/controls';
 import { formatEuros, lineTtcCents, type OfferLine } from '../../domain/conversion/finance';
 import { draftFromLead, MONTAGE_STEPS, type MontageDraft, type MontageStep } from '../../domain/conversion/montage';
 import { sendConversionAction } from '../../lib/conversionApi';
@@ -10,6 +10,7 @@ import { Feedback } from '../settings/settingsUi';
 import { EuroField, Field, inputCls, LevelIcon, SaleCard } from './saleUi';
 import { useArticles, type SaleData, type SaleLead } from './useSaleData';
 import { useParcelAuto } from './useParcelAuto';
+import { useSettings } from '../settings/useSettings';
 import { formatParcelCadastrale } from '../../domain/conversion/parcel';
 
 const HOUSING = ['Maison individuelle', 'Appartement', 'Autre'];
@@ -33,6 +34,7 @@ export function MontageView({ leadId, lead, data, canAct }: { leadId: string; le
   const [asking, setAsking] = useState(false);
   const [message, setMessage] = useState('');
   const [confirming, setConfirming] = useState(false);
+  const { conversion: rules } = useSettings();
   const { articles, loading: articlesLoading } = useArticles(lead.productCode);
   const parcel = useParcelAuto({ street: draft.identity.addressLine, postalCode: draft.identity.postalCode, city: draft.identity.city });
 
@@ -49,7 +51,7 @@ export function MontageView({ leadId, lead, data, canAct }: { leadId: string; le
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parcel.parcelId, canAct]);
 
-  const report = useMemo(() => evaluateControls({ lead: { consent: lead.consent, productCode: lead.productCode }, draft, docs: lead.docs, qualificationMissing: [], rules: DEFAULT_CONVERSION_RULES }), [draft, lead]);
+  const report = useMemo(() => evaluateControls({ lead: { consent: lead.consent, productCode: lead.productCode }, draft, docs: lead.docs, qualificationMissing: [], rules: rules }), [draft, lead, rules]);
   const validation = data.validation;
   const lock = lockReason(report, validation);
   const creatable = canCreateSale(report, validation) && !dirty;

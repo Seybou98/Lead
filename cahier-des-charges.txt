@@ -33,15 +33,14 @@ Ce qui fonctionne aujourd'hui, de bout en bout, sur la base de DEV (crm-pose-dev
   - le manager pilote : cockpit, équipe, réattribution, absences, transfert de portefeuille ; un planificateur
     serveur (toutes les 5 minutes) escalade, recycle, attribue la file tampon et reprend les transmissions en échec.
 
-Ce qui reste : le retour des statuts du CRM principal vers les indicateurs, les rapports (Direction, campagnes,
-rentabilité), le constructeur de qualification, les motifs et listes administrables, les communications (SMS,
-email, WhatsApp), la partie de la vente à distance qui dépend de prestataires (contrat PDF, signature électronique,
+Ce qui reste : les autres rapports (télépros, pipeline documentaire, exports programmés, objectifs, rentabilité),
+le constructeur de qualification, les communications (SMS, email, WhatsApp), la partie de la vente à distance qui dépend de prestataires (contrat PDF, signature électronique,
 financement), le hub d'intégrations, les règles Storage, la mise en production, puis le Lot 6 (hors V1).
 
-Qualité : 1390 tests unitaires (68 fichiers) ; typecheck de l'application, des fonctions Netlify et des
+Qualité : 1562 tests unitaires (76 fichiers) ; typecheck de l'application, des fonctions Netlify et des
 fonctions Firebase ; build de production OK ; Lead compile, se construit et se teste seul, copié hors du projet.
 Recettes réelles sur la base de DEV : 28/28 (fonctions serveur), 34/34 (montage et vente), 29/29 (transmission
-avec Storage et IGN réels), 31/31 (données transmises et suivi de la vente), 13/13 (file tampon et réattribution
+avec Storage et IGN réels), 31/31 (données transmises et suivi de la vente), 16/16 (retour des statuts), 4/4 (verrous de conversion réglés), 13/13 (file tampon et réattribution
 sur le site déployé).
 
 Les 6 lots du cahier :
@@ -186,8 +185,15 @@ PHASE 1 — Lot 1, socle                                                        
           version équivalente (rien n'est détruit), avec rappel du périmètre touché.
   [À FAIRE] Constructeur de qualification conditionnelle (fig. 27), éligibilité et aides par produit, offres
           combinées avec fusion et contradictions (fig. 28, partie fusion), workflows et statuts éditables,
-          motifs et listes administrables, règles de conversion avec test et impact (fig. 29, avec le lot
+          règles de conversion avec test et impact (fig. 29, avec le lot
           Conversion), communications versionnées.
+  [FAIT]  Motifs et listes administrables (§21.6), Paramètres → Motifs et listes : rappel, mauvais moment, prospect
+          intéressé, non-intérêt, faux lead, inéligibilité (4 catégories) et non-conformité d'une pièce, réattribution et température (codes fixes). Chaque
+          valeur a un libellé, un ordre, un code statistique stable et une exigence de commentaire ; une valeur
+          ajoutée prend un code « c_… ». Aucune suppression : une valeur s'archive (plus proposée, toujours lisible
+          dans les historiques et rapports) ; les valeurs d'origine ne disparaissent jamais et gardent leur code.
+          Le navigateur et les fonctions serveur lisent les mêmes listes ; versions et retour arrière comme les
+          autres réglages. Non vérifié en navigateur avec une vraie connexion.
   [PARTIEL] Pas de cycle Brouillon → Test → Impact → Publication : un réglage enregistré est appliqué
           immédiatement aux prochains leads, appels et relances ; l'historique et le retour arrière sont là,
           pas la mise en brouillon ni la simulation sur un lead fictif. Les 300 derniers enregistrements du
@@ -285,10 +291,14 @@ PHASE 3 — Lot 3, documents                                                    
   [FAIT]  Alerte rouge J+7 et décision J+14 vers le manager : faites par le planificateur serveur.
   [À FAIRE] Checklists selon aide et type de dossier (le cahier les croise aussi avec MPR / CEE / financement,
           fig. 28 : sources de règle, fusion, conflits), modale fig. 9 complète, relances réellement envoyées.
-  [À FAIRE] Règles Storage : testées le 8 octobre sur crm-pose-dev. Le rôle est bien exigé (envoi sans connexion
-          refusé), MAIS les règles sont permissives : un fichier exécutable, un fichier de plus de 15 Mo et un
-          envoi hors de cl_documents/ sont acceptés pour tout compte connecté. La limite de 15 Mo n'est donc
-          appliquée que par l'interface. À resserrer dans la console (bloc limité à cl_documents/).
+  [À FAIRE] Règles Storage (§15.1, §15.2) : la règle publiée sur crm-pose-dev (lue le 9 octobre) est « tout compte
+          connecté lit, écrit et supprime tout fichier », sans contrôle de type ni de taille (ce n'est pas le fichier
+          storage.rules du dépôt, plus strict). Un fichier prêt à coller existe : firebase/storage.dev.rules (lecture et
+          création limitées à l'administrateur, au manager du lead et au télépro propriétaire ; PDF et images, 15 Mo ;
+          ni modification ni suppression ; reste du bucket inchangé). Syntaxe validée par Google en simulation ;
+          comportement NON testé (voir les 10 essais du simulateur dans firebase/RULES_A_APPLIQUER.md). Rien n'est
+          publié. Pour la production, partir des règles publiées là-bas (non lues), jamais de ce fichier tel quel.
+          Hors règles et toujours à faire : antivirus, liens d'accès temporaires, journal des téléchargements.
 
 PHASE 4 — Lot 4, conversion                                                                 [PARTIEL]
   Dossiers : montage et validation
@@ -323,11 +333,36 @@ PHASE 4 — Lot 4, conversion                                                   
   [À VALIDER] Correspondances vers le dossier du CRM principal : type de dossier (crédit → financement, sinon
           MPR / CEE / MPR + CEE / comptant), régie laissée vide, commercial = propriétaire du lead, types de pièces
           = codes du CRM Leads, barème MPR automatique non repris (le montant d'aide vient du montage).
-  [À FAIRE] Retour des statuts du CRM principal (dossier validé, incomplet, annulé, installé, facturé : §24.8) vers
-          les KPI. Le client (`clients`) naît dans le CRM principal quand le dossier est validé.
-  [À FAIRE] Écran d'administration « Transmission vers le CRM principal » de la fig. 44 (tableau « Dossiers à
-          transmettre », statuts Prêt / Bloqué / En attente, aperçu des données) : seule la reprise depuis la
-          fiche du dossier et le bouton « Réessayer » du cockpit existent.
+  [FAIT]  Retour des statuts du CRM principal (§11.8, §24.8) : le planificateur relit toutes les 5 minutes, en
+          lecture seule, le dossier transmis, son client et sa subvention, et en déduit l'étape : dossier incomplet,
+          complément demandé, complet, validé, client à programmer, chantier planifié, en cours, installé, facturé,
+          annulé. Chaque changement s'inscrit dans l'historique du lead, avec la date des jalons (validé, installé,
+          facturé). Dossier validé : notification (conversion confirmée). Dossier qui redevient incomplet ou
+          complément demandé : notification au propriétaire et aux managers. Annulation ou abandon : la vente est
+          retirée des ventes nettes (état annulé, motif « Annulé dans le CRM principal », audit, signal critique).
+          Jamais de réouverture : le lead reste « Converti ». Étape affichée sur la fiche (« Prochaines étapes du
+          dossier », fig. 3) et sur les cartes de l'espace Ventes. Vérifié sur la base de DEV (16/16).
+  [PARTIEL] Retour des statuts : lecture périodique (5 min), pas en temps réel ; le client (`clients`) naît dans le
+          CRM principal à la validation du dossier, le CRM Leads ne le crée jamais. Statut inconnu du CRM principal :
+          étape « inconnue », jamais devinée. Non fait : action documentaire ciblée avec échéance sur un dossier
+          incomplet (une notification est envoyée, la file du télépro n'est pas modifiée), motif d'annulation du CRM
+          principal (aucun champ de motif repéré), montants réels (facturés, encaissés), retour du CRM principal vers
+          les tableaux de campagne et de télépro (installations, facturations par campagne et par télépro).
+  [FAIT]  Écran « Transmission vers le CRM principal » (fig. 44, §24.7, §24.10), menu Intégrations > Transmission
+          (administrateur) : cartes (transmis ce mois, taux de réussite = transmis / (transmis + en erreur), en attente,
+          bloqué), parcours du dossier sélectionné (lead qualifié, documents complets, dossier validé, client créé),
+          tableau « Dossiers à transmettre » (client, lead, produit, télépro, contrôles n/n, statut Prêt / Bloqué /
+          En attente / Transmis, action), filtres statut, produit, télépro et dates (mois par défaut), pagination,
+          panneau du dossier (checklist de validation, blocages expliqués, échec et tentative, données transmises :
+          client, dossier, documents, historique), aperçu des données, reprise, décision en cas de doublon, dernière
+          transmission réussie avec lien vers le CRM principal. Actions : « Créer la vente » (ouvre le dossier, la
+          vente se confirme sur sa fiche), « Réessayer », « Voir les blocages », « Ouvrir ».
+  [PARTIEL] Écran de transmission : réservé à l'administrateur (§24.11 y associe aussi les managers : ils reprennent
+          une transmission depuis la fiche du dossier ou le cockpit). Non repris : « Paramètres d'intégration », menu
+          « ⋮ » de ligne, pastille de CRM de destination, journal filtrable par identifiant externe (hub fig. 40-42),
+          « Contrôles n/n » des dossiers enregistrés avant ce lot (affichés « — » jusqu'au prochain enregistrement),
+          aperçu = résumé du brouillon, pas la charge utile exacte. Vérifié contre la maquette avec des données
+          fictives ; non vérifié avec une vraie connexion.
   Ventes et suivi commercial
   [FAIT]  Cockpit manager (fig. 14, §11.11, §25.7) : « Décisions à prendre » contient « Vente à valider — client ·
           montant [VALIDER] » (ouvre la fiche du dossier) et « Erreur d'envoi CRM [RÉESSAYER] » (relance la
@@ -357,9 +392,14 @@ PHASE 4 — Lot 4, conversion                                                   
           TAEG, calcul « aides réellement déduites », relances automatiques (§23.10), assistant « Offre, Règlement,
           Vérification, Signature » depuis l'appel (figs. 35-38). Le CRM enregistre aujourd'hui les étapes saisies à
           la main ; il n'en pilote aucune.
-  [À FAIRE] Seuils de conversion modifiables dans Paramètres (aujourd'hui : remise max 5 % du prix TTC, en dur),
-          marge minimale, champs obligatoires par produit, « validé avec réserve » côté documents, règles de
-          conversion avec test et impact (fig. 29).
+  [FAIT]  Verrous de conversion modifiables (Paramètres > Verrous de conversion, §11.6, §14) : remise maximale sans
+          validation du manager (5 % par défaut), éligibilité exigée ou non, consentement exigé ou non, qualification
+          RGE exigée ou non. Les mêmes valeurs sont évaluées par le montage (navigateur) et par le serveur à
+          l'enregistrement et à la création de la vente ; versions et retour arrière comme les autres réglages ;
+          une alerte du centre de paramétrage signale un réglage non enregistré. Vérifié sur la base de DEV (4/4).
+  [À FAIRE] Marge minimale (pas de coût d'achat en base), champs obligatoires par produit, « validé avec réserve »
+          côté documents, test et impact d'une règle sur des dossiers existants (fig. 29). Toujours bloquants, sans
+          réglage possible : documents, identité, offre, montants, CEE, éligibilité refusée.
 
 PHASE 5 — Lot 5, pilotage et reporting                                                      [PARTIEL]
   [FAIT]  Cockpit manager (fig. 14) : cartes Leads en danger (SLA dépassé ou proche), Rappels en retard
@@ -373,11 +413,37 @@ PHASE 5 — Lot 5, pilotage et reporting                                        
   [PARTIEL] Cockpit : filtres globaux équipe / produit / campagne / zone, pipeline cliquable, cockpit documentaire
           détaillé, actions de masse, clôture d'une alerte avec motif, report d'action, sons et notifications du
           manager, actualisation par intervalles (§12.5) : non faits. « Résultat du jour » (ventes par télépro) :
-          les ventes existent mais ne sont pas encore rattachées à cette colonne ; durée dans le statut : pas de
-          donnée en base.
-  [À FAIRE] Rapports : tableau de bord Direction, analyse des campagnes et rentabilité, comparaison des
-          télépros, pipeline documentaire, exports et rapports programmés (figs. 30-34).
-  [PARTIEL] Les statistiques de campagne (leads, contactés, coût) existent dans l'écran Campagnes.
+          colonne « Résultat » rattachée aux ventes ; durée dans le statut : pas de donnée en base.
+  [FAIT]  Installations et facturations dans les tableaux (§24.12) : une seule définition de l'issue d'une vente
+          (src/domain/sales/outcome.ts) pour les campagnes, les télépros, le cockpit et les rapports. « Ventes » =
+          ventes nettes (créées et non annulées) ; s'y ajoutent annulées, sécurisées, validées, installées, facturées.
+          Écran Campagnes (colonnes Installées et Facturées, cartes, export), fiche télépro (performance du mois :
+          sécurisées, installées, facturées, annulées), cockpit (colonne « Résultat » de l'équipe : ventes de la
+          période dont installées).
+  [FAIT]  Centre de rapports, menu Rapports (§22, administrateur et manager dans leur périmètre), lecture seule :
+          - Rapport Direction (fig. 30) : dépenses, leads reçus, coût par lead valide, taux de contact, dossiers complets,
+            ventes, coût par vente, chacun avec sa variation vs la période précédente (même durée, juste avant) et sa
+            définition en infobulle ; entonnoir reçus > valides > contactés > intéressés > documents demandés >
+            documents complets > dossiers montés > ventes, chaque segment ouvrant la liste exacte (même total) ;
+            dépenses et ventes par semaine ; points d'attention (coût par vente, coût par lead, taux de contact,
+            documents, ventes annulées) avec seuil ET volume minimum (10 leads valides, 3 ventes) ; projection
+            mensuelle au rythme observé, signalée comme estimation ; export CSV.
+          - Modes « date d'événement » et « cohorte d'acquisition » (§22.2), toujours affichés ; en événement les
+            taux de passage ne sont pas montrés (ils dépasseraient 100 %).
+          - Performance des campagnes (fig. 31) : données corrigées ou brutes (§22.5), cartes, tableau (leads bruts et
+            valides, CPL, contact, documents, ventes, installées, coût par vente), coût par vente par campagne,
+            panneau de la campagne (budget et dépenses, qualité des données, parcours) ; export CSV.
+          - Filtres période (mois, mois précédent, 30 jours, trimestre), source, produit, télépro.
+  [PARTIEL] Rapports : « intéressés » se déduit du statut actuel (plancher, aucun historique des statuts) ; les dates
+          d'étape sont celles que porte le lead (dernière demande de pièces, dossier complet, dernière mise à jour du
+          dossier) ; la date de réception sert de repli, jamais une date plus favorable. Coût rattaché à une campagne :
+          filtre télépro = coût « — » (une dépense ne se rattache pas à un télépro).
+  [À FAIRE] Rapports : filtres équipe, publicité, formulaire, zone, offre, comparaison avec l'année précédente,
+          granularité jour / mois, filtres partageables par URL ; objectifs et écart à l'objectif (§22.8, aucun
+          objectif n'existe en base, donc ni jauge ni « écart objectif » du tableau des campagnes) ; marge, valeur et
+          rentabilité (pas de chiffre d'affaires ni de coût d'achat en base) ; vues Télépros et équipes (fig. 32),
+          Pipeline documentaire et délais (fig. 33), Qualité des leads par motif ; exports programmés, Excel, PDF et
+          API (fig. 34) ; correction ou exclusion d'un lead avec motif (§22.5) ; coûts importés (CSV, Meta, Google).
 
 PHASE 6 — Sections 23 et 24                                                                 [À FAIRE]
   [À FAIRE] Hub d'intégrations (fig. 40-44) : journal de synchronisation, erreurs et nouvelles tentatives,
@@ -415,8 +481,8 @@ PHASE 6 — Sections 23 et 24                                                   
             automatique, données transmises complétées, redirection /api/pabbly/leads).
             Variables : CL_INGEST_SECRET (ou CRM_SHARED_SECRET), FIREBASE_SERVICE_ACCOUNT_JSON_BASE64, VITE_FIREBASE_*.
             Facultatives : FIREBASE_STORAGE_BUCKET, VITE_MAIN_CRM_URL (lien « Voir le dossier CRM »).
-  [À FAIRE] Resserrer les règles Storage (voir phase 3) : type et taille de fichier, lecture limitée aux profils
-            du lead, plus un journal des téléchargements et un antivirus (§15.1, §15.2) qui restent à construire.
+  [À FAIRE] Publier les règles Storage de firebase/storage.dev.rules après les 10 essais du simulateur (voir phase 3),
+            d'abord sur crm-pose-dev ; en production, les adapter aux règles qui y sont publiées.
   [À FAIRE] Clé du compte de service de la base RÉELLE pour le site de production (ne jamais la mettre dans
             le dépôt) ; documentation : docs/NETLIFY.md.
   [À FAIRE] SÉCURITÉ : des clés de comptes de service sont suivies par git dans le dépôt principal
@@ -465,10 +531,12 @@ principal…) restent à confirmer par écrit.
   2. (fait) Conversion : montage, verrous, validation manager, vente, transmission, espace Ventes et suivi manuel.
   3. Recette avec de vrais leads : brancher Pabbly (2e étape d'envoi), vérifier la file tampon, la réattribution,
      les dossiers et les ventes sur ces leads, dans le navigateur avec une vraie connexion.
-  4. Règles Storage à resserrer (sécurité), puis mise en production des fonctions déjà prêtes.
-  5. Retour des statuts du CRM principal (§24.8) et rattachement des ventes au tableau de l'équipe / « Résultat du jour ».
-  6. Paramétrage restant : motifs et listes, qualification conditionnelle, seuils et règles de conversion (figs. 25-29).
-  7. Rapports (Direction, campagnes, rentabilité, exports), puis communications (SMS, email, WhatsApp).
+  4. Règles Storage : fichier prêt, à tester dans le simulateur puis à publier ; ensuite mise en production des fonctions déjà prêtes.
+  5. (fait) Retour des statuts du CRM principal (§24.8), installations et facturations dans les tableaux de campagne
+     et de télépro, verrous de conversion réglables, rapports Direction et Campagnes.
+  6. (fait) Motifs et listes administrables (§21.6). Paramétrage restant : qualification conditionnelle (figs. 25-29).
+  7. Rapports restants : télépros, pipeline documentaire, qualité des leads, objectifs, exports programmés (figs. 32-34),
+     puis communications (SMS, email, WhatsApp).
   8. Partie de la vente à distance qui dépend de prestataires : contrat PDF versionné, signature électronique,
      financement. À lancer quand les modèles juridiques et les prestataires sont choisis.
   9. Mise en production complète (§5), recette métier, puis Phase 6.
@@ -483,7 +551,7 @@ recette sur la base de DEV.
 
   cd Lead
   npm run dev                       application + fonctions sur http://localhost:5180
-  npm test                          les 1390 tests
+  npm test                          les 1562 tests
   node scripts/send-test-leads.mjs --url http://localhost:5180 --secret <CRM_SHARED_SECRET> --count 5
                                     envoie de faux leads (option --scenario mix pour les cas limites)
   node scripts/test-file-tampon.mjs [--keep]

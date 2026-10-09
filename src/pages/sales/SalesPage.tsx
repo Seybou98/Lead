@@ -90,7 +90,7 @@ function SaleCard({ r, column, nowMs, canRemind, onOpen, onRemind }: { r: LeadRo
       </div>
       <div className="mt-3 flex items-center justify-between gap-2">
         <span className="truncate text-xs text-slate-400">
-          {t && t.reminderCount > 0 && t.lastReminderAtMs ? `Relancé il y a ${sinceLabel(t.lastReminderAtMs, nowMs)} (${t.reminderCount})` : `${r.conversion?.clientId ? `Dossier n° ${r.conversion.clientId} · ` : ''}depuis ${sinceLabel(r.montage?.updatedAtMs ?? r.receivedAtMs, nowMs)}`}
+          {t && t.reminderCount > 0 && t.lastReminderAtMs ? `Relancé il y a ${sinceLabel(t.lastReminderAtMs, nowMs)} (${t.reminderCount})` : `${r.conversion?.clientId ? `Dossier n° ${r.conversion.clientId} · ` : ''}${r.mainStatus && r.mainStatus.stage !== 'unknown' ? `${r.mainStatus.label} · ` : ''}depuis ${sinceLabel(r.montage?.updatedAtMs ?? r.receivedAtMs, nowMs)}`}
         </span>
         <button type="button" onClick={column === 'to_sign' && remindable ? onRemind : onOpen} className="flex-shrink-0 rounded-md bg-blue-600 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-white hover:bg-blue-700">{column === 'to_sign' && !remindable ? 'Ouvrir' : label}</button>
       </div>

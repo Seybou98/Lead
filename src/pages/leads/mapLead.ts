@@ -81,8 +81,9 @@ export function toListItem(id: string, d: DocumentData): LeadListItem | null {
     excluded: d.quality?.excluded === true,
     nr: { attempt: Number(d.nr?.attempt ?? 0) || 0, cycle: Number(d.nr?.cycle ?? 1) || 1 },
     ...(d.montage && typeof d.montage === 'object'
-      ? { montage: { validationState: str(d.montage.validationState, 'none'), blocking: num(d.montage.blocking), toConfirm: num(d.montage.toConfirm), totalTtcCents: num(d.montage.totalTtcCents), remainderCents: num(d.montage.remainderCents), updatedAtMs: ms(d.montage.updatedAt), financingMode: typeof d.montage.financingMode === 'string' ? d.montage.financingMode : null } }
+      ? { montage: { validationState: str(d.montage.validationState, 'none'), blocking: num(d.montage.blocking), toConfirm: num(d.montage.toConfirm), totalTtcCents: num(d.montage.totalTtcCents), remainderCents: num(d.montage.remainderCents), updatedAtMs: ms(d.montage.updatedAt), financingMode: typeof d.montage.financingMode === 'string' ? d.montage.financingMode : null, validated: typeof d.montage.validated === 'number' ? d.montage.validated : null, total: typeof d.montage.total === 'number' ? d.montage.total : null } }
       : {}),
+    ...(d.mainStatus && typeof d.mainStatus.stage === 'string' ? { mainStatus: { stage: d.mainStatus.stage, label: str(d.mainStatus.label), changedAtMs: ms(d.mainStatus.changedAt) } } : {}),
     ...(d.saleId
       ? {
           commercialState: str(d.commercialState, 'none'),
@@ -99,7 +100,7 @@ export function toListItem(id: string, d: DocumentData): LeadListItem | null {
         }
       : {}),
     ...(d.conversion && typeof d.conversion === 'object' && d.conversion.state
-      ? { conversion: { state: str(d.conversion.state), clientId: typeof d.conversion.clientId === 'string' ? d.conversion.clientId : null, dossierId: typeof d.conversion.dossierId === 'string' ? d.conversion.dossierId : null } }
+      ? { conversion: { state: str(d.conversion.state), clientId: typeof d.conversion.clientId === 'string' ? d.conversion.clientId : null, dossierId: typeof d.conversion.dossierId === 'string' ? d.conversion.dossierId : null, convertedAtMs: ms(d.conversion.convertedAt) } }
       : {}),
   };
 }

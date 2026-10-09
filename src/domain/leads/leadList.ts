@@ -37,16 +37,18 @@ export interface LeadListItem {
   /** Cycle NR en cours (§8.1) ; absent = aucun NR enregistré. */
   nr?: { attempt: number; cycle: number };
   /** Résumé du montage du dossier (recopié par le serveur) ; absent tant qu'aucun brouillon n'a été enregistré. */
-  montage?: { validationState: string; blocking: number; toConfirm: number; totalTtcCents: number; remainderCents: number; updatedAtMs: number | null; financingMode?: string | null };
+  montage?: { validationState: string; blocking: number; toConfirm: number; totalTtcCents: number; remainderCents: number; updatedAtMs: number | null; financingMode?: string | null; validated?: number | null; total?: number | null };
   /** Axes commercial et financier (§23.9) ; absents tant qu'aucune vente n'est créée. */
   commercialState?: string;
   financialState?: string;
   /** Instant où la vente est devenue sécurisée (signée et réglée) ; absent tant qu'elle ne l'est pas. */
   securedAtMs?: number | null;
+  /** Étape du dossier dans le CRM principal (retour des statuts, §24.8) ; absente tant qu'aucune lecture n'a eu lieu. */
+  mainStatus?: { stage: string; label: string; changedAtMs: number | null };
   /** Suivi de la vente : relances, acompte attendu, organisme de financement. */
   saleTrack?: { lastReminderAtMs: number | null; reminderCount: number; depositCents: number | null; financingOrganism: string | null; offerSentAtMs: number | null; signedAtMs: number | null };
   /** Transmission au CRM principal ; absent tant qu'aucune vente n'est créée. */
-  conversion?: { state: string; clientId: string | null; dossierId: string | null };
+  conversion?: { state: string; clientId: string | null; dossierId: string | null; convertedAtMs?: number | null };
 }
 
 export interface LeadNames {

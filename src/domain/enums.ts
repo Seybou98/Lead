@@ -128,7 +128,8 @@ export const DOCUMENT_KO_REASONS = [
   'inconsistent_info',
   'other',
 ] as const;
-export type DocumentKoReason = (typeof DOCUMENT_KO_REASONS)[number];
+/** Code d'un motif de non-conformité : une valeur d'origine (DOCUMENT_KO_REASONS) ou ajoutée dans Paramètres. */
+export type DocumentKoReason = string;
 
 /** État général du dossier documentaire, recalculé à chaque ajout ou validation. */
 export const DOCUMENT_STATES = [

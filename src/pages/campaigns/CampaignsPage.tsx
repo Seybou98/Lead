@@ -65,6 +65,8 @@ const COLUMNS: { key: CampaignSortKey; label: string; hideable: boolean }[] = [
   { key: 'cpl', label: 'CPL', hideable: true },
   { key: 'docs', label: 'Docs complets', hideable: true },
   { key: 'sales', label: 'Ventes', hideable: true },
+  { key: 'installed', label: 'Installées', hideable: true },
+  { key: 'invoiced', label: 'Facturées', hideable: true },
   { key: 'status', label: 'Statut', hideable: true },
 ];
 
@@ -239,7 +241,7 @@ export function CampaignsView({
     downloadText(
       `campagnes-${new Date().toISOString().slice(0, 10)}.csv`,
       toCsv(
-        ['Campagne', 'Source', 'Produit', 'Zones', 'Budget (€)', 'Leads valides', 'Doublons', 'Faux leads', 'Dépenses (€)', 'CPL (€)', 'Dossiers complets', 'Ventes', 'Coût par vente (€)', 'Statut'],
+        ['Campagne', 'Source', 'Produit', 'Zones', 'Budget (€)', 'Leads valides', 'Doublons', 'Faux leads', 'Dépenses (€)', 'CPL (€)', 'Dossiers complets', 'Ventes nettes', 'Ventes annulées', 'Ventes sécurisées', 'Installées', 'Facturées', 'Coût par vente (€)', 'Statut'],
         rows.map((r) => [
           r.campaign.name,
           sourceName(r.campaign.sourceId),
@@ -253,6 +255,10 @@ export function CampaignsView({
           r.cplCents === null ? '' : r.cplCents / 100,
           r.docsComplete,
           r.sales,
+          r.cancelled,
+          r.secured,
+          r.installed,
+          r.invoiced,
           r.costPerSaleCents === null ? '' : r.costPerSaleCents / 100,
           STATUS_STYLE[r.campaign.status].label,
         ])
@@ -342,7 +348,7 @@ export function CampaignsView({
         </button>
       </div>
 
-      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
+      <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-7">
         <Kpi icon={<Euro className="h-6 w-6" />} label="Dépenses" value={formatEuros(totals.spendCents, 0)} tone="bg-blue-50 text-blue-600" />
         <Kpi
           icon={<Users className="h-6 w-6" />}
@@ -353,7 +359,8 @@ export function CampaignsView({
         />
         <Kpi icon={<TrendingUp className="h-6 w-6" />} label="Coût par lead" value={formatEuros(totals.cplCents)} tone="bg-violet-50 text-violet-600" />
         <Kpi icon={<FileCheck2 className="h-6 w-6" />} label="Dossiers complets" value={String(totals.docsComplete)} tone="bg-amber-50 text-amber-600" />
-        <Kpi icon={<ShoppingCart className="h-6 w-6" />} label="Ventes" value={String(totals.sales)} tone="bg-emerald-50 text-emerald-600" />
+        <Kpi icon={<ShoppingCart className="h-6 w-6" />} label="Ventes" value={String(totals.sales)} sub={totals.cancelled > 0 ? `${totals.cancelled} annulée${totals.cancelled > 1 ? 's' : ''} (retirées)` : undefined} tone="bg-emerald-50 text-emerald-600" />
+        <Kpi icon={<FileCheck2 className="h-6 w-6" />} label="Installées / facturées" value={`${totals.installed} / ${totals.invoiced}`} sub={totals.installRate === null ? undefined : `${formatPercent(totals.installRate)} des ventes installées`} tone="bg-sky-50 text-sky-600" />
         <Kpi icon={<Euro className="h-6 w-6" />} label="Coût par vente" value={formatEuros(totals.costPerSaleCents)} tone="bg-rose-50 text-rose-600" />
       </div>
 
@@ -440,7 +447,9 @@ export function CampaignsView({
                       )}
                       {show('cpl') && <td className="whitespace-nowrap px-3 text-slate-700">{formatEuros(r.cplCents)}</td>}
                       {show('docs') && <td className="px-3 text-slate-800">{r.docsComplete}</td>}
-                      {show('sales') && <td className="px-3 text-slate-800">{r.sales}</td>}
+                      {show('sales') && <td className="px-3 text-slate-800">{r.sales}{r.cancelled > 0 && <span className="ml-1 text-xs text-red-500" title="Ventes annulées, retirées du total">(−{r.cancelled})</span>}</td>}
+                      {show('installed') && <td className="px-3 text-slate-800">{r.installed}</td>}
+                      {show('invoiced') && <td className="px-3 text-slate-800">{r.invoiced}</td>}
                       {show('status') && (
                         <td className="px-3"><span className={cn('rounded-md px-2 py-0.5 text-xs font-medium', st.cls)}>{st.label}</span></td>
                       )}

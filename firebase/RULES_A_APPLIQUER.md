@@ -260,3 +260,71 @@ automatiques avec l'émulateur Firestore (`@firebase/rules-unit-testing`) qui v�
 un télépro ne lit pas le lead d'un autre ; un manager ne lit pas une équipe hors périmètre ;
 aucune écriture directe n'est possible ; un technicien (rôle sans accès) est refusé partout ;
 les collections du CRM principal restent accessibles comme avant.
+
+---
+
+# Règles Storage — pièces des leads (`cl_documents/`)
+
+Fichier prêt à coller : **`firebase/storage.dev.rules`** (bâti sur les règles Storage réellement publiées sur `crm-pose-dev`).
+
+## Ce qui est publié aujourd'hui (constaté le 9 octobre sur `crm-pose-dev`)
+
+```
+match /{allPaths=**} { allow read, write: if request.auth != null; }
+```
+
+Tout compte connecté peut lire, écrire et supprimer **n'importe quel fichier**, sans contrôle de type ni de taille.
+Ce n'est pas le fichier `storage.rules` du dépôt (plus strict : comptes CRM seulement, accès client du portail limité) :
+comme pour Firestore, le dépôt et la console ne disent pas la même chose.
+
+## Ce que fait `storage.dev.rules`
+
+| | Avant | Après |
+|---|---|---|
+| Lire une pièce de lead | tout compte connecté | administrateur, manager du lead, télépro propriétaire |
+| Envoyer une pièce | tout compte connecté, tout fichier | les mêmes trois profils, PDF / JPEG / PNG / WebP / HEIC, 1 octet à 15 Mo |
+| Modifier / supprimer une pièce | tout compte connecté | personne (une pièce remplacée est un nouveau fichier) |
+| Le reste du bucket | tout compte connecté | **inchangé** |
+
+Le serveur (clé de compte de service) n'est pas soumis aux règles : la copie des pièces vers le dossier du CRM principal continue de fonctionner.
+
+## Pourquoi la règle par défaut est modifiée
+
+Dans Storage, l'accès est accordé dès qu'**un** bloc l'autorise. Ajouter seulement le bloc `cl_documents/` ne protégerait rien :
+la règle `{allPaths=**}` continuerait à tout ouvrir. Elle est donc découpée par opération, avec la même condition qu'avant sauf
+`cl_documents/` (`get`, `create`/`update` et `delete` l'excluent ; `list` reste inchangé).
+
+## À savoir avant de publier
+
+- **Vérifié par moi :** le fichier se compile (`firebase deploy --only storage --dry-run`, rien n'a été publié).
+- **Non vérifié par moi :** son comportement. Je n'ai pas pu lancer l'API de test de règles (droit manquant sur le compte de
+  service, pas de session `gcloud`) ni l'émulateur (Java absent). Faites les essais ci-dessous dans le simulateur de la console
+  *avant* de publier.
+- **Production (`crm-label-pose`) :** ne collez pas ce fichier tel quel. Ses règles Storage actuelles n'ont pas été lues et peuvent
+  différer (le dépôt contient une version plus stricte). Reprenez les règles publiées en production, ajoutez le bloc
+  `cl_documents/` et appliquez le même découpage à leur règle par défaut.
+- **Lister un dossier** reste permis à tout compte connecté : les noms de fichiers de `cl_documents/` (qui peuvent contenir le nom
+  du client) restent visibles, pas leur contenu.
+- **Adresses de téléchargement** (`getDownloadURL`, jeton dans l'URL) : quiconque détient l'adresse peut ouvrir le fichier, hors
+  règles. Les « liens temporaires » du §15.1 ne sont pas couverts.
+- **Antivirus et journal des téléchargements** (§15.1, §15.2) : non couverts par des règles, à construire.
+
+## Essais à faire dans le simulateur de la console (Storage → Règles → Simulateur)
+
+Choisir un identifiant de lead existant (`L`), son propriétaire `T`, et un manager `M` de son équipe.
+
+| # | Opération | Chemin | Compte | Attendu |
+|---|---|---|---|---|
+| 1 | Lecture | `cl_documents/L/identity/x.pdf` | `T` (télépro propriétaire) | autorisé |
+| 2 | Lecture | idem | un autre télépro | **refusé** |
+| 3 | Lecture | idem | `M` (manager du lead) | autorisé |
+| 4 | Lecture | idem | un compte CRM d'un autre métier (technicien) | **refusé** |
+| 5 | Création, PDF 100 Ko | idem | `T` | autorisé |
+| 6 | Création, `application/x-msdownload` | idem | `T` | **refusé** |
+| 7 | Création, PDF 16 Mo | idem | `T` | **refusé** |
+| 8 | Suppression | idem | un administrateur | **refusé** |
+| 9 | Lecture / création | `dossiers/abc/documents/a.pdf` | un technicien | autorisé (comportement d'avant, inchangé) |
+| 10 | Lecture | `cl_documents/L/identity/x.pdf` | sans connexion | **refusé** |
+
+Si le 9 est refusé, ou si le 2 est autorisé, **ne publiez pas** : cela voudrait dire que la découpe de la règle par défaut
+n'a pas l'effet attendu (propriétés `resource.name` / `request.resource.name`).

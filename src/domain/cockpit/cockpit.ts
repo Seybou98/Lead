@@ -6,6 +6,7 @@
 import { CLOSED_LEAD_STATUSES } from '../enums';
 import { callbackLevel, isCallbackAction } from '../alerts/engine';
 import { formatEuros } from '../conversion/finance';
+import { countOutcomes, toOutcomeInput } from '../sales/outcome';
 import { getSlaMs, slaAgeMs, slaLevel, type LeadListItem } from '../leads/leadList';
 import { buildDayQueue } from '../leads/myDay';
 import type { DistributionState, UserRow } from '../admin/userRows';
@@ -59,6 +60,8 @@ export interface TeamRow {
   workload: { callbacks: number; interested: number; documents: number };
   /** Leads attribués au télépro sur la période. */
   assignedInPeriod: number;
+  /** Résultat de la période : ventes nettes créées, puis installées et facturées (retour du CRM principal). */
+  result: { sales: number; installed: number; invoiced: number };
   alert: { label: string; tone: Tone } | null;
 }
 
@@ -244,6 +247,11 @@ export function buildCockpit(args: { items: readonly LeadListItem[]; rows: reado
           documents: mine.filter((l) => DOC_FLOW.includes(l.status)).length,
         },
         assignedInPeriod: mine.filter((l) => l.receivedAtMs >= start).length,
+        result: (() => {
+          const sold = items.filter((l) => l.ownerId === r.uid && !l.excluded && (l.conversion?.convertedAtMs ?? l.montage?.updatedAtMs ?? 0) >= start);
+          const o = countOutcomes(sold.map(toOutcomeInput));
+          return { sales: o.net, installed: o.installed, invoiced: o.invoiced };
+        })(),
         alert,
       };
     })

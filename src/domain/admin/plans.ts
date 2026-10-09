@@ -7,7 +7,8 @@
 // Les deux appliquent donc exactement les mêmes règles. Les données sont des objets simples :
 // les dates sont des `Date` (les deux SDK les convertissent en Timestamp à l'écriture).
 
-import { coerceRulesInput, coerceSlaInput, effectiveSla, parseSlaOverride, validateRulesSettings, validateSlaSettings, type SlaSettings } from '../settings/settings';
+import { coerceReasonInput, toStored, validateReasonSettings } from '../settings/reasons';
+import { coerceConversionInput, coerceRulesInput, coerceSlaInput, effectiveSla, parseSlaOverride, validateConversionSettings, validateRulesSettings, validateSlaSettings, type SlaSettings } from '../settings/settings';
 import { checklistKey, DEFAULT_CHECKLIST_KEY, slugCode, validateChecklist } from '../documents/checklist';
 import { resolveLeadRole } from '../../config/roles';
 import {
@@ -486,4 +487,22 @@ export function planRulesSave(args: { input: unknown; before: Doc | null; actorI
   if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
   const doc: Doc = { ...s, updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
   return { doc, audit: { action: args.before ? 'settings.rules.update' : 'settings.rules.create', entityType: 'settings', entityId: 'rules', before: args.before, after: doc, reason: reasonOf(asRecord(args.input)) } };
+}
+
+/** Verrous et exceptions de conversion (remise maximale, éligibilité, RGE, consentement). */
+export function planConversionSave(args: { input: unknown; before: Doc | null; actorId: string; nowMs: number }): { doc: Doc; audit: AuditDraft } {
+  const s = coerceConversionInput(args.input);
+  const errors = validateConversionSettings(s);
+  if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
+  const doc: Doc = { ...s, updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
+  return { doc, audit: { action: args.before ? 'settings.conversion.update' : 'settings.conversion.create', entityType: 'settings', entityId: 'conversion', before: args.before, after: doc, reason: reasonOf(asRecord(args.input)) } };
+}
+
+/** Motifs et listes administrables (§21.6) : les valeurs d'origine ne disparaissent jamais, elles s'archivent. */
+export function planReasonsSave(args: { input: unknown; before: Doc | null; actorId: string; nowMs: number }): { doc: Doc; audit: AuditDraft } {
+  const s = coerceReasonInput(args.input);
+  const errors = validateReasonSettings(s);
+  if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
+  const doc: Doc = { ...toStored(s), updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
+  return { doc, audit: { action: args.before ? 'settings.reasons.update' : 'settings.reasons.create', entityType: 'settings', entityId: 'reasons', before: args.before, after: doc, reason: reasonOf(asRecord(args.input)) } };
 }

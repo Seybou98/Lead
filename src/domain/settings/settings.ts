@@ -5,6 +5,7 @@
 
 import type { WorkSlotLike } from '../engine/schedule';
 import { parseHHmm } from '../engine/schedule';
+import { DEFAULT_CONVERSION_RULES, type ConversionRules } from '../conversion/controls';
 
 const MIN = 1;
 
@@ -271,5 +272,39 @@ export function coerceRulesInput(raw: unknown): RulesSettings {
     callbackEscalationMin: asNumber(r.callbackEscalationMin),
     bufferWarnMin: asNumber(r.bufferWarnMin),
     bufferAnomalyHours: asNumber(r.bufferAnomalyHours),
+  };
+}
+
+// ── Conversion : verrous et exceptions (§11.2, §11.6, §14, fig. 29) ──────────
+
+/** Les mêmes règles que celles qu'évalue le montage du dossier : une valeur affichée ici est celle qui s'applique. */
+export type ConversionSettings = ConversionRules;
+export const DEFAULT_CONVERSION_SETTINGS: ConversionSettings = DEFAULT_CONVERSION_RULES;
+
+export function parseConversionSettings(raw: unknown): ConversionSettings {
+  const d = DEFAULT_CONVERSION_SETTINGS;
+  const r = rec(raw);
+  const flag = (v: unknown, fallback: boolean) => (typeof v === 'boolean' ? v : fallback);
+  return {
+    maxDiscountPct: num(r.maxDiscountPct, d.maxDiscountPct, 0, 100),
+    requireEligibility: flag(r.requireEligibility, d.requireEligibility),
+    requireRge: flag(r.requireRge, d.requireRge),
+    requireConsent: flag(r.requireConsent, d.requireConsent),
+  };
+}
+
+export function validateConversionSettings(s: ConversionSettings): string[] {
+  const e: string[] = [];
+  if (!Number.isFinite(s.maxDiscountPct) || s.maxDiscountPct < 0 || s.maxDiscountPct > 100) e.push('Remise maximale sans validation : entre 0 et 100 % du prix TTC.');
+  return e;
+}
+
+export function coerceConversionInput(raw: unknown): ConversionSettings {
+  const r = rec(raw);
+  return {
+    maxDiscountPct: asNumber(r.maxDiscountPct),
+    requireEligibility: r.requireEligibility === true,
+    requireRge: r.requireRge === true,
+    requireConsent: r.requireConsent === true,
   };
 }

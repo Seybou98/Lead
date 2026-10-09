@@ -1,3 +1,4 @@
+import { countOutcomes, toOutcomeInput } from '../../domain/sales/outcome';
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useParams } from 'react-router-dom';
 import { collection, limit, onSnapshot, query, where } from 'firebase/firestore';
@@ -72,15 +73,19 @@ export function monthlyFunnel(items: readonly LeadListItem[], uid: string, nowMs
   const contacted = mine.filter((l) => l.slaStoppedAtMs !== null);
   const docs = mine.filter((l) => l.documentsState !== 'none');
   const complete = mine.filter((l) => l.documentsState === 'complete');
-  const sold = mine.filter((l) => l.status === 'converted');
+  const outcomes = countOutcomes(mine.map(toOutcomeInput));
   const rate = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 1000) / 10 : null);
   return {
     leads: mine.length,
     contacts: contacted.length,
     documents: docs.length,
     complete: complete.length,
-    sales: sold.length,
-    rates: [rate(contacted.length, mine.length), rate(docs.length, contacted.length), rate(complete.length, docs.length), rate(sold.length, complete.length)],
+    sales: outcomes.net,
+    cancelled: outcomes.cancelled,
+    secured: outcomes.secured,
+    installed: outcomes.installed,
+    invoiced: outcomes.invoiced,
+    rates: [rate(contacted.length, mine.length), rate(docs.length, contacted.length), rate(complete.length, docs.length), rate(outcomes.net, complete.length)],
     /** Part des leads pris en charge dans le délai du SLA, sur ceux qui l'ont été. */
     slaRespected: (() => {
       const handled = mine.filter((l) => l.slaStartedAtMs !== null && l.slaStoppedAtMs !== null);
@@ -289,7 +294,7 @@ export function TelecallerView({ data, uid }: { data: PortfolioData; uid: string
       {tab === 'performance' && (
         <div className="mt-6">
           <FunnelCard funnel={funnel} />
-          <p className="mt-3 text-xs text-slate-500">Leads reçus ce mois-ci et attribués à ce télépro. Les ventes comptent les leads convertis ; l’historique des ventes jour par jour arrivera avec le lot Conversion.</p>
+          <p className="mt-3 text-xs text-slate-500">Leads reçus ce mois-ci et attribués à ce télépro. Les ventes sont les ventes nettes : créées et non annulées. Installations et facturations viennent du CRM principal, relu toutes les 5 minutes.</p>
         </div>
       )}
 
@@ -322,6 +327,12 @@ function FunnelCard({ funnel }: { funnel: ReturnType<typeof monthlyFunnel> }) {
     { label: 'dossiers complets', value: funnel.complete },
     { label: 'ventes', value: funnel.sales },
   ];
+  const after: { label: string; value: number }[] = [
+    { label: 'sécurisées', value: funnel.secured },
+    { label: 'installées', value: funnel.installed },
+    { label: 'facturées', value: funnel.invoiced },
+    { label: 'annulées', value: funnel.cancelled },
+  ];
   return (
     <Card title="Performance du mois">
       <div className="grid grid-cols-5 gap-2 text-center">
@@ -333,6 +344,12 @@ function FunnelCard({ funnel }: { funnel: ReturnType<typeof monthlyFunnel> }) {
         <span className="self-center text-left text-xs text-slate-500">Taux de conversion</span>
         {funnel.rates.map((r, i) => (
           <span key={i} className="font-semibold text-emerald-600">{r === null ? '—' : `${r.toString().replace('.', ',')} %`}</span>
+        ))}
+      </div>
+      <p className="mt-5 text-xs font-medium text-slate-500">Après la vente (retour du CRM principal)</p>
+      <div className="mt-2 grid grid-cols-4 gap-2 text-center">
+        {after.map((s) => (
+          <div key={s.label} className="rounded-xl border border-slate-200 px-2 py-3"><p className={cn('text-2xl font-bold', s.label === 'annulées' && s.value > 0 ? 'text-red-600' : 'text-slate-900')}>{s.value}</p><p className="text-xs text-slate-500">{s.label}</p></div>
         ))}
       </div>
     </Card>

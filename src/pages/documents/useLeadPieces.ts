@@ -12,6 +12,7 @@ export interface PieceView {
   mandatory: boolean;
   status: DocumentStatus;
   koReason: DocumentKoReason | null;
+  koReasonLabel: string | null;
   koComment: string | null;
   file: { storagePath: string; originalName: string; sizeBytes: number } | null;
   receivedAtMs: number | null;
@@ -44,6 +45,7 @@ export function useLeadPieces(leadId: string): LeadPieces {
               mandatory: d.get('mandatory') === true,
               status: (d.get('status') ?? 'expected') as DocumentStatus,
               koReason: (d.get('koReason') ?? null) as DocumentKoReason | null,
+              koReasonLabel: (d.get('koReasonLabel') ?? null) as string | null,
               koComment: (d.get('koComment') ?? null) as string | null,
               file: f && f.storagePath ? { storagePath: f.storagePath, originalName: f.originalName ?? 'Fichier', sizeBytes: Number(f.sizeBytes ?? 0) } : null,
               receivedAtMs: ms(d.get('receivedAt')),

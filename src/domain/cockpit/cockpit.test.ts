@@ -243,3 +243,23 @@ describe('targetChoices (réattribution)', () => {
     expect(targetChoices([], null)).toEqual([]);
   });
 });
+
+describe('résultat de la période par télépro (fig. 14)', () => {
+  const soldBy = (id: string, owner: string, atMs: number, stage: string | null = null, over: Partial<LeadListItem> = {}) =>
+    lead(id, { ownerId: owner, status: 'converted', commercialState: 'sale_committed', conversion: { state: 'confirmed', clientId: '1', dossierId: 'd', convertedAtMs: atMs }, ...(stage ? { mainStatus: { stage, label: stage, changedAtMs: atMs } } : {}), ...over });
+  const rowOf = (items: LeadListItem[], uid = 'u1') => run(items, [row('u1'), row('u2')]).team.find((t) => t.uid === uid)!;
+  it('ventes nettes de la période, dont installées et facturées', () => {
+    const t = rowOf([soldBy('a', 'u1', NOW - H, 'installed'), soldBy('b', 'u1', NOW - 2 * H, 'invoiced'), soldBy('c', 'u1', NOW - 3 * H)]);
+    expect(t.result).toEqual({ sales: 3, installed: 2, invoiced: 1 });
+  });
+  it('une vente annulée n’est pas comptée', () => {
+    expect(rowOf([soldBy('a', 'u1', NOW - H, 'cancelled'), soldBy('b', 'u1', NOW - H)]).result.sales).toBe(1);
+  });
+  it('seules les ventes de la période et du télépro comptent', () => {
+    const items = [soldBy('old', 'u1', NOW - 3 * DAY), soldBy('other', 'u2', NOW - H), soldBy('mine', 'u1', NOW - H)];
+    expect(rowOf(items).result.sales).toBe(1);
+    expect(rowOf(items, 'u2').result.sales).toBe(1);
+    expect(run(items, [row('u1')], 'week').team[0].result.sales).toBe(2);
+  });
+  it('aucune vente : zéros', () => expect(rowOf([lead('x')]).result).toEqual({ sales: 0, installed: 0, invoiced: 0 }));
+});

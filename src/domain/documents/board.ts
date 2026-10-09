@@ -5,7 +5,7 @@
 import { CLOSED_LEAD_STATUSES, type DocumentKoReason, type DocumentStatus, type LeadStatus } from '../enums';
 import type { LeadListItem } from '../leads/leadList';
 import { normalizeText } from '../engine/normalize';
-import { documentLabel, KO_REASON_LABELS } from './plan';
+import { documentLabel, koLabel } from './plan';
 
 /** Résumé documentaire d'un lead, tel que lu sur `cl_leads/{id}.documents`. */
 export interface LeadDocsInfo {
@@ -15,7 +15,7 @@ export interface LeadDocsInfo {
   mandatory: number;
   mandatoryConform: number;
   toCheck: number;
-  missing: { code: string; label?: string | null; status: DocumentStatus; koReason: DocumentKoReason | null }[];
+  missing: { code: string; label?: string | null; status: DocumentStatus; koReason: DocumentKoReason | null; koReasonLabel?: string | null }[];
   lastReceivedAtMs: number | null;
   completedAtMs: number | null;
   lastRequestAtMs: number | null;
@@ -143,7 +143,7 @@ export function relaunchCard(l: LeadListItem, nowMs: number): RelaunchCard {
     return {
       timing,
       headline: `${documentLabel(first.code, first.label)} non conforme${rejected.length > 1 ? ` (+${rejected.length - 1})` : ''}`,
-      detail: first.koReason ? `Document ${KO_REASON_LABELS[first.koReason].toLowerCase()}` : null,
+      detail: first.koReason ? `Document ${koLabel(first).toLowerCase()}` : null,
       chips: [],
       reask: true,
     };

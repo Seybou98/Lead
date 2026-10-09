@@ -34,6 +34,8 @@ import {
   planAssignmentConfig,
   planCampaignSave,
   planChecklistSave,
+  planConversionSave,
+  planReasonsSave,
   planRulesSave,
   planSlaOverrideSave,
   planSlaSave,
@@ -224,6 +226,30 @@ export async function saveRulesDirect(input: unknown): Promise<DirectResult> {
     tx.set(ref, plan.doc);
     writeAudit(tx, actor, plan.audit);
     return { ok: true as const, id: 'rules', warnings: [] };
+  });
+}
+
+export async function saveReasonsDirect(input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  const ref = doc(db, COL.settings, 'reasons');
+  return runTransaction(db, async (tx) => {
+    const plan = planReasonsSave({ input, before: data(await tx.get(ref)), actorId: actor, nowMs });
+    tx.set(ref, plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: 'reasons', warnings: [] };
+  });
+}
+
+export async function saveConversionDirect(input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  const ref = doc(db, COL.settings, 'conversion');
+  return runTransaction(db, async (tx) => {
+    const plan = planConversionSave({ input, before: data(await tx.get(ref)), actorId: actor, nowMs });
+    tx.set(ref, plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: 'conversion', warnings: [] };
   });
 }
 

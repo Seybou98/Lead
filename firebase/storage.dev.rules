@@ -1,0 +1,52 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ═════════ CRM LEADS — pièces des leads (cl_documents/) ═══════════════════════════════════════════
+    // Chemin écrit par l'application : cl_documents/{leadId}/{codePièce}/{horodatage}_{nom}
+    //   lecture  : administrateur, manager du lead (managerIds), ou télépro propriétaire du lead ;
+    //   création : mêmes personnes, PDF ou image (JPEG, PNG, WebP, HEIC), 15 Mo maximum ;
+    //   modification et suppression : personne (une pièce remplacée est un NOUVEAU fichier, l'ancien reste).
+    // Le serveur (clé de compte de service) n'est pas soumis aux règles : il copie les pièces vers le dossier du CRM principal.
+    //
+    // Deux lectures Firestore seulement (le compte, puis le lead) : c'est la limite de Storage par requête.
+
+    function clLeadsUser() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function clLeadAccess(leadId) {
+      return request.auth != null
+        && clLeadsUser().get('status', '').lower() == 'active'
+        && (
+          clLeadsUser().get('role', '').lower() in ['administrateur', 'admin', 'administratrice']
+          || (clLeadsUser().get('role', '').lower() == 'manager'
+              && request.auth.uid in firestore.get(/databases/(default)/documents/cl_leads/$(leadId)).data.get('managerIds', []))
+          || (clLeadsUser().get('role', '').lower() in ['telepro commercial', 'telepro-commercial', 'télépro commercial', 'télépro-commercial', 'telepro', 'télépro']
+              && firestore.get(/databases/(default)/documents/cl_leads/$(leadId)).data.get('ownerId', '') == request.auth.uid)
+        );
+    }
+
+    match /cl_documents/{leadId}/{pieceCode}/{fileName} {
+      allow read: if clLeadAccess(leadId);
+      allow create: if clLeadAccess(leadId)
+        && request.resource.size > 0
+        && request.resource.size <= 15 * 1024 * 1024
+        && request.resource.contentType.matches('application/pdf|image/(jpeg|png|webp|heic)');
+      allow update, delete: if false;
+    }
+    // ═════════ FIN CRM LEADS ═══════════════════════════════════════════════════════════════════════════
+
+    // Règle du CRM principal : tout compte connecté, INCHANGÉE hors de cl_documents/.
+    // Storage accorde l'accès dès qu'UN bloc l'autorise : la règle par défaut doit donc exclure cl_documents/,
+    // sinon elle l'ouvrirait de nouveau à tout compte connecté. (Lister un dossier reste permis : les noms de
+    // fichiers de cl_documents/ restent visibles, pas leur contenu.)
+    match /{allPaths=**} {
+      allow get: if request.auth != null && !resource.name.matches('cl_documents(/.*)?');
+      allow list: if request.auth != null;
+      allow create, update: if request.auth != null && !request.resource.name.matches('cl_documents(/.*)?');
+      allow delete: if request.auth != null && !resource.name.matches('cl_documents(/.*)?');
+    }
+
+  }
+}

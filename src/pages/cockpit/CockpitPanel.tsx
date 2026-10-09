@@ -8,6 +8,7 @@ import { buildTimeline } from '../../domain/leads/leadFile';
 import { sinceLabel, targetChoices, type LeadIssue, type TeamRow, type Tone } from '../../domain/cockpit/cockpit';
 import { sendReassign } from '../../lib/reassignApi';
 import { useLeadFile } from '../leads/useLeadsData';
+import { useSettings } from '../settings/useSettings';
 
 export const TONE_PILL: Record<Tone, string> = {
   green: 'bg-emerald-50 text-emerald-700',
@@ -93,6 +94,9 @@ export function LeadPanel({
   const file = useLeadFile(lead.id);
   const choices = targetChoices(team, lead.ownerId);
   const [target, setTarget] = useState<string>(() => choices.find((c) => c.recommended)?.uid ?? '');
+  const { reasonCatalog } = useSettings();
+  const reasons = reasonCatalog.active.reassign;
+  const [reasonCode, setReasonCode] = useState('');
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,9 +109,11 @@ export function LeadPanel({
   const submit = async () => {
     setError(null);
     if (!target) return setError('Choisissez un télépro.');
-    if (reason.trim().length < 3) return setError('Le motif est obligatoire.');
+    if (!reasons[reasonCode]) return setError('Le motif est obligatoire.');
+    const complement = reason.trim();
+    if (reasonCatalog.commentRequired.reassign.includes(reasonCode) && complement.length < 3) return setError(`Motif « ${reasons[reasonCode]} » : précisez-le en commentaire.`);
     setBusy(true);
-    const r = await sendReassign({ leadId: lead.id, targetUid: target, reason: reason.trim() });
+    const r = await sendReassign({ leadId: lead.id, targetUid: target, reason: complement ? `${reasons[reasonCode]} — ${complement}` : reasons[reasonCode] });
     setBusy(false);
     if (r.ok) onDone(r.message);
     else setError(r.message);
@@ -185,7 +191,11 @@ export function LeadPanel({
             {chosen?.full && <p className="mt-2 text-xs text-amber-800">{chosen.name} a atteint son plafond de nouveaux leads : la décision vous revient.</p>}
             <label className="mt-3 block">
               <span className="text-sm font-medium text-slate-700">Motif (obligatoire)</span>
-              <input value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} placeholder="Ex. propriétaire absent, charge trop élevée" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+              <select aria-label="Motif" value={reasonCode} onChange={(e) => setReasonCode(e.target.value)} className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+                <option value="">Choisir un motif</option>
+                {Object.entries(reasons).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              </select>
+              <input aria-label="Commentaire" value={reason} maxLength={400} onChange={(e) => setReason(e.target.value)} placeholder={reasonCatalog.commentRequired.reassign.includes(reasonCode) ? 'Précisez (obligatoire)' : 'Commentaire (facultatif)'} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
             </label>
             {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
             <button type="button" disabled={busy || choices.length === 0} onClick={submit} className="mt-3 inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">

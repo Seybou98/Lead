@@ -9,7 +9,7 @@
 import { FieldValue, type DocumentData, type Firestore } from 'firebase-admin/firestore';
 import { COL, SUB } from '../../src/domain/collections';
 import type { Role } from '../../src/domain/enums';
-import { DEFAULT_CONVERSION_RULES } from '../../src/domain/conversion/controls';
+import { loadConversionRules } from './settings';
 import { sanitizeDraft, type MontageDraft } from '../../src/domain/conversion/montage';
 import { noValidation, planConversionAction, type ConversionActionInput, type StoredValidation } from '../../src/domain/conversion/plan';
 
@@ -61,6 +61,8 @@ export async function applyConversionAction(db: Firestore, args: ConversionArgs)
   const conversionRef = db.collection(COL.conversions).doc(args.leadId);
   const year = new Date(nowMs).getUTCFullYear();
   const counterRef = db.collection(COL.counters).doc(`sales_${year}`);
+  // Lus avant la transaction : les verrous changent rarement et ne doivent pas consommer un accès transactionnel.
+  const rules = await loadConversionRules(db);
 
   return db.runTransaction(async (tx): Promise<ConversionResult> => {
     const [leadSnap, idemSnap, draftSnap, validationSnap, docsSnap, saleSnap, counterSnap] = await Promise.all([
@@ -116,7 +118,7 @@ export async function applyConversionAction(db: Firestore, args: ConversionArgs)
       actorRole: args.role,
       nowMs,
       requestId: args.requestId,
-      rules: DEFAULT_CONVERSION_RULES,
+      rules,
     });
     if (!result.ok) return { ok: false, code: result.code, message: result.message };
     const plan = result.plan;
@@ -134,6 +136,8 @@ export async function applyConversionAction(db: Firestore, args: ConversionArgs)
       'montage.validationState': plan.summary.validationState,
       'montage.blocking': plan.summary.blocking,
       'montage.toConfirm': plan.summary.toConfirm,
+      'montage.validated': plan.summary.validated,
+      'montage.total': plan.summary.total,
       'montage.totalTtcCents': plan.summary.totalTtcCents,
       'montage.remainderCents': plan.summary.remainderCents,
       'montage.updatedAt': at,

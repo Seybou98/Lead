@@ -5,7 +5,6 @@
 
 import {
   CLOSED_LEAD_STATUSES,
-  DOCUMENT_KO_REASONS,
   type ActionType,
   type DocumentKoReason,
   type DocumentState,
@@ -18,19 +17,18 @@ import { nextWorkingTime, type ScheduleLike } from '../engine/schedule';
 import { DOCUMENT_CHANNELS, DEFAULT_DOCUMENT_TYPES } from '../call/outcomes';
 import { formatWhen, loadDeltaFor, type LoadBucket } from '../call/plan';
 
+import { DEFAULT_REASON_CATALOG, DOCUMENT_KO_LABELS, type ReasonCatalog } from '../settings/reasons';
+
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
 
 // ── Libellés ─────────────────────────────────────────────────────────────────
 
-export const KO_REASON_LABELS: Record<DocumentKoReason, string> = {
-  unreadable: 'Illisible',
-  incomplete: 'Incomplet',
-  expired: 'Expiré',
-  wrong_document: 'Mauvais document',
-  inconsistent_info: 'Informations incohérentes',
-  other: 'Autre',
-};
+/** Libellés d'origine ; un motif ajouté ou renommé dans Paramètres garde son libellé sur la pièce (koReasonLabel). */
+export const KO_REASON_LABELS: Record<string, string> = DOCUMENT_KO_LABELS;
+
+/** Libellé à afficher pour le motif d'une pièce : celui conservé avec elle, sinon celui d'origine, sinon le code. */
+export const koLabel = (r: { koReason?: string | null; koReasonLabel?: string | null }): string => (r.koReason ? (r.koReasonLabel ?? KO_REASON_LABELS[r.koReason] ?? r.koReason) : '');
 
 export const DOCUMENT_STATUS_LABELS: Record<DocumentStatus, string> = {
   expected: 'Attendu',
@@ -53,6 +51,8 @@ export interface DocRow {
   mandatory: boolean;
   status: DocumentStatus;
   koReason?: DocumentKoReason | null;
+  /** Libellé du motif au moment du contrôle (lisible même si le motif est ensuite archivé ou renommé). */
+  koReasonLabel?: string | null;
 }
 
 export interface DocSummary {
@@ -99,7 +99,7 @@ export function missingRows(rows: readonly DocRow[]): DocRow[] {
 /** Message de relance prêt à copier : cite exactement les pièces manquantes ou rejetées, avec le motif du rejet. */
 export function buildReminderMessage(firstName: string, rows: readonly DocRow[]): string {
   const lines = missingRows(rows).map((r) => {
-    const why = r.status !== 'expected' && r.koReason ? ` (${KO_REASON_LABELS[r.koReason].toLowerCase()})` : '';
+    const why = r.status !== 'expected' && r.koReason ? ` (${koLabel(r).toLowerCase()})` : '';
     return `- ${documentLabel(r.code, r.label)}${why}`;
   });
   const hello = firstName.trim() ? `Bonjour ${firstName.trim()},` : 'Bonjour,';
@@ -117,6 +117,8 @@ export interface DocumentRules {
   promisedMarginMinutes: number;
   recycleAfterDays: number;
   schedule: ScheduleLike;
+  /** Listes de motifs modifiables (Paramètres) ; absent : les valeurs d'origine. */
+  reasons?: ReasonCatalog;
 }
 
 export const DEFAULT_DOCUMENT_RULES: DocumentRules = {
@@ -210,6 +212,7 @@ export interface DocPatch {
   code: string;
   status: DocumentStatus;
   koReason: DocumentKoReason | null;
+  koReasonLabel?: string | null;
   koComment: string | null;
   /** undefined = inchangé. */
   receivedAtMs?: number;
@@ -328,7 +331,7 @@ export function planDocumentAction(input: DocumentActionInput, ctx: DocContext):
   const apply = (p: DocPatch) => {
     patches.set(p.code, p);
     const r = rows.get(p.code)!;
-    rows.set(p.code, { ...r, status: p.status, koReason: p.koReason });
+    rows.set(p.code, { ...r, status: p.status, koReason: p.koReason, koReasonLabel: p.koReasonLabel ?? null });
   };
 
   switch (input.kind) {
@@ -367,12 +370,15 @@ export function planDocumentAction(input: DocumentActionInput, ctx: DocContext):
         events.push({ key: `chk_${row.code}`, type: 'document', note: `${label(row.code)} conforme`, meta: { code: row.code, op: 'conform' } });
         message = `${label(row.code)} : conforme.`;
       } else if (input.verdict === 'non_conform') {
-        if (!(DOCUMENT_KO_REASONS as readonly unknown[]).includes(input.koReason)) return fail('invalid', 'Non conforme : choisissez le motif.');
+        const R = rules.reasons ?? DEFAULT_REASON_CATALOG;
+        const koCode = typeof input.koReason === 'string' ? input.koReason : '';
+        if (!koCode || !Object.prototype.hasOwnProperty.call(R.active.document_ko, koCode)) return fail('invalid', 'Non conforme : choisissez le motif.');
+        const koText = R.active.document_ko[koCode];
         const comment = text(input.comment, 300);
-        if (input.koReason === 'other' && !comment) return fail('invalid', 'Motif « Autre » : précisez-le en commentaire.');
-        apply({ code: row.code, status: 'non_conform', koReason: input.koReason as DocumentKoReason, koComment: comment || null, checkedBy: ctx.actorId, checkedAtMs: nowMs });
-        events.push({ key: `chk_${row.code}`, type: 'document', note: `${label(row.code)} non conforme : ${KO_REASON_LABELS[input.koReason as DocumentKoReason].toLowerCase()}${comment ? ` — ${comment}` : ''}`, reason: KO_REASON_LABELS[input.koReason as DocumentKoReason], meta: { code: row.code, op: 'non_conform' } });
-        message = `${label(row.code)} : non conforme (${KO_REASON_LABELS[input.koReason as DocumentKoReason].toLowerCase()}), à redemander.`;
+        if (R.commentRequired.document_ko.includes(koCode) && !comment) return fail('invalid', `Motif « ${koText} » : précisez-le en commentaire.`);
+        apply({ code: row.code, status: 'non_conform', koReason: koCode, koReasonLabel: koText, koComment: comment || null, checkedBy: ctx.actorId, checkedAtMs: nowMs });
+        events.push({ key: `chk_${row.code}`, type: 'document', note: `${label(row.code)} non conforme : ${koText.toLowerCase()}${comment ? ` — ${comment}` : ''}`, reason: koText, meta: { code: row.code, op: 'non_conform', koReason: koCode } });
+        message = `${label(row.code)} : non conforme (${koText.toLowerCase()}), à redemander.`;
       } else return fail('invalid', 'Verdict inconnu.');
       break;
     }
@@ -381,7 +387,7 @@ export function planDocumentAction(input: DocumentActionInput, ctx: DocContext):
       const row = current(input.code);
       if (!row) return fail('invalid', 'Cette pièce ne fait pas partie de la liste demandée.');
       if (row.status !== 'non_conform') return fail('invalid', 'Seule une pièce non conforme peut être redemandée.');
-      apply({ code: row.code, status: 'to_reask', koReason: row.koReason ?? null, koComment: patches.get(row.code)?.koComment ?? null });
+      apply({ code: row.code, status: 'to_reask', koReason: row.koReason ?? null, koReasonLabel: row.koReasonLabel ?? null, koComment: patches.get(row.code)?.koComment ?? null });
       events.push({ key: `rsk_${row.code}`, type: 'document', note: `${label(row.code)} à redemander`, meta: { code: row.code, op: 'to_reask' } });
       message = `${label(row.code)} : à redemander au client.`;
       break;
@@ -516,7 +522,7 @@ export function planDocumentAction(input: DocumentActionInput, ctx: DocContext):
         lastFollowUpAtMs,
         followUpCount,
         nextFollowUpAtMs,
-        missing: missingRows(finalRows).map((r) => ({ code: r.code, label: r.label ?? null, status: r.status, koReason: r.koReason ?? null })),
+        missing: missingRows(finalRows).map((r) => ({ code: r.code, label: r.label ?? null, status: r.status, koReason: r.koReason ?? null, koReasonLabel: r.koReasonLabel ?? null })),
         ...(input.kind === 'receive' ? { lastReceivedAtMs: nowMs } : {}),
         ...(summary.state === 'complete' && before.state !== 'complete' ? { completedAtMs: nowMs } : summary.state !== 'complete' && before.state === 'complete' ? { completedAtMs: null } : {}),
         clearPromised,

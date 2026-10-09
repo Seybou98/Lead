@@ -1,5 +1,6 @@
 import { useChecklistFor } from '../documents/useChecklists';
 import { useSettings } from '../settings/useSettings';
+import { INELIGIBLE_LIST } from '../../domain/settings/reasons';
 import { callRulesFrom } from '../../domain/settings/runtime';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
@@ -44,20 +45,14 @@ import { cn } from '../../lib/utils';
 import { formatPhoneDisplay, type LeadListItem } from '../../domain/leads/leadList';
 import {
   BAD_MOMENT_DELAYS,
-  BAD_MOMENT_REASONS,
-  CALLBACK_REASONS,
   CALL_CHOICES,
   CALL_CHOICE_LABELS,
   CLOSE_REASONS,
   DEFAULT_DOCUMENT_TYPES,
   DOCUMENT_CHANNELS,
-  FAKE_LEAD_MOTIVES,
   INELIGIBLE_CATEGORIES,
-  INELIGIBLE_MOTIVES,
   INTEREST_NEXT_ACTIONS,
-  INTEREST_REASONS,
   REFUSAL_FOLLOW_UPS,
-  REFUSAL_MOTIVES,
   TEMPERATURE_CHOICES,
   type BadMomentReason,
   type CallbackReason,
@@ -110,7 +105,7 @@ type ModalKey =
 
 const MODAL_OF: Partial<Record<CallChoice, ModalKey>> = { no_answer: 'no_answer', callback: 'callback', interested: 'interested', close: 'close_pick' };
 
-const REFUSAL_ICON: Record<RefusalMotive, ReactNode> = {
+const REFUSAL_ICON: Record<string, ReactNode> = {
   price: <Tag className="h-5 w-5" />,
   not_interested: <Frown className="h-5 w-5" />,
   competitor: <Users className="h-5 w-5" />,
@@ -125,7 +120,7 @@ const CATEGORY_ICON: Record<IneligibleCategory, ReactNode> = {
   financial: <Euro className="h-4 w-4" />,
   zone: <MapPin className="h-4 w-4" />,
 };
-const FAKE_ICON: Record<FakeLeadMotive, ReactNode> = {
+const FAKE_ICON: Record<string, ReactNode> = {
   fake_number: <Phone className="h-5 w-5" />,
   invalid_number: <Ban className="h-5 w-5" />,
   usurped_identity: <Users className="h-5 w-5" />,
@@ -238,6 +233,8 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
   // Pièces proposées : checklist du produit du lead (Paramètres → Documents), sinon la liste par défaut.
   // Règles d'appel : celles de Paramètres (matrice NR, horaires, jours fermés), sinon les valeurs du cahier.
   const settings = useSettings();
+  // Valeurs proposées : les listes de Paramètres (motifs actifs, dans l'ordre choisi par l'administrateur).
+  const R = settings.reasonCatalog.active;
   const baseRules = useMemo(() => rulesProp ?? (settings.saved.sla || settings.saved.rules ? callRulesFrom(settings.rules, settings.sla) : DEFAULT_CALL_RULES), [rulesProp, settings]);
   const checklist = useChecklistFor(lead.productCode);
   const rules = useMemo(() => ({ ...baseRules, documentTypes: checklist.items }), [baseRules, checklist.items]);
@@ -562,7 +559,7 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
               </div>
               <div>
                 <label className={labelClass} htmlFor="cb-reason">Motif <Req /></label>
-                <Select<CallbackReason> id="cb-reason" value={cbReason} onChange={setCbReason} options={CALLBACK_REASONS} placeholder="Choisir un motif" />
+                <Select<CallbackReason> id="cb-reason" value={cbReason} onChange={setCbReason} options={R.callback} placeholder="Choisir un motif" />
               </div>
               <div>
                 <label className={labelClass} htmlFor="cb-comment">Commentaire <Req /></label>
@@ -638,9 +635,9 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
               <DateTime id="bm" date={bmDate} time={bmTime} onDate={(v) => { setBmDate(v); setBmDelay('custom'); }} onTime={(v) => { setBmTime(v); setBmDelay('custom'); }} />
               <div>
                 <label className={labelClass} htmlFor="bm-reason">Motif <Req /></label>
-                <Select<BadMomentReason> id="bm-reason" value={bmReason} onChange={setBmReason} options={BAD_MOMENT_REASONS} placeholder="Choisir un motif" />
+                <Select<BadMomentReason> id="bm-reason" value={bmReason} onChange={setBmReason} options={R.bad_moment} placeholder="Choisir un motif" />
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {(Object.keys(BAD_MOMENT_REASONS) as BadMomentReason[]).filter((k) => k !== 'busy').map((k) => <SmallChip key={k} active={bmReason === k} onClick={() => setBmReason(k)}>{BAD_MOMENT_REASONS[k]}</SmallChip>)}
+                  {Object.keys(R.bad_moment).filter((k) => k !== 'busy').map((k) => <SmallChip key={k} active={bmReason === k} onClick={() => setBmReason(k)}>{R.bad_moment[k]}</SmallChip>)}
                 </div>
               </div>
               <div>
@@ -684,13 +681,13 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
           <div>
             <p className={labelClass}>Température du lead <Req /></p>
             <div className="grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Température">
-              {TEMPERATURE_CHOICES.map((t) => {
+              {TEMPERATURE_CHOICES.filter((t) => t.key in R.temperature).map((t) => {
                 const Icon = TEMP_ICON[t.key];
                 return (
                   <button key={t.key} type="button" role="radio" aria-checked={intTemp === t.key} onClick={() => setIntTemp(t.key)} className={cn('relative flex items-start gap-2.5 rounded-xl border p-3 text-left', intTemp === t.key ? 'border-indigo-400 bg-indigo-50/50' : 'border-slate-200 hover:bg-slate-50')}>
                     <span className={cn('flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full', TEMP_COLOR[t.key])}><Icon className="h-5 w-5" /></span>
                     <span>
-                      <span className={cn('block text-sm font-semibold', intTemp === t.key ? 'text-indigo-700' : 'text-slate-900')}>{t.title}</span>
+                      <span className={cn('block text-sm font-semibold', intTemp === t.key ? 'text-indigo-700' : 'text-slate-900')}>{R.temperature[t.key] ?? t.title}</span>
                       <span className="block text-[11px] leading-tight text-slate-500">{t.hint}</span>
                     </span>
                     <span className={cn('absolute right-2.5 top-2.5 h-3.5 w-3.5 rounded-full border', intTemp === t.key ? 'border-indigo-500 bg-indigo-500 ring-2 ring-white ring-inset' : 'border-slate-300')} />
@@ -701,7 +698,7 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
           </div>
           <div className="mt-4">
             <label className={labelClass} htmlFor="int-reason">Motif de non-avancement <Req /></label>
-            <Select<InterestReason> id="int-reason" value={intReason} onChange={setIntReason} options={INTEREST_REASONS} placeholder="Choisir un motif" />
+            <Select<InterestReason> id="int-reason" value={intReason} onChange={setIntReason} options={R.interest} placeholder="Choisir un motif" />
           </div>
           <div className="mt-4 space-y-3 rounded-xl border border-indigo-100 bg-indigo-50/40 p-4">
             <p className="text-sm font-semibold text-indigo-700">Prochaine action obligatoire</p>
@@ -781,7 +778,7 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
           <div>
             <p className={labelClass}>Motif du refus <Req /></p>
             <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4" role="radiogroup" aria-label="Motif du refus">
-              {(Object.keys(REFUSAL_MOTIVES) as RefusalMotive[]).map((k) => (
+              {Object.keys(R.refusal).map((k) => (
                 <button
                   key={k}
                   type="button"
@@ -791,8 +788,8 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
                   className={cn('relative flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center text-xs font-medium', niMotive === k ? 'border-blue-500 bg-blue-50/50 text-blue-700' : 'border-slate-200 text-slate-700 hover:bg-slate-50')}
                 >
                   {niMotive === k && <span className="absolute right-1.5 top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-white"><Check className="h-2.5 w-2.5" strokeWidth={3} /></span>}
-                  <span className={niMotive === k ? 'text-blue-600' : 'text-slate-500'}>{REFUSAL_ICON[k]}</span>
-                  {REFUSAL_MOTIVES[k]}
+                  <span className={niMotive === k ? 'text-blue-600' : 'text-slate-500'}>{REFUSAL_ICON[k] ?? <MoreHorizontal className="h-5 w-5" />}</span>
+                  {R.refusal[k]}
                 </button>
               ))}
             </div>
@@ -852,11 +849,11 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
             <label className={labelClass} htmlFor="ie-motive">Motif précis <Req /></label>
             <select id="ie-motive" className={fieldClass} value={ieMotive} disabled={!ieCategory} onChange={(e) => setIeMotive(e.target.value)}>
               <option value="">{ieCategory ? 'Choisir un motif précis' : "Choisissez d'abord une catégorie"}</option>
-              {ieCategory && Object.entries(INELIGIBLE_MOTIVES[ieCategory]).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              {ieCategory && Object.entries(R[INELIGIBLE_LIST[ieCategory]]).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
             {ieCategory && (
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {Object.entries(INELIGIBLE_MOTIVES[ieCategory]).map(([k, v]) => <SmallChip key={k} active={ieMotive === k} onClick={() => setIeMotive(k)}>{v}</SmallChip>)}
+                {Object.entries(R[INELIGIBLE_LIST[ieCategory]]).map(([k, v]) => <SmallChip key={k} active={ieMotive === k} onClick={() => setIeMotive(k)}>{v}</SmallChip>)}
               </div>
             )}
           </div>
@@ -897,11 +894,11 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
             <div>
               <p className="mb-2 text-sm font-semibold text-slate-900">1. Motif du faux lead <Req /></p>
               <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4" role="radiogroup" aria-label="Motif du faux lead">
-                {(Object.keys(FAKE_LEAD_MOTIVES) as FakeLeadMotive[]).map((k) => (
+                {Object.keys(R.fake_lead).map((k) => (
                   <button key={k} type="button" role="radio" aria-checked={flMotive === k} onClick={() => setFlMotive(k)} className={cn('relative flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center text-xs font-medium', flMotive === k ? 'border-red-400 bg-red-50/60 text-red-700' : 'border-slate-200 text-slate-700 hover:bg-slate-50')}>
                     <span className={cn('absolute right-1.5 top-1.5 h-3.5 w-3.5 rounded-full border', flMotive === k ? 'border-red-500 bg-red-500 ring-2 ring-white ring-inset' : 'border-slate-300')} />
-                    <span className={flMotive === k ? 'text-red-500' : 'text-slate-500'}>{FAKE_ICON[k]}</span>
-                    {FAKE_LEAD_MOTIVES[k]}
+                    <span className={flMotive === k ? 'text-red-500' : 'text-slate-500'}>{FAKE_ICON[k] ?? <MoreHorizontal className="h-5 w-5" />}</span>
+                    {R.fake_lead[k]}
                   </button>
                 ))}
               </div>

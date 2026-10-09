@@ -7,6 +7,7 @@ import { sendConversionAction } from '../../lib/conversionApi';
 import { Feedback } from '../settings/settingsUi';
 import { ownerLabel, SaleCard, whenLabel } from './saleUi';
 import { SaleTrackingCard } from './SaleTrackingCard';
+import { MainStepsCard } from './MainStepsCard';
 import type { ConversionView, SaleLead, SaleView } from './useSaleData';
 
 const STEPS = ['Vente enregistrée', 'Client créé', 'Dossier créé', 'Documents transférés', 'Synchronisation confirmée'];
@@ -170,6 +171,7 @@ export function SaleCreatedView({ leadId, lead, sale, conversion, names, backPat
         <div className="xl:col-span-2">
           <SaleTrackingCard leadId={leadId} lead={lead} remainderCents={sale.remainderCents} canTrack={canTrack} canCancel={canCancel} />
         </div>
+        <MainStepsCard main={lead.mainStatus} />
       </div>
 
       <div className="flex flex-wrap gap-3">

@@ -31,6 +31,7 @@ class FakeRef {
   collection(name: string): FakeCol {
     return this.db.collection(name, `${this.path}/`);
   }
+  async get() { return snap(this.db, this.path); }
 }
 const snap = (db: FakeDb, path: string) => {
   const d = db.data.get(path);
@@ -246,6 +247,42 @@ describe('applyConversionAction — création de la vente', () => {
     const db = await readySeed();
     await run(db, args());
     expect((db.data.get('cl_profiles/u1') as { load: Doc }).load).toMatchObject({ filesToBuild: 0 });
+  });
+});
+
+describe('applyConversionAction — verrous réglés dans Paramètres', () => {
+  const discount = (pct: number) => completeDraft((d) => { d.offer.discountCents = Math.round(1_599_000 * pct / 100); });
+  it('par défaut : une remise de 12 % exige la validation du manager', async () => {
+    const db = seed();
+    expect(await saveDraft(db, discount(12))).toMatchObject({ ok: true, status: 'file_building' });
+    expect(lead(db).montage).toMatchObject({ toConfirm: 1 });
+  });
+  it('seuil relevé à 15 % : la même remise passe directement', async () => {
+    const db = seed();
+    db.data.set('cl_settings/conversion', { maxDiscountPct: 15, requireEligibility: true, requireRge: true, requireConsent: true });
+    expect(await saveDraft(db, discount(12))).toMatchObject({ ok: true, status: 'file_ready' });
+    expect(lead(db).montage).toMatchObject({ toConfirm: 0 });
+  });
+  it('seuil abaissé à 1 % : une remise de 3 % passe par le manager', async () => {
+    const db = seed();
+    db.data.set('cl_settings/conversion', { maxDiscountPct: 1, requireEligibility: true, requireRge: true, requireConsent: true });
+    expect(await saveDraft(db, discount(3))).toMatchObject({ status: 'file_building' });
+  });
+  it('RGE non exigée : un dossier sans RGE peut devenir prêt', async () => {
+    const db = seed();
+    db.data.set('cl_settings/conversion', { maxDiscountPct: 5, requireEligibility: true, requireRge: false, requireConsent: true });
+    expect(await saveDraft(db, completeDraft((d) => { d.offer.rge = null; }))).toMatchObject({ status: 'file_ready' });
+  });
+  it('réglage illisible : les valeurs du cahier s’appliquent', async () => {
+    const db = seed();
+    db.data.set('cl_settings/conversion', { maxDiscountPct: 'beaucoup', requireRge: 'oui' });
+    expect(await saveDraft(db, discount(12))).toMatchObject({ status: 'file_building' });
+  });
+  it('la vente est créée avec le seuil réglé au moment de la création', async () => {
+    const db = seed();
+    db.data.set('cl_settings/conversion', { maxDiscountPct: 15, requireEligibility: true, requireRge: true, requireConsent: true });
+    await saveDraft(db, discount(12));
+    expect(await run(db, args())).toMatchObject({ ok: true, status: 'transmitting' });
   });
 });
 

@@ -27,3 +27,15 @@ jour ils sont séparés, la transmission devra passer par une API du CRM princip
 ## Scripts d'aide
 
 Les scripts de `Lead/scripts/` lisent la clé de compte de service dans `Lead/service-account.json` (ignoré par git).
+
+
+## Statuts relus du CRM principal (retour des statuts, §24.8)
+
+Copiés dans `src/domain/mainSync/mainStatus.ts` ; à mettre à jour si le CRM principal change ses valeurs :
+- `dossiers.status` : incomplet, complet, valide, brouillon, complement_demande, complement_traite, abandonner
+  (source : `src/lib/utils/dossier-status.ts`) ;
+- `clients.status` : aprogrammer, placer, confirmer, preparer, charger, encours, commencer, terminer, facturer_mpr,
+  facturer_cee, facturer_cee_mpr, adecaler, annuler, infaisable (source : `src/components/projects/projects.tsx`,
+  `src/lib/utils/promote-dossier-to-client.ts`) ;
+- `subventions.dossier.statut` : controle_admin_valider, incomplet_a_completer.
+Lecture seule : le CRM Leads n'écrit jamais dans ces documents.

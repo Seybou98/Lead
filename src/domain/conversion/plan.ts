@@ -113,7 +113,7 @@ export interface ConversionPlan {
   notifications: PlannedNotification[];
   loadDelta: Partial<Record<LoadBucket, number>>;
   /** Résumé recopié sur le lead pour les listes (aucune lecture du brouillon). */
-  summary: { validationState: ValidationState; blocking: number; toConfirm: number; totalTtcCents: number; remainderCents: number };
+  summary: { validationState: ValidationState; blocking: number; toConfirm: number; validated: number; total: number; totalTtcCents: number; remainderCents: number };
   message: string;
 }
 
@@ -158,7 +158,7 @@ export function planConversionAction(input: ConversionActionInput, ctx: Conversi
         events,
         notifications,
         loadDelta: loadDeltaFor(lead.status, p.status),
-        summary: { validationState: p.validationState, blocking: p.report.blocking.length, toConfirm: p.report.toConfirm.length, totalTtcCents: p.report.recap.totalTtcCents, remainderCents: p.report.recap.remainderCents },
+        summary: { validationState: p.validationState, blocking: p.report.blocking.length, toConfirm: p.report.toConfirm.length, validated: p.report.validated, total: p.report.total, totalTtcCents: p.report.recap.totalTtcCents, remainderCents: p.report.recap.remainderCents },
         message: p.message,
       },
     };

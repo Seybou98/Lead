@@ -9,10 +9,13 @@ import type { CallRules } from '../../src/domain/call/plan';
 import type { DocumentRules } from '../../src/domain/documents/plan';
 import type { SchedulerRules } from '../../src/domain/scheduler/plan';
 import { callRulesFrom, documentRulesFrom, schedulerRulesFrom } from '../../src/domain/settings/runtime';
-import { effectiveSla, parseRulesSettings, parseSlaOverride, parseSlaSettings, type RulesSettings, type SlaOverride, type SlaSettings } from '../../src/domain/settings/settings';
+import { catalogOf, DEFAULT_REASON_CATALOG, parseReasonSettings, type ReasonCatalog } from '../../src/domain/settings/reasons';
+import { effectiveSla, parseConversionSettings, parseRulesSettings, parseSlaOverride, parseSlaSettings, type ConversionSettings, type RulesSettings, type SlaOverride, type SlaSettings } from '../../src/domain/settings/settings';
 
 export const SLA_DOC = 'sla';
 export const RULES_DOC = 'rules';
+export const CONVERSION_DOC = 'conversion';
+export const REASONS_DOC = 'reasons';
 /** Réglages d'une campagne : cl_settings/sla_<campaignId>. */
 export const campaignSlaDoc = (campaignId: string) => `sla_${campaignId}`;
 
@@ -51,3 +54,15 @@ export async function loadCampaignSla(db: Firestore, general: SlaSettings, campa
 }
 
 export type { SlaOverride };
+
+/** Verrous de conversion : le réglage enregistré, sinon les valeurs du cahier (jamais d'échec faute de réglage). */
+export async function loadConversionRules(db: Firestore): Promise<ConversionSettings> {
+  const snap = await db.collection(COL.settings).doc(CONVERSION_DOC).get();
+  return parseConversionSettings(snap.exists ? (snap.data() as DocumentData) : undefined);
+}
+
+/** Listes de motifs : le réglage enregistré, sinon les valeurs d'origine (jamais d'échec faute de réglage). */
+export async function loadReasonCatalog(db: Firestore): Promise<ReasonCatalog> {
+  const snap = await db.collection(COL.settings).doc(REASONS_DOC).get();
+  return snap.exists ? catalogOf(parseReasonSettings(snap.data() as DocumentData)) : DEFAULT_REASON_CATALOG;
+}

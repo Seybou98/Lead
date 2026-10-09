@@ -11,7 +11,7 @@ import type { Role } from '../../src/domain/enums';
 import type { CallOutcomeInput } from '../../src/domain/call/outcomes';
 import { DEFAULT_CALL_RULES, planCallOutcome, type CallRules } from '../../src/domain/call/plan';
 import { statusAfterCall } from '../../src/domain/availability/status';
-import { loadCallRules } from './settings';
+import { loadCallRules, loadReasonCatalog } from './settings';
 import { checklistKey, resolveChecklist } from '../../src/domain/documents/checklist';
 
 export interface QualifyArgs {
@@ -70,6 +70,8 @@ export async function qualifyCall(db: Firestore, args: QualifyArgs): Promise<Qua
     const cfgSnap = await db.collection(COL.config).doc('callRules').get();
     rules = parseCallRules(cfgSnap.exists ? (cfgSnap.data() as DocumentData) : undefined);
   }
+  // Motifs modifiables dans Paramètres : lus avec les règles, hors transaction.
+  rules = { ...rules, reasons: await loadReasonCatalog(db) };
 
   const result = await db.runTransaction(async (tx): Promise<QualifyResult> => {
     // ── lectures ──

@@ -14,7 +14,7 @@ describe('toListItem — dossier, vente et transmission', () => {
   });
   it('résumé du montage recopié par le serveur, date comprise', () => {
     const i = toListItem('L1', { ...base, status: 'manager_validation', montage: { validationState: 'pending', blocking: 0, toConfirm: 2, totalTtcCents: 1_599_000, remainderCents: 349_000, updatedAt: T(5000) } })!;
-    expect(i.montage).toEqual({ validationState: 'pending', blocking: 0, toConfirm: 2, totalTtcCents: 1_599_000, remainderCents: 349_000, updatedAtMs: 5000, financingMode: null });
+    expect(i.montage).toEqual({ validationState: 'pending', blocking: 0, toConfirm: 2, totalTtcCents: 1_599_000, remainderCents: 349_000, updatedAtMs: 5000, financingMode: null, validated: null, total: null });
   });
   it('montage sans date lisible : null, jamais une date inventée', () => {
     expect(toListItem('L1', { ...base, montage: { validationState: 'none', blocking: 1 } })!.montage?.updatedAtMs).toBeNull();
@@ -23,7 +23,7 @@ describe('toListItem — dossier, vente et transmission', () => {
     const i = toListItem('L1', { ...base, status: 'converted', saleId: 'L1', commercialState: 'sale_committed', financialState: 'none', conversion: { state: 'confirmed', clientId: '2612345', dossierId: 'cl_L1' } })!;
     expect(i.commercialState).toBe('sale_committed');
     expect(i.financialState).toBe('none');
-    expect(i.conversion).toEqual({ state: 'confirmed', clientId: '2612345', dossierId: 'cl_L1' });
+    expect(i.conversion).toEqual({ state: 'confirmed', clientId: '2612345', dossierId: 'cl_L1', convertedAtMs: null });
   });
   it('mode de règlement du montage : conservé tel quel', () => {
     expect(toListItem('L1', { ...base, montage: { validationState: 'none', financingMode: 'credit' } })!.montage?.financingMode).toBe('credit');
@@ -38,9 +38,15 @@ describe('toListItem — dossier, vente et transmission', () => {
     expect(i.securedAtMs).toBeNull();
     expect(i.saleTrack).toEqual({ lastReminderAtMs: null, reminderCount: 0, depositCents: null, financingOrganism: null, offerSentAtMs: null, signedAtMs: null });
   });
+  it('étape du CRM principal : lue sur le lead, absente sinon', () => {
+    expect(toListItem('L1', base)!.mainStatus).toBeUndefined();
+    const i = toListItem('L1', { ...base, mainStatus: { stage: 'installed', label: 'Installé', changedAt: T(4000) } })!;
+    expect(i.mainStatus).toEqual({ stage: 'installed', label: 'Installé', changedAtMs: 4000 });
+    expect(toListItem('L1', { ...base, mainStatus: { label: 'x' } })!.mainStatus).toBeUndefined();
+  });
   it('conversion pas encore faite : identifiants null', () => {
     const i = toListItem('L1', { ...base, saleId: 'L1', conversion: { state: 'pending', clientId: null, dossierId: null } })!;
-    expect(i.conversion).toEqual({ state: 'pending', clientId: null, dossierId: null });
+    expect(i.conversion).toEqual({ state: 'pending', clientId: null, dossierId: null, convertedAtMs: null });
   });
   it('conversion vide (état null, lead sans vente) : ignorée', () => {
     expect(toListItem('L1', { ...base, conversion: { state: null, clientId: null, dossierId: null } })!.conversion).toBeUndefined();

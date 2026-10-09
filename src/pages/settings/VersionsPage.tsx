@@ -5,11 +5,11 @@ import { cn } from '../../lib/utils';
 import { Modal } from '../../components/ui/Modal';
 import { MODULE_LABELS, versionsOf, type VersionEntry, type VersionModule } from '../../domain/settings/versions';
 import { checklistKey } from '../../domain/documents/checklist';
-import { errorMessage, saveChecklist, saveRules, saveSla } from '../../lib/adminApi';
+import { errorMessage, saveChecklist, saveConversion, saveReasons, saveRules, saveSla } from '../../lib/adminApi';
 import { sinceLabel } from '../../domain/cockpit/cockpit';
 import { useConfigData } from './useConfigData';
 
-const MODULES: VersionModule[] = ['sla', 'rules', 'checklist'];
+const MODULES: VersionModule[] = ['sla', 'rules', 'conversion', 'reasons', 'checklist'];
 
 /**
  * Versions & publication (§21.9, fig. 25) : l'historique de chaque réglage et le retour arrière. Un retour arrière ne
@@ -38,6 +38,8 @@ export function VersionsPage() {
     try {
       if (target.module === 'sla') await saveSla(input);
       else if (target.module === 'rules') await saveRules(input);
+      else if (target.module === 'conversion') await saveConversion(input);
+      else if (target.module === 'reasons') await saveReasons(input);
       else await saveChecklist(input as never);
       setNotice({ kind: 'ok', text: `Version v${target.number} rétablie : elle devient une nouvelle version, l'historique est conservé.` });
       setTarget(null);

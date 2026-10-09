@@ -7,6 +7,7 @@
 
 import type { CampaignStatus, DocumentState, LeadStatus } from '../enums';
 import { normalizeText } from '../engine/normalize';
+import { countOutcomes, ratePct } from '../sales/outcome';
 
 export interface CampaignView {
   id: string;
@@ -28,6 +29,10 @@ export interface LeadStatView {
   duplicate: boolean;
   /** Exclu des performances par un acteur autorisé (§22.5). */
   excluded: boolean;
+  /** Axes de la vente et étape du dossier dans le CRM principal : absents tant qu'aucune vente n'est créée. */
+  commercialState?: string | null;
+  financialState?: string | null;
+  mainStage?: string | null;
 }
 
 export interface SpendView {
@@ -77,15 +82,29 @@ export interface Funnel {
 
 export interface CampaignStats {
   campaign: CampaignView;
-  /** Leads valides : ni doublon, ni faux lead, ni exclus. */
+  /** Leads valides : ni doublon, ni faux lead, ni exclus. En lecture brute : tous les leads reçus. */
   leads: number;
+  /** Leads reçus (bruts), quelle que soit la lecture. */
+  gross: number;
+  /** Leads contactés et taux de contact (contactés / leads de la lecture) ; null sans lead. */
+  contacted: number;
+  contactRate: number | null;
   duplicates: number;
   fakeLeads: number;
   /** null = aucune dépense saisie sur la période. */
   spendCents: number | null;
   cplCents: number | null;
   docsComplete: number;
+  /** Ventes nettes : créées et non annulées (§11.8 « retrait des ventes nettes »). */
   sales: number;
+  /** Ventes annulées ou rétractées, côté CRM Leads ou côté CRM principal. */
+  cancelled: number;
+  /** Ventes signées et réglées (sécurisées). */
+  secured: number;
+  /** Dossiers validés, installés puis facturés dans le CRM principal (retour des statuts, §24.8). */
+  validated: number;
+  installed: number;
+  invoiced: number;
   costPerSaleCents: number | null;
   funnel: Funnel;
   /** Ventes / leads valides, en pourcentage ; null si aucun lead valide. */
@@ -98,15 +117,18 @@ export function computeCampaignStats(
   campaigns: readonly CampaignView[],
   leads: readonly LeadStatView[],
   spend: readonly SpendView[],
-  period: Period
+  period: Period,
+  /** « corrected » exclut doublons, faux leads et exclus (§22.5) ; « raw » reflète tous les événements enregistrés. */
+  mode: 'corrected' | 'raw' = 'corrected'
 ): CampaignStats[] {
   return campaigns.map((campaign) => {
     const mine = leads.filter((l) => l.campaignId === campaign.id && inPeriod(l.receivedAtMs, period));
     const fake = mine.filter((l) => l.status === 'fake_lead');
     const dup = mine.filter((l) => l.status !== 'fake_lead' && l.duplicate);
-    const valid = mine.filter((l) => l.status !== 'fake_lead' && !l.duplicate && !l.excluded);
+    const valid = mode === 'raw' ? mine : mine.filter((l) => l.status !== 'fake_lead' && !l.duplicate && !l.excluded);
 
-    const sales = valid.filter((l) => l.status === 'converted').length;
+    const out = countOutcomes(valid);
+    const sales = out.net;
     const docsComplete = valid.filter((l) => l.documentsState === 'complete').length;
     const contacted = valid.filter((l) => CONTACTED_STATUSES.includes(l.status)).length;
 
@@ -116,12 +138,20 @@ export function computeCampaignStats(
     return {
       campaign,
       leads: valid.length,
+      gross: mine.length,
+      contacted,
+      contactRate: ratePct(contacted, valid.length),
       duplicates: dup.length,
       fakeLeads: fake.length,
       spendCents,
       cplCents: perUnit(spendCents, valid.length),
       docsComplete,
       sales,
+      cancelled: out.cancelled,
+      secured: out.secured,
+      validated: out.validated,
+      installed: out.installed,
+      invoiced: out.invoiced,
       costPerSaleCents: perUnit(spendCents, sales),
       funnel: { leads: valid.length, contacted, documents: docsComplete, sales },
       conversionRate: valid.length > 0 ? (sales / valid.length) * 100 : null,
@@ -137,7 +167,13 @@ export interface Totals {
   cplCents: number | null;
   docsComplete: number;
   sales: number;
+  cancelled: number;
+  secured: number;
+  installed: number;
+  invoiced: number;
   costPerSaleCents: number | null;
+  /** Installations / ventes nettes ; null sans vente. */
+  installRate: number | null;
 }
 
 /** Totaux = somme des lignes affichées : une carte ne peut pas diverger du tableau. */
@@ -154,7 +190,12 @@ export function computeTotals(rows: readonly CampaignStats[]): Totals {
     cplCents: perUnit(spendCents, leads),
     docsComplete: rows.reduce((s, r) => s + r.docsComplete, 0),
     sales,
+    cancelled: rows.reduce((s, r) => s + r.cancelled, 0),
+    secured: rows.reduce((s, r) => s + r.secured, 0),
+    installed: rows.reduce((s, r) => s + r.installed, 0),
+    invoiced: rows.reduce((s, r) => s + r.invoiced, 0),
     costPerSaleCents: perUnit(spendCents, sales),
+    installRate: ratePct(rows.reduce((s, r) => s + r.installed, 0), sales),
   };
 }
 
@@ -196,7 +237,7 @@ export function formatPercent(rate: number | null): string {
 
 // ── Tri des colonnes (fig. 15 : flèches de tri) ──────────────────────────────
 
-export type CampaignSortKey = 'name' | 'source' | 'product' | 'zone' | 'budget' | 'leads' | 'cpl' | 'docs' | 'sales' | 'status';
+export type CampaignSortKey = 'name' | 'source' | 'product' | 'zone' | 'budget' | 'leads' | 'cpl' | 'docs' | 'sales' | 'installed' | 'invoiced' | 'status';
 export type SortDir = 'asc' | 'desc';
 
 const STATUS_RANK: Record<CampaignStatus, number> = { active: 0, suspended: 1, draft: 2, ended: 3 };
@@ -218,6 +259,8 @@ export function sortCampaignRows(rows: readonly CampaignStats[], key: CampaignSo
       case 'cpl': return r.cplCents;
       case 'docs': return r.docsComplete;
       case 'sales': return r.sales;
+      case 'installed': return r.installed;
+      case 'invoiced': return r.invoiced;
       case 'status': return STATUS_RANK[r.campaign.status];
     }
   };

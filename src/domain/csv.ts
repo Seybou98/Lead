@@ -4,7 +4,8 @@
 /** Une cellule commençant par = + - @ est interprétée comme une formule par un tableur : on la neutralise. */
 export function csvCell(v: string | number): string {
   let s = String(v);
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  // Un nombre (même négatif) n'est jamais une formule : seul un texte est neutralisé.
+  if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[";\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

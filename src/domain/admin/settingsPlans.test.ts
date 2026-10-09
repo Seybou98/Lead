@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { AdminRuleError, planChecklistSave, planRulesSave, planSlaOverrideSave, planSlaSave } from './plans';
+import { AdminRuleError, planChecklistSave, planReasonsSave, planRulesSave, planSlaOverrideSave, planSlaSave } from './plans';
 import { versionsOf, type AuditRow } from '../settings/versions';
+import { toStored, DEFAULT_REASON_SETTINGS } from '../settings/reasons';
 import { DEFAULT_RULES_SETTINGS, DEFAULT_SLA_SETTINGS } from '../settings/settings';
 
 const NOW = Date.UTC(2026, 9, 8, 10, 0);
@@ -73,6 +74,23 @@ describe('planRulesSave', () => {
   it('refus : délai NR invalide, cycles, échéances décroissantes, matrice incomplète', () => {
     const bad: Record<string, unknown>[] = [{ nrDelaysMinutes: [0, 1, 1, 1] }, { nrDelaysMinutes: [60, 60] }, { maxRecycleCycles: 0 }, { followUpDays: [5, 3] }, { followUpDays: [1] }, { recycleAfterDays: 'x' }];
     for (const b of bad) expect(refusal(() => planRulesSave({ input: rules(b), before: null, actorId: 'a', nowMs: NOW })).code).toBe('invalid-argument');
+  });
+});
+
+describe('planReasonsSave', () => {
+  const withRefusal = (items: unknown[]) => ({ lists: { ...toStored(DEFAULT_REASON_SETTINGS).lists, refusal: items } });
+  const origin = toStored(DEFAULT_REASON_SETTINGS).lists.refusal;
+  it('enregistre une valeur ajoutée et une valeur archivée', () => {
+    const items = [...origin.map((i) => (i.code === 'competitor' ? { ...i, active: false } : i)), { code: 'c_deja_equipe', label: 'Déjà équipé', active: true, requireComment: false }];
+    const p = planReasonsSave({ input: withRefusal(items), before: null, actorId: 'adm', nowMs: NOW });
+    expect(p.audit).toMatchObject({ action: 'settings.reasons.create', entityId: 'reasons' });
+    const stored = (p.doc as { lists: Record<string, { code: string; active: boolean }[]> }).lists.refusal;
+    expect(stored.find((i) => i.code === 'competitor')?.active).toBe(false);
+    expect(stored.some((i) => i.code === 'c_deja_equipe')).toBe(true);
+  });
+  it('refuse de supprimer une valeur d’origine ou de tout archiver', () => {
+    expect(refusal(() => planReasonsSave({ input: withRefusal(origin.filter((i) => i.code !== 'price')), before: null, actorId: 'a', nowMs: NOW })).code).toBe('invalid-argument');
+    expect(refusal(() => planReasonsSave({ input: withRefusal(origin.map((i) => ({ ...i, active: false }))), before: null, actorId: 'a', nowMs: NOW })).code).toBe('invalid-argument');
   });
 });
 

@@ -156,7 +156,7 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500">
                 <tr>
-                  {['Télépro', 'État', 'Action actuelle', 'Charge', 'Attribués', 'Alerte'].map((h) => (
+                  {['Télépro', 'État', 'Action actuelle', 'Charge', 'Attribués', 'Résultat', 'Alerte'].map((h) => (
                     <th key={h} scope="col" className="whitespace-nowrap px-3 py-2.5 font-semibold">{h}</th>
                   ))}
                 </tr>
@@ -181,6 +181,7 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
                         </span>
                       </td>
                       <td className="px-3 py-3 text-slate-700">{t.assignedInPeriod}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-slate-700" title="Ventes nettes de la période, dont installées et facturées dans le CRM principal">{t.result.sales === 0 ? '—' : `${t.result.sales} vente${t.result.sales > 1 ? 's' : ''}`}{t.result.installed > 0 && <span className="ml-1 text-xs text-slate-400">· {t.result.installed} inst.</span>}</td>
                       <td className="px-3 py-3">{t.alert ? <span className={cn('whitespace-nowrap rounded-full px-2.5 py-1 text-xs font-medium', TONE_PILL[t.alert.tone])}>● {t.alert.label}</span> : <span className="text-slate-300">—</span>}</td>
                     </tr>
                   );

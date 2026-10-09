@@ -26,7 +26,8 @@ export const CALLBACK_REASONS = {
   asked_callback: 'A demandé à être rappelé',
   other: 'Autre',
 } as const;
-export type CallbackReason = keyof typeof CALLBACK_REASONS;
+/** Code d'un motif : une valeur d'origine ou une valeur ajoutée dans Paramètres (listes modifiables, §21.6). */
+export type CallbackReason = string;
 
 export const BAD_MOMENT_REASONS = {
   busy: 'Client occupé',
@@ -36,7 +37,7 @@ export const BAD_MOMENT_REASONS = {
   explicit_request: 'Demande explicite',
   other: 'Autre',
 } as const;
-export type BadMomentReason = keyof typeof BAD_MOMENT_REASONS;
+export type BadMomentReason = string;
 
 /** Délais proposés pour un rappel rapide (fig. 13), en minutes. */
 export const BAD_MOMENT_DELAYS = [
@@ -57,7 +58,7 @@ export const INTEREST_REASONS = {
   financing: 'Financement',
   other: 'Autre',
 } as const;
-export type InterestReason = keyof typeof INTEREST_REASONS;
+export type InterestReason = string;
 
 export const TEMPERATURE_CHOICES: { key: Temperature; title: string; hint: string }[] = [
   { key: 'hot', title: 'Chaud', hint: "Intention claire, proche de l'action" },
@@ -118,7 +119,7 @@ export const REFUSAL_MOTIVES = {
   no_more_contact: 'Ne souhaite plus être contacté',
   other: 'Autre',
 } as const;
-export type RefusalMotive = keyof typeof REFUSAL_MOTIVES;
+export type RefusalMotive = string;
 
 export const REFUSAL_FOLLOW_UPS = {
   close: 'Clôturer définitivement',
@@ -162,7 +163,7 @@ export const FAKE_LEAD_MOTIVES = {
   spam: 'Test / spam',
   other: 'Autre',
 } as const;
-export type FakeLeadMotive = keyof typeof FAKE_LEAD_MOTIVES;
+export type FakeLeadMotive = string;
 
 // ── Entrée envoyée au serveur (une forme par résultat) ───────────────────────
 

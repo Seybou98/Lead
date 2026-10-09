@@ -7,7 +7,7 @@
 // droit d'écriture direct sur les leads ni sur leurs pièces.
 
 import { FieldValue, type DocumentData, type Firestore } from 'firebase-admin/firestore';
-import { loadDocumentRules } from './settings';
+import { loadDocumentRules, loadReasonCatalog } from './settings';
 import { COL, SUB } from '../../src/domain/collections';
 import type { Role } from '../../src/domain/enums';
 import {
@@ -70,6 +70,8 @@ export async function applyDocumentAction(db: Firestore, args: DocumentsArgs): P
     rules = parseDocumentRules(docRulesSnap.exists ? (docRulesSnap.data() as DocumentData) : undefined, callRulesSnap.exists ? (callRulesSnap.data() as DocumentData) : undefined);
   }
 
+  rules = { ...rules, reasons: await loadReasonCatalog(db) };
+
   return db.runTransaction(async (tx): Promise<DocumentsResult> => {
     const [leadSnap, idemSnap, docsSnap] = await Promise.all([tx.get(leadRef), tx.get(idemRef), tx.get(leadRef.collection(SUB.documents))]);
 
@@ -87,6 +89,7 @@ export async function applyDocumentAction(db: Firestore, args: DocumentsArgs): P
       mandatory: s.get('mandatory') === true,
       status: s.get('status'),
       koReason: s.get('koReason') ?? null,
+      koReasonLabel: s.get('koReasonLabel') ?? null,
     }));
 
     const ownerId: string | null = lead.ownerId ?? null;
@@ -149,6 +152,7 @@ export async function applyDocumentAction(db: Firestore, args: DocumentsArgs): P
         {
           status: p.status,
           koReason: p.koReason,
+          koReasonLabel: p.koReasonLabel ?? null,
           koComment: p.koComment,
           ...(p.receivedAtMs !== undefined ? { receivedAt: d(p.receivedAtMs) } : {}),
           ...(p.channel !== undefined ? { channel: p.channel } : {}),
