@@ -25,7 +25,7 @@ export interface CoverageInput {
   teams: readonly { id: string; name: string; active: boolean; productCodes: readonly string[] }[];
   /** Télépros avec profil de distribution : leur périmètre produit. */
   profiles: readonly { uid: string; productCodes: readonly string[] }[];
-  campaigns: readonly { id: string; name: string; status: string; productCode: string | null }[];
+  campaigns: readonly { id: string; name: string; status: string; productCode: string | null; zones?: readonly string[] }[];
 }
 
 export interface ProductCoverage {

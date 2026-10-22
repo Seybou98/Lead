@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, X } from 'lucide-react';
-import { DEFAULT_RULES_SETTINGS, formatDelay, validateRulesSettings, type RulesSettings } from '../../domain/settings/settings';
-import { errorMessage, saveRules } from '../../lib/adminApi';
+import { DEFAULT_RULES_SETTINGS, formatDelay, parseRulesSettings, validateRulesSettings, type RulesSettings } from '../../domain/settings/settings';
+import { errorMessage, saveDraft } from '../../lib/adminApi';
+import { DraftBanner } from './DraftBanner';
 import { useSettings } from './useSettings';
 import { DelayField, Feedback, inputCls, NumberField, SaveBar, SettingsCard } from './settingsUi';
 
@@ -25,10 +26,11 @@ export function RulesPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
-  const loadedKey = `${settings.loading}:${JSON.stringify(settings.rules)}`;
+  const base = settings.drafts.rules ? parseRulesSettings(settings.drafts.rules.doc) : settings.rules;
+  const loadedKey = `${settings.loading}:${JSON.stringify(base)}`;
   useEffect(() => {
     if (dirty) return;
-    setDraft(settings.rules);
+    setDraft(base);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedKey]);
 
@@ -45,9 +47,9 @@ export function RulesPage() {
     setBusy(true);
     setNotice(null);
     try {
-      await saveRules(draft);
+      await saveDraft('rules', draft);
       setDirty(false);
-      setNotice({ kind: 'ok', text: 'Paramètres enregistrés. Ils s’appliquent aux prochaines qualifications d’appel ; les tentatives déjà programmées ne bougent pas.' });
+      setNotice({ kind: 'ok', text: 'Brouillon enregistré. Il n’affecte aucun lead : testez-le, mesurez son impact, puis publiez-le.' });
     } catch (e) {
       setNotice({ kind: 'error', text: errorMessage(e) });
     } finally {
@@ -65,6 +67,7 @@ export function RulesPage() {
       <h1 className="mt-1 text-2xl font-bold text-slate-900">Cycles NR, rappels et documents</h1>
       <p className="mt-1 text-slate-500">Réglez le rythme des relances. Les horaires et jours fermés viennent de « SLA &amp; horaires » : une tentative n&apos;est jamais programmée hors horaires.</p>
 
+      <DraftBanner module="rules" draft={settings.drafts.rules} />
       {!settings.saved.rules && !settings.loading && <p className="mt-4 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-900">Aucun réglage n&apos;a encore été enregistré : ce sont les valeurs du cahier des charges qui s&apos;appliquent. Enregistrez pour les rendre vôtres.</p>}
       {settings.error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Lecture des réglages refusée ou indisponible : vérifiez vos droits et les règles Firestore.</p>}
 
@@ -150,7 +153,7 @@ export function RulesPage() {
       </SettingsCard>
 
       <Feedback errors={dirty ? errors : []} notice={notice} />
-      <SaveBar onCancel={() => { setDraft(settings.rules); setDirty(false); setNotice(null); }} onSave={save} busy={busy} blocked={errors.length > 0} dirty={dirty} />
+      <SaveBar onCancel={() => { setDraft(base); setDirty(false); setNotice(null); }} onSave={save} busy={busy} blocked={errors.length > 0} dirty={dirty} saveLabel="Enregistrer le brouillon" />
     </div>
   );
 }

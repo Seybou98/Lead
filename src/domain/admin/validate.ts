@@ -159,6 +159,14 @@ export interface ProfilePatch {
   schedule?: { timezone: string; weekly: WorkSlotValue[]; breaks: WorkSlotValue[] };
   /** null = retirer la date de fin d'accès. */
   accessEndsAtMs?: number | null;
+  /** Fig. 21 : les leads de ce télépro peuvent être réattribués automatiquement (SLA dépassé). Défaut : oui. */
+  reassignable?: boolean;
+  /** Fig. 21 : participe au recyclage des leads injoignables. Défaut : oui. Enregistré ; le moteur ne le lit pas encore. */
+  recycling?: boolean;
+  /** Fig. 21 : équipe qui reprend ses leads en cas de réattribution automatique ; null = aucune. */
+  backupTeamId?: string | null;
+  /** Fig. 21 : authentification renforcée exigée. Enregistré ; l'authentification à deux facteurs n'est pas encore branchée. */
+  strongAuth?: boolean;
 }
 
 export function validateSlots(label: string, v: unknown, errors: string[]): WorkSlotValue[] {
@@ -240,6 +248,17 @@ export function validateProfilePatch(input: unknown, nowMs: number): Validated<P
   if (input.distributionSuspended !== undefined) {
     if (typeof input.distributionSuspended !== 'boolean') errors.push('Distribution suspendue : vrai ou faux.');
     else patch.distributionSuspended = input.distributionSuspended;
+  }
+
+  for (const [key, label] of [['reassignable', 'Réattribution possible'], ['recycling', 'Participation au recyclage'], ['strongAuth', 'Authentification renforcée']] as const) {
+    if (input[key] === undefined) continue;
+    if (typeof input[key] !== 'boolean') errors.push(`${label} : vrai ou faux.`);
+    else patch[key] = input[key] as boolean;
+  }
+  if (input.backupTeamId !== undefined) {
+    if (input.backupTeamId === null || input.backupTeamId === '') patch.backupTeamId = null;
+    else if (typeof input.backupTeamId !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(input.backupTeamId)) errors.push('Équipe de secours invalide.');
+    else patch.backupTeamId = input.backupTeamId;
   }
 
   if (input.schedule !== undefined) {

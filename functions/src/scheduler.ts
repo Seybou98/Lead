@@ -265,6 +265,8 @@ export async function runScheduler(db: Firestore, nowMs: number, deps: Scheduler
       });
       const { candidates } = buildCandidates({ profiles: profileSnaps.docs.map((d) => toProfileInput(d.id, d.data(), ms)), users, presence, absences, nowMs });
       const live = new Map(candidates.map((c) => [c.uid, { ...c }]));
+      // Fig. 21 : « Réattribution possible » et équipe de secours propres à chaque télépro (absent = oui / aucune).
+      const ownerFlags = new Map(profileSnaps.docs.map((d) => [d.id, { reassignable: d.get('reassignable') !== false, backupTeamId: typeof d.get('backupTeamId') === 'string' ? (d.get('backupTeamId') as string) : null }]));
 
       const campaigns = new Map<string, { info: ReturnType<typeof toCampaignInfo>; data: DocumentData } | null>();
       const campaignOf = async (id: string | null) => {
@@ -325,12 +327,15 @@ export async function runScheduler(db: Firestore, nowMs: number, deps: Scheduler
         if (done >= ASSIGN_LIMIT) break;
         const c = await campaignOf(l.campaignId);
         if (c && c.info.status !== 'active') continue;
+        const flags = l.ownerId ? ownerFlags.get(l.ownerId) : undefined;
+        if (flags && !flags.reassignable) continue; // ses leads ne sont jamais retirés automatiquement : seul un manager décide
+        const fallbackTeamId = flags?.backupTeamId ?? sla.fallbackTeamId;
         const config = parseAssignmentConfig(globalConfig, c?.data.assignmentConfig);
         const others = [...live.values()].filter((x) => x.uid !== l.ownerId);
         const campaign = c
-          ? { ...c.info, fallbackTeamId: sla.fallbackTeamId ?? c.info.fallbackTeamId }
-          : sla.fallbackTeamId
-            ? { id: '', name: '', status: 'active' as const, productCode: null, eligibleUserIds: [], eligibleTeamIds: [], fallbackTeamId: sla.fallbackTeamId, autoEligible: true }
+          ? { ...c.info, fallbackTeamId: fallbackTeamId ?? c.info.fallbackTeamId }
+          : fallbackTeamId
+            ? { id: '', name: '', status: 'active' as const, productCode: null, eligibleUserIds: [], eligibleTeamIds: [], fallbackTeamId, autoEligible: true }
             : null;
         const decision = decideAssignment({ id: l.id, productCode: l.productCode, zone: l.zone, campaignId: l.campaignId }, campaign, others, nowMs, config);
         if (!decision.chosenUid) continue; // personne d'autre ne peut le prendre : il reste à son propriétaire
@@ -469,8 +474,11 @@ export async function runScheduler(db: Firestore, nowMs: number, deps: Scheduler
   });
 
   // ── 7. Retour des statuts du CRM principal (§24.8) : lecture seule, répercutée sur les leads et les ventes ──
+  let statusReturn: Record<string, unknown> | null = null;
   await guard('statuts du CRM principal', async () => {
+    const t0 = Date.now();
     const r = await syncMainStatuses(db, nowMs);
+    statusReturn = { atMs: nowMs, read: r.read, changed: r.changed, cancelled: r.cancelled, errorCount: r.errors.length, errors: r.errors.slice(0, 5), durationMs: Date.now() - t0 };
     report.mainRead = r.read;
     report.mainChanged = r.changed;
     report.mainCancelled = r.cancelled;
@@ -479,7 +487,9 @@ export async function runScheduler(db: Firestore, nowMs: number, deps: Scheduler
 
   // Trace du dernier passage (lisible par le personnel : cl_config est en lecture seule côté navigateur).
   await guard('trace', async () => {
-    await db.collection(COL.config).doc('schedulerStatus').set({ lastRunAt: at, report: { ...report, errors: report.errors.slice(0, 10) } });
+    // Trace propre du retour des statuts : lue par le hub d'intégrations (dernier passage, dossiers lus, changements, durée, erreurs).
+    const sr = statusReturn ?? { atMs: nowMs, read: 0, changed: 0, cancelled: 0, errorCount: 1, errors: ['lecture du CRM principal impossible'], durationMs: null };
+    await db.collection(COL.config).doc('schedulerStatus').set({ lastRunAt: at, report: { ...report, errors: report.errors.slice(0, 10) }, statusReturn: sr });
   });
   return report;
 }

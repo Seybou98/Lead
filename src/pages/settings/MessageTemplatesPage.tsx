@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, RotateCcw, Trash2 } from 'lucide-react';
-import { errorMessage, saveMessages } from '../../lib/adminApi';
+import { errorMessage, saveDraft } from '../../lib/adminApi';
+import { DraftBanner } from './DraftBanner';
+import { parseMessageTemplates } from '../../domain/messages/templates';
 import {
   BODY_MAX,
   CHANNEL_LABELS,
@@ -34,17 +36,18 @@ const SAMPLE: MessageContext = { prenom: 'Awa', nom: 'Diallo', produit: 'PAC', t
 export function MessageTemplatesPage() {
   const data = useConfigData();
   const settings = data.settings;
-  const [draft, setDraft] = useState<MessageTemplate[]>(settings.messages);
+  const base = settings.drafts?.messages ? parseMessageTemplates(settings.drafts.messages.doc) : settings.messages;
+  const [draft, setDraft] = useState<MessageTemplate[]>(base);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [adding, setAdding] = useState<{ trigger: MessageTrigger; channel: MessageChannel; product: string }>({ trigger: 'documents_requested', channel: 'email', product: '' });
   const bodyRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
 
-  const loadedKey = `${settings.loading}:${JSON.stringify(settings.messages)}`;
+  const loadedKey = `${settings.loading}:${JSON.stringify(base)}`;
   useEffect(() => {
     if (dirty) return;
-    setDraft(clone(settings.messages));
+    setDraft(clone(base));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedKey]);
 
@@ -76,9 +79,9 @@ export function MessageTemplatesPage() {
     setBusy(true);
     setNotice(null);
     try {
-      await saveMessages({ templates: draft });
+      await saveDraft('messages', { templates: draft });
       setDirty(false);
-      setNotice({ kind: 'ok', text: 'Modèles enregistrés. Les télépros les voient tout de suite dans « Messages » ; les messages déjà envoyés ne changent pas.' });
+      setNotice({ kind: 'ok', text: 'Brouillon enregistré. Les télépros ne le voient pas : testez-le, mesurez son impact, puis publiez-le.' });
     } catch (e) {
       setNotice({ kind: 'error', text: errorMessage(e) });
     } finally {
@@ -96,6 +99,7 @@ export function MessageTemplatesPage() {
       <h1 className="mt-1 text-2xl font-bold text-slate-900">Modèles de message</h1>
       <p className="mt-1 text-slate-500">Un message par déclencheur, canal et produit, envoyé avec l’identité commerciale du télépro propriétaire. Le CRM prépare le message ; le télépro l’envoie lui-même (l’envoi automatique est une évolution).</p>
 
+      <DraftBanner module="messages" draft={settings.drafts?.messages} />
       {!settings.saved.messages && !settings.loading && <p className="mt-4 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-900">Rien n’a encore été enregistré : ce sont les modèles d’origine qui s’appliquent.</p>}
       {settings.error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Lecture des réglages refusée ou indisponible : vérifiez vos droits et les règles Firestore.</p>}
 
@@ -172,7 +176,7 @@ export function MessageTemplatesPage() {
       </div>
 
       <Feedback errors={errors} notice={notice} />
-      <SaveBar onCancel={() => { setDraft(clone(settings.messages)); setDirty(false); setNotice(null); }} onSave={() => void save()} busy={busy} blocked={errors.length > 0} dirty={dirty} saveLabel="Enregistrer les modèles" />
+      <SaveBar onCancel={() => { setDraft(clone(base)); setDirty(false); setNotice(null); }} onSave={() => void save()} busy={busy} blocked={errors.length > 0} dirty={dirty} saveLabel="Enregistrer le brouillon" />
     </div>
   );
 }

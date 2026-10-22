@@ -9,6 +9,7 @@
 
 import { coerceReasonInput, toStored, validateReasonSettings } from '../settings/reasons';
 import { coerceMessagesInput, toStoredMessages, validateMessages } from '../messages/templates';
+import { coerceProductsInput, toStoredProducts, validateProductRules } from '../products/rules';
 import { coerceReportInput, toStoredReports, validateReportSettings } from '../reports/targets';
 import { coerceSchedulesInput, parseSchedules, validateSchedules, type ScheduledExport } from '../reports/schedule';
 import { errorsOf, normalizeForm, validateForm, type QualificationForm } from '../qualification/form';
@@ -99,6 +100,10 @@ export function defaultProfile(uid: string, now: Date): Doc {
     operationalStatus: 'available',
     operationalStatusSince: now,
     distributionSuspended: false,
+    reassignable: true,
+    recycling: true,
+    backupTeamId: null,
+    strongAuth: false,
     lastUsefulActionAt: null,
     lastAssignedAt: null,
     schedule: { timezone: 'Europe/Paris', weekly: [] as unknown[], breaks: [] as unknown[] },
@@ -223,6 +228,10 @@ export function planProfileUpdate(args: {
   if (patch.scope) next.scope = patch.scope;
   if (patch.schedule) next.schedule = patch.schedule;
   if (patch.distributionSuspended !== undefined) next.distributionSuspended = patch.distributionSuspended;
+  if (patch.reassignable !== undefined) next.reassignable = patch.reassignable;
+  if (patch.recycling !== undefined) next.recycling = patch.recycling;
+  if (patch.backupTeamId !== undefined) next.backupTeamId = patch.backupTeamId;
+  if (patch.strongAuth !== undefined) next.strongAuth = patch.strongAuth;
   if (patch.accessEndsAtMs !== undefined) next.accessEndsAt = patch.accessEndsAtMs === null ? null : new Date(patch.accessEndsAtMs);
   if (patch.newLeadsCap !== undefined || patch.capacityOverride !== undefined) {
     const cap = { ...((base.capacity as Doc) ?? {}) };
@@ -442,7 +451,8 @@ export function planChecklistSave(args: {
     const label = typeof it.label === 'string' ? it.label.trim() : '';
     const code = typeof it.code === 'string' && /^[a-z0-9][a-z0-9_-]{0,59}$/.test(it.code) && !taken.has(it.code) ? it.code : slugCode(label, taken);
     taken.add(code);
-    return { code, label, mandatory: it.mandatory === true };
+    const when = Array.isArray(it.when) ? it.when.filter((w): w is string => typeof w === 'string') : [];
+    return { code, label, mandatory: it.mandatory === true, ...(when.length > 0 ? { when } : {}) };
   });
   const errors = validateChecklist(items);
   if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
@@ -509,6 +519,15 @@ export function planReasonsSave(args: { input: unknown; before: Doc | null; acto
   if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
   const doc: Doc = { ...toStored(s), updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
   return { doc, audit: { action: args.before ? 'settings.reasons.update' : 'settings.reasons.create', entityType: 'settings', entityId: 'reasons', before: args.before, after: doc, reason: reasonOf(asRecord(args.input)) } };
+}
+
+/** Périmètre, éligibilité et aides par produit (§21.2) : un seul document `cl_settings/products`, versionné par le journal d'audit. */
+export function planProductsSave(args: { input: unknown; before: Doc | null; actorId: string; nowMs: number }): { doc: Doc; audit: AuditDraft } {
+  const list = coerceProductsInput(args.input);
+  const errors = validateProductRules(list);
+  if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
+  const doc: Doc = { ...toStoredProducts(list), updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
+  return { doc, audit: { action: args.before ? 'settings.products.update' : 'settings.products.create', entityType: 'settings', entityId: 'products', before: args.before, after: doc, reason: reasonOf(asRecord(args.input)) } };
 }
 
 /** Modèles de message (§24.5) : un seul document `cl_settings/messages`, versionné par le journal d'audit. */

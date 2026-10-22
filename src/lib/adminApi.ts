@@ -4,7 +4,7 @@
 import { httpsCallable } from 'firebase/functions';
 import { functions } from './firebase';
 import { resolveWriteMode } from './adminErrors';
-import { deleteChecklistDirect, deleteSlaOverrideDirect, discardQualificationDraftDirect, publishQualificationDirect, saveQualificationDraftDirect, saveConversionDirect, saveReasonsDirect, saveMessagesDirect, saveReportsConfigDirect, saveExportsDirect, logReportExportDirect, saveRulesDirect, saveSlaDirect, saveSlaOverrideDirect, saveAssignmentConfigDirect, saveChecklistDirect, saveCampaignDirect, saveProfileDirect, saveSourceDirect, saveSpendDirect, saveTeamDirect } from './adminWrites';
+import { deleteChecklistDirect, deleteSlaOverrideDirect, discardQualificationDraftDirect, publishQualificationDirect, saveQualificationDraftDirect, saveConversionDirect, saveReasonsDirect, saveMessagesDirect, saveProductsDirect, saveDraftDirect, publishDraftDirect, discardDraftDirect, saveReportsConfigDirect, saveExportsDirect, logReportExportDirect, saveRulesDirect, saveSlaDirect, saveSlaOverrideDirect, saveAssignmentConfigDirect, saveChecklistDirect, saveCampaignDirect, saveProfileDirect, saveSourceDirect, saveSpendDirect, saveTeamDirect } from './adminWrites';
 
 export interface AdminResult {
   ok: true;
@@ -40,6 +40,10 @@ export interface ProfileInput {
   distributionSuspended?: boolean;
   schedule?: { timezone: string; weekly: WorkSlotInput[]; breaks: WorkSlotInput[] };
   accessEndsAtMs?: number | null;
+  reassignable?: boolean;
+  recycling?: boolean;
+  backupTeamId?: string | null;
+  strongAuth?: boolean;
   reason?: string;
 }
 
@@ -128,6 +132,10 @@ export const saveConversion = (input: unknown): Promise<AdminResult> => saveConv
 export const saveReasons = (input: unknown): Promise<AdminResult> => saveReasonsDirect(input);
 export const logReportExport = (entry: Parameters<typeof logReportExportDirect>[0]): Promise<AdminResult> => logReportExportDirect(entry);
 export const saveReportsConfig = (input: unknown): Promise<AdminResult> => saveReportsConfigDirect(input);
+export const saveDraft = (module: string, input: unknown): Promise<AdminResult> => saveDraftDirect(module, input);
+export const publishDraft = (module: string, reason: string, force = false): Promise<AdminResult> => publishDraftDirect(module, reason, force);
+export const discardDraft = (module: string): Promise<AdminResult> => discardDraftDirect(module);
+export const saveProducts = (input: unknown): Promise<AdminResult> => saveProductsDirect(input);
 export const saveMessages = (input: unknown): Promise<AdminResult> => saveMessagesDirect(input);
 export const saveExports = (input: unknown): Promise<AdminResult> => saveExportsDirect(input);
 export const saveQualificationDraft = (input: unknown): Promise<AdminResult> => saveQualificationDraftDirect(input);

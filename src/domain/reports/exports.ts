@@ -177,6 +177,11 @@ export function filterSummary(f: ReportFilters, input: Pick<ExportInput, 'names'
     { label: 'Source', value: f.sourceId ? (input.names.sources.get(f.sourceId) ?? f.sourceId) : 'Toutes' },
     { label: 'Produit', value: f.product || 'Tous' },
     { label: 'Télépro', value: f.owner ? (input.names.users.get(f.owner) ?? f.owner) : 'Tous' },
+    // Filtres facultatifs : cités seulement quand ils sont actifs, pour que le fichier dise exactement ce qu'il contient.
+    ...(f.team ? [{ label: 'Équipe', value: f.team }] : []),
+    ...(f.zone ? [{ label: 'Zone', value: `Département ${f.zone}` }] : []),
+    ...(f.ad ? [{ label: 'Publicité', value: f.ad }] : []),
+    ...(f.form ? [{ label: 'Formulaire', value: f.form }] : []),
     { label: 'Lecture', value: raw ? 'Données brutes' : 'Données corrigées (hors doublons, faux leads et exclus)' },
   ];
 }

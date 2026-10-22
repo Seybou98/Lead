@@ -44,6 +44,12 @@ export interface LeadListItem {
   /** Cycle NR en cours (§8.1) ; absent = aucun NR enregistré. */
   nr?: { attempt: number; cycle: number };
   /** Résumé du montage du dossier (recopié par le serveur) ; absent tant qu'aucun brouillon n'a été enregistré. */
+  /** Vente engagée depuis l'appel (« Conclure maintenant ») : le montage de l'offre a été ouvert directement. */
+  directSale?: boolean;
+  /** Équipe du lead, publicité et formulaire d'origine (filtres des rapports). */
+  teamId?: string | null;
+  adId?: string | null;
+  formId?: string | null;
   /** Alertes du cockpit clôturées ou reportées par un manager (champ `cockpitAlerts`). */
   alertStates?: AlertStates;
   montage?: { validationState: string; blocking: number; toConfirm: number; totalTtcCents: number; remainderCents: number; updatedAtMs: number | null; financingMode?: string | null; validated?: number | null; total?: number | null };

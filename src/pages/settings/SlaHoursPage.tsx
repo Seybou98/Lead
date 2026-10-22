@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Check, Info, Plus, Trash2, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { DEFAULT_SLA_SETTINGS, effectiveSla, OUTSIDE_HOURS, OUTSIDE_HOURS_LABELS, validateSlaSettings, type OutsideHours, type SlaSettings } from '../../domain/settings/settings';
+import { DEFAULT_SLA_SETTINGS, effectiveSla, parseSlaSettings, OUTSIDE_HOURS, OUTSIDE_HOURS_LABELS, validateSlaSettings, type OutsideHours, type SlaSettings } from '../../domain/settings/settings';
 import type { WorkSlotLike } from '../../domain/engine/schedule';
-import { deleteSlaOverride, errorMessage, saveSla, saveSlaOverride } from '../../lib/adminApi';
+import { deleteSlaOverride, errorMessage, saveDraft, saveSlaOverride } from '../../lib/adminApi';
+import { DraftBanner } from './DraftBanner';
 import { useCampaignFormData } from '../campaigns/useCampaignFormData';
 import { useSettings } from './useSettings';
 import { Feedback, inputCls, NumberField, SaveBar, SettingsCard, Switch } from './settingsUi';
@@ -34,7 +35,9 @@ export function SlaHoursPage() {
   const campaign = scope === 'general' ? null : (form.campaigns.find((c) => c.id === scope) ?? null);
   const override = scope === 'general' ? undefined : settings.overrides[scope];
   // Ce que la page édite : les réglages généraux, ou ceux de la campagne (généraux + sa surcharge).
-  const saved = useMemo(() => (scope === 'general' ? settings.sla : effectiveSla(settings.sla, override)), [scope, settings.sla, override]);
+  // Réglages généraux : le brouillon s'il existe (il n'affecte aucun lead tant qu'il n'est pas publié), sinon le publié.
+  const generalDraft = settings.drafts.sla;
+  const saved = useMemo(() => (scope === 'general' ? (generalDraft ? parseSlaSettings(generalDraft.doc) : settings.sla) : effectiveSla(settings.sla, override)), [scope, settings.sla, generalDraft, override]);
   const loadedKey = `${scope}:${settings.loading}:${JSON.stringify(saved)}`;
   useEffect(() => {
     if (dirty) return;
@@ -64,9 +67,9 @@ export function SlaHoursPage() {
     setNotice(null);
     try {
       if (isCampaign) await saveSlaOverride({ campaignId: scope, autoReassign: draft.autoReassign, reassignMin: draft.reassignMin, maxReassignments: draft.maxReassignments, fallbackTeamId: draft.fallbackTeamId });
-      else await saveSla(draft);
+      else await saveDraft('sla', draft);
       setDirty(false);
-      setNotice({ kind: 'ok', text: isCampaign ? `Règle de réattribution enregistrée pour « ${campaign?.name ?? 'la campagne'} ».` : 'Paramètres enregistrés. Ils s’appliquent immédiatement aux nouveaux leads et aux compteurs.' });
+      setNotice({ kind: 'ok', text: isCampaign ? `Règle de réattribution enregistrée pour « ${campaign?.name ?? 'la campagne'} ».` : 'Brouillon enregistré. Il n’affecte aucun lead : testez-le, mesurez son impact, puis publiez-le.' });
     } catch (e) {
       setNotice({ kind: 'error', text: errorMessage(e) });
     } finally {
@@ -112,6 +115,7 @@ export function SlaHoursPage() {
         {isCampaign && <p className="mt-2 text-sm text-slate-500">Pour une campagne, seule la règle de réattribution est propre. Le reste vient des réglages généraux (grisé).</p>}
       </div>
 
+      {!isCampaign && <DraftBanner module="sla" draft={generalDraft} />}
       {!settings.saved.sla && !settings.loading && !isCampaign && <p className="mt-4 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-900">Aucun réglage n&apos;a encore été enregistré : ce sont les valeurs du cahier des charges qui s&apos;appliquent. Enregistrez pour les rendre vôtres.</p>}
       {settings.error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Lecture des réglages refusée ou indisponible : vérifiez vos droits et les règles Firestore.</p>}
 
@@ -222,7 +226,7 @@ export function SlaHoursPage() {
         busy={busy}
         blocked={errors.length > 0}
         dirty={dirty}
-        saveLabel={isCampaign ? 'Enregistrer pour cette campagne' : 'Enregistrer les paramètres'}
+        saveLabel={isCampaign ? 'Enregistrer pour cette campagne' : 'Enregistrer le brouillon'}
         extra={isCampaign && override ? <button type="button" onClick={resetCampaign} disabled={busy} className="mr-auto text-sm text-slate-500 underline hover:text-slate-800">Revenir aux réglages généraux</button> : null}
       />
     </div>

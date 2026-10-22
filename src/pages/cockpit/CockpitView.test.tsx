@@ -23,7 +23,7 @@ const lead = (id: string, over: Partial<LeadListItem> = {}): LeadListItem => ({
 });
 const row = (uid: string, team: string): UserRow => ({ uid, name: `Télépro ${uid}`, email: '', role: 'telepro', accountActive: true, hasProfile: true, teamIds: [team], teamNames: [`Équipe ${team}`], products: [], zones: [], newLeads: 1, cap: 10, connected: true, operationalStatus: 'available', distribution: 'active' });
 const data: CockpitData = {
-  loading: false, error: null, nowMs: NOW, reportCampaigns: [], spends: [], kpiRules: [], syncedAtMs: NOW, offline: false, users: [],
+  loading: false, error: null, nowMs: NOW, reportCampaigns: [], spends: [], kpiRules: [], scheduler: { lastRunAtMs: null, statusReturn: null }, syncedAtMs: NOW, offline: false, users: [],
   items: [lead('a'), lead('b', { ownerId: 'u2', productCode: 'SSC', postalCode: '69003', campaignId: 'c2' })],
   rows: [row('u1', 't1'), row('u2', 't2')],
   names: { users: new Map([['u1', 'Sarah'], ['u2', 'Mehdi']]), campaigns: new Map([['c1', 'PAC IDF'], ['c2', 'SSC Est']]) },
@@ -62,5 +62,12 @@ describe('cockpit manager : filtres, pipeline, documents', () => {
     expect(h).toContain('Évaluées sur les');
     expect(h).toContain('Voir le rapport');
     expect(html()).not.toContain('aria-label="Alertes KPI"');
+  });
+  it('alerte système : planificateur arrêté depuis plus de 15 minutes, jamais de fausse alerte sans trace', () => {
+    const stale = { ...data, scheduler: { lastRunAtMs: NOW - 30 * 60_000, statusReturn: null } } as CockpitData;
+    expect(renderToString(<MemoryRouter><CockpitView data={stale} role="manager" /></MemoryRouter>)).toContain('Planificateur serveur arrêté');
+    const fresh = { ...data, scheduler: { lastRunAtMs: NOW - 60_000, statusReturn: null } } as CockpitData;
+    expect(renderToString(<MemoryRouter><CockpitView data={fresh} role="manager" /></MemoryRouter>)).not.toContain('Planificateur serveur arrêté');
+    expect(html()).not.toContain('Planificateur serveur arrêté');
   });
 });

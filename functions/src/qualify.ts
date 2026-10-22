@@ -136,6 +136,7 @@ export async function qualifyCall(db: Firestore, args: QualifyArgs): Promise<Qua
     };
     if (plan.temperature) patch.temperature = plan.temperature;
     if (plan.lastNote) patch.lastNote = { text: plan.lastNote, at, authorId: args.uid };
+    if (plan.directSale) patch.directSale = true;
     if (plan.slaStopAtMs !== null) {
       patch['sla.stoppedAt'] = d(plan.slaStopAtMs);
       patch['sla.nextAlertAt'] = null;

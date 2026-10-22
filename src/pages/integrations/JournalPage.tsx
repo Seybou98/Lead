@@ -7,7 +7,7 @@ import { CONNECTOR_LABEL, CONNECTORS, diagnosticRows, ENTRY_STATUS_LABELS, filte
 import { useNow } from '../leads/useLeadsData';
 import { inputCls } from '../settings/settingsUi';
 import { IntegrationsHeader } from './IntegrationsNav';
-import { fmtDateTime, fmtShort, useJournal } from './useJournal';
+import { fmtDateTime, fmtDuration, fmtShort, useJournal } from './useJournal';
 import { replayRawLead } from '../../lib/hubApi';
 
 const PAGE = 25;
@@ -70,9 +70,9 @@ export function JournalPage() {
 
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[760px] text-sm">
-              <thead><tr className="border-b border-slate-200 text-left text-xs text-slate-500"><th className="py-2 pr-3 font-medium">Date & heure</th><th className="py-2 pr-3 font-medium">Connecteur</th><th className="py-2 pr-3 font-medium">Opération</th><th className="py-2 pr-3 font-medium">Référence</th><th className="py-2 pr-3 font-medium">Statut</th><th className="py-2 text-right font-medium">Tentatives</th></tr></thead>
+              <thead><tr className="border-b border-slate-200 text-left text-xs text-slate-500"><th className="py-2 pr-3 font-medium">Date & heure</th><th className="py-2 pr-3 font-medium">Connecteur</th><th className="py-2 pr-3 font-medium">Opération</th><th className="py-2 pr-3 font-medium">Référence</th><th className="py-2 pr-3 font-medium">Statut</th><th className="py-2 pr-3 text-right font-medium" title="Réception → traitement, ou durée de la transmission">Durée</th><th className="py-2 text-right font-medium">Tentatives</th></tr></thead>
               <tbody>
-                {rows.length === 0 && <tr><td colSpan={6} className="py-10 text-center text-slate-500">{journal.loading ? 'Chargement…' : 'Aucune opération pour ces filtres.'}</td></tr>}
+                {rows.length === 0 && <tr><td colSpan={7} className="py-10 text-center text-slate-500">{journal.loading ? 'Chargement…' : 'Aucune opération pour ces filtres.'}</td></tr>}
                 {rows.map((e) => (
                   <tr key={e.id} onClick={() => setSelected(e)} className={cn('cursor-pointer border-b border-slate-100 hover:bg-slate-50', selected?.id === e.id && 'bg-blue-50/60')}>
                     <td className="py-2.5 pr-3 tabular-nums text-slate-700">{fmtDateTime(e.atMs)}</td>
@@ -80,6 +80,7 @@ export function JournalPage() {
                     <td className="py-2.5 pr-3 text-slate-700">{e.operation}</td>
                     <td className="max-w-[160px] truncate py-2.5 pr-3 font-mono text-xs text-slate-600" title={e.reference}>{e.reference}</td>
                     <td className="py-2.5 pr-3"><span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', STATUS_PILL[e.status])}>{ENTRY_STATUS_LABELS[e.status]}</span>{e.resolvedAtMs !== null && <span className="ml-1.5 text-[11px] text-emerald-600">reprise</span>}</td>
+                    <td className="py-2.5 pr-3 text-right tabular-nums text-slate-600">{fmtDuration(e.durationMs)}</td>
                     <td className="py-2.5 text-right tabular-nums text-slate-600">{e.attempts ?? '—'}</td>
                   </tr>
                 ))}
@@ -145,6 +146,7 @@ export function Detail({ entry, onClose, onReplayed }: { entry: JournalEntry; on
         {row('Opération', entry.operation)}
         {row('Référence', <span className="font-mono text-xs">{entry.reference}</span>)}
         {entry.attempts !== null && row('Tentatives', entry.attempts)}
+        {entry.durationMs != null && row('Durée', fmtDuration(entry.durationMs))}
         {entry.actorId && row('Acteur', entry.actorId)}
         {entry.resolvedAtMs !== null && row('Reprise le', fmtDateTime(entry.resolvedAtMs))}
       </dl>

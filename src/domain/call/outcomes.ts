@@ -84,6 +84,11 @@ export interface DocumentTypeDef {
   code: string;
   label: string;
   mandatory: boolean;
+  /**
+   * Pièce demandée seulement dans ces situations du client (aide, financement, logement : voir checklist.ts). Absent = toujours
+   * demandée.
+   */
+  when?: readonly string[];
 }
 
 /**
@@ -179,7 +184,9 @@ export type CallOutcomeInput =
       nextActionAtMs: number;
       comment: string;
     }
-  | { kind: 'request_documents'; documents: string[]; channel: DocumentChannelKey; promisedAtMs: number | null; note?: string }
+  | { kind: 'request_documents'; documents: string[]; channel: DocumentChannelKey; promisedAtMs: number | null; note?: string; /** Situations du client cochées par le télépro (checklist.ts) : elles décident des pièces conditionnelles. */ situations?: string[] }
+  /** §23.1 : le client accepte l'offre pendant l'appel ; crée une vente ENGAGÉE (pas encore une vente) et ouvre le montage, sans passer par « En attente de documents ». */
+  | { kind: 'close_now'; note?: string }
   | { kind: 'close_not_interested'; motive: RefusalMotive; comment: string; followUp: RefusalFollowUp; recycleAtMs?: number | null; opposition: boolean }
   | {
       kind: 'close_ineligible';
@@ -202,6 +209,7 @@ export const OUTCOME_LABELS: Record<CallOutcomeKind, string> = {
   bad_moment: 'Mauvais moment',
   interested: 'Intéressé',
   request_documents: 'Documents demandés',
+  close_now: 'Vente engagée',
   close_not_interested: 'Non intéressé',
   close_ineligible: 'Inéligible',
   close_fake_lead: 'Faux lead',

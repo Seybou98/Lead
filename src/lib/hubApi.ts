@@ -5,6 +5,8 @@ import { auth } from './firebase';
 import type { JournalEntry } from '../domain/integrations/hub';
 
 export type JournalResponse = { ok: true; entries: JournalEntry[]; truncated: boolean; limits: { raw: number; conversions: number } } | { ok: false; message: string };
+export type ErrorsResponse = { ok: true; entries: JournalEntry[]; truncated: boolean } | { ok: false; message: string };
+export type TestResponse = { ok: true; reachable: boolean; ms: number; message: string } | { ok: false; message: string };
 export type ReplayResponse = { ok: true; kind: 'created' | 'attached' | 'replay'; leadId: string; message: string } | { ok: false; message: string };
 
 const BASE = (import.meta.env.VITE_QUALIFY_URL as string | undefined)?.replace(/\/$/, '') ?? '';
@@ -44,6 +46,22 @@ export async function fetchJournal(): Promise<JournalResponse> {
   if ('error' in r) return { ok: false, message: r.error };
   if (r.status === 200 && r.json?.ok && Array.isArray(r.json.entries)) return { ok: true, entries: r.json.entries as JournalEntry[], truncated: r.json.truncated === true, limits: (r.json.limits as { raw: number; conversions: number }) ?? { raw: 0, conversions: 0 } };
   return { ok: false, message: failure(r, 'Le journal est indisponible.') };
+}
+
+/** Erreurs de transmission au CRM principal : toutes pour l'administrateur, celles de son équipe pour un manager. */
+export async function fetchTransmissionErrors(): Promise<ErrorsResponse> {
+  const r = await call({ action: 'errors' });
+  if ('error' in r) return { ok: false, message: r.error };
+  if (r.status === 200 && r.json?.ok && Array.isArray(r.json.entries)) return { ok: true, entries: r.json.entries as JournalEntry[], truncated: r.json.truncated === true };
+  return { ok: false, message: failure(r, 'Les erreurs sont indisponibles.') };
+}
+
+/** Test de la connexion au CRM principal (lecture d'un dossier, aucune écriture). */
+export async function testMainCrmConnection(): Promise<TestResponse> {
+  const r = await call({ action: 'test' });
+  if ('error' in r) return { ok: false, message: r.error };
+  if (r.status === 200 && r.json?.ok) return { ok: true, reachable: r.json.reachable === true, ms: Number(r.json.ms ?? 0), message: String(r.json.message ?? '') };
+  return { ok: false, message: failure(r, 'Le test est indisponible.') };
 }
 
 export async function replayRawLead(rawLeadId: string, overrides: { phone?: string; email?: string } = {}): Promise<ReplayResponse> {

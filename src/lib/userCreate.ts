@@ -78,6 +78,10 @@ export async function createUser({ input, draft, invite, team }: CreateUserOptio
         newLeadsCap: capNum,
         scope: { productCodes: input.products, zones: input.zones, campaignIds: input.campaignIds, sourceIds: [] },
         distributionSuspended: !input.autoDistribution,
+        reassignable: input.reassignable,
+        recycling: input.recycling,
+        backupTeamId: input.backupTeamId || null,
+        strongAuth: input.strongAuth,
         accessEndsAtMs: accessEndsAtMs(input.accessEndsOn),
         reason: `Création de ${fullName(input)}`,
       });

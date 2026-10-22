@@ -20,6 +20,8 @@ export interface ReportsData {
   reportCampaigns: ReportCampaign[];
   sources: { id: string; name: string }[];
   spends: ReportSpend[];
+  /** Équipes, pour le filtre d'équipe (lecture secondaire : sans elles, le filtre n'est pas proposé). */
+  teams: { id: string; name: string }[];
 }
 
 /** Données des rapports (§22) : lecture seule, rien n'est modifié. Les dépenses et campagnes ne sont lisibles que par le pilotage. */
@@ -28,6 +30,7 @@ export function useReportsData(role: Role, uid: string): ReportsData {
   const [campaigns, setCampaigns] = useState<CampaignRecord[]>([]);
   const [sources, setSources] = useState<{ id: string; name: string }[]>([]);
   const [spends, setSpends] = useState<ReportSpend[]>([]);
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
   const [pending, setPending] = useState({ campaigns: true, sources: true });
   const [error, setError] = useState<string | null>(null);
 
@@ -37,6 +40,7 @@ export function useReportsData(role: Role, uid: string): ReportsData {
     const unsubs = [
       onSnapshot(collection(db, COL.campaigns), (s) => { setCampaigns(s.docs.map((d) => toCampaign(d.id, d.data()))); done('campaigns'); }, fail),
       onSnapshot(collection(db, COL.sources), (s) => { setSources(s.docs.map((d) => ({ id: d.id, name: String(d.get('name') ?? d.id) }))); done('sources'); }, fail),
+      onSnapshot(collection(db, COL.teams), (s) => setTeams(s.docs.map((d) => ({ id: d.id, name: String(d.get('name') ?? d.id) })).sort((a, b) => a.name.localeCompare(b.name, 'fr'))), () => undefined),
       // Les dépenses sont secondaires : sans elles, les coûts s'affichent « — ».
       onSnapshot(
         collection(db, COL.adSpend),
@@ -49,7 +53,7 @@ export function useReportsData(role: Role, uid: string): ReportsData {
 
   const reportCampaigns = useMemo<ReportCampaign[]>(() => campaigns.map((c) => ({ id: c.id, name: c.name, sourceId: c.sourceId, productCode: c.productCode })), [campaigns]);
   return useMemo(
-    () => ({ loading: list.loading || pending.campaigns || pending.sources, error: error ?? list.error, leads: list.items, truncated: list.truncated, names: list.names, campaigns, reportCampaigns, sources, spends }),
-    [list, pending, error, campaigns, reportCampaigns, sources, spends]
+    () => ({ loading: list.loading || pending.campaigns || pending.sources, error: error ?? list.error, leads: list.items, truncated: list.truncated, names: list.names, campaigns, reportCampaigns, sources, spends, teams }),
+    [list, pending, error, campaigns, reportCampaigns, sources, spends, teams]
   );
 }

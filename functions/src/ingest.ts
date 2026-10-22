@@ -66,7 +66,7 @@ export async function ingestLead(db: Firestore, args: IngestArgs): Promise<Inges
   } satisfies Omit<RawLead, 'receivedAt'> & { receivedAt: Date });
 
   const reject = async (code: Extract<IngestResult, { kind: 'rejected' }>['code'], reason: string): Promise<IngestResult> => {
-    await rawRef.update({ processingState: 'rejected', rejectionCode: code, rejectionReason: reason });
+    await rawRef.update({ processingState: 'rejected', rejectionCode: code, rejectionReason: reason, processedAt: new Date() });
     return { ok: false, kind: 'rejected', code, reason, rawLeadId: rawRef.id };
   };
 
@@ -223,7 +223,7 @@ export async function ingestLead(db: Firestore, args: IngestArgs): Promise<Inges
   // 5. Issue consignée sur la donnée brute
   switch (plan.kind) {
     case 'created':
-      await rawRef.update({ processingState: 'processed', leadId: leadRef.id });
+      await rawRef.update({ processingState: 'processed', leadId: leadRef.id, processedAt: new Date() });
       return {
         ok: true,
         kind: 'created',
@@ -234,10 +234,10 @@ export async function ingestLead(db: Firestore, args: IngestArgs): Promise<Inges
         bufferReason: plan.lead.bufferReason,
       };
     case 'attached':
-      await rawRef.update({ processingState: 'processed', leadId: plan.targetLeadId });
+      await rawRef.update({ processingState: 'processed', leadId: plan.targetLeadId, processedAt: new Date() });
       return { ok: true, kind: 'attached', leadId: plan.targetLeadId, rawLeadId: rawRef.id, outcome: plan.outcome };
     case 'replay':
-      await rawRef.update({ processingState: 'processed', leadId: plan.leadId });
+      await rawRef.update({ processingState: 'processed', leadId: plan.leadId, processedAt: new Date() });
       return { ok: true, kind: 'replay', leadId: plan.leadId, rawLeadId: rawRef.id };
     case 'rejected':
       return reject(plan.code, plan.reason);

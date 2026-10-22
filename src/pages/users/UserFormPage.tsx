@@ -236,6 +236,7 @@ export function UserFormView({ data, teamInputs, loading }: { data: CampaignForm
                 <p className="mt-1 text-[11px] text-slate-400">À communiquer à l&apos;utilisateur, qui pourra le changer ensuite.</p>
               </Row>
             )}
+            <ToggleRow label="Authentification renforcée" checked={form.strongAuth} onChange={(v) => set('strongAuth', v)} hint="Enregistré sur le profil ; appliqué dès que l'authentification à deux facteurs sera branchée." />
             <Row label="Date de fin d'accès" error={show('accessEndsOn')}>
               <div className="relative">
                 <input aria-label="Date de fin d'accès" type="date" className={compact} value={form.accessEndsOn} onChange={(e) => set('accessEndsOn', e.target.value)} />
@@ -250,6 +251,14 @@ export function UserFormView({ data, teamInputs, loading }: { data: CampaignForm
                 <input aria-label="Plafond de nouveaux leads" type="number" min={0} max={100} className={`${compact} !w-24`} value={form.cap} onChange={(e) => set('cap', e.target.value)} />
               </Row>
               <ToggleRow label="Distribution automatique" checked={form.autoDistribution} onChange={(v) => set('autoDistribution', v)} hint={form.autoDistribution ? undefined : 'Aucun lead ne sera attribué tant que la distribution est suspendue'} />
+              <ToggleRow label="Réattribution possible" checked={form.reassignable} onChange={(v) => set('reassignable', v)} hint={form.reassignable ? 'Un lead non pris en charge à temps peut lui être retiré automatiquement (règle SLA).' : 'Ses leads ne sont jamais réattribués automatiquement : seul un manager peut le faire.'} />
+              <ToggleRow label="Participation au recyclage" checked={form.recycling} onChange={(v) => set('recycling', v)} hint="Enregistré sur le profil ; le moteur de recyclage ne le lit pas encore." />
+              <Row label="Équipe de secours">
+                <select aria-label="Équipe de secours" className={compact} value={form.backupTeamId} onChange={(e) => set('backupTeamId', e.target.value)}>
+                  <option value="">Aucune</option>
+                  {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+                </select>
+              </Row>
             </Card>
           )}
         </div>

@@ -4,15 +4,17 @@
 // version (équivalente à l'ancienne), elle-même tracée. Fonctions pures.
 
 import { REASON_LIST_LABELS, type ReasonList } from './reasons';
+import { SITUATION_LABELS, type Situation } from '../documents/checklist';
+import { AID_LABELS, parseProductRules } from '../products/rules';
 import { CHANNEL_LABELS, parseMessageTemplates, TRIGGER_INFO } from '../messages/templates';
 import { diffForms, normalizeForm } from '../qualification/form';
 import { ALERT_METRIC_DEFS, OBJECTIVE_METRIC_LABELS, OBJECTIVE_SCOPE_LABELS, parseReportSettings, ruleText, type AlertMetric } from '../reports/targets';
 import { formatWeeklySchedule } from '../admin/scheduleFormat';
 import { formatDelay, OUTSIDE_HOURS_LABELS, type OutsideHours } from './settings';
 
-export type VersionModule = 'sla' | 'rules' | 'conversion' | 'reasons' | 'checklist' | 'qualification' | 'reports' | 'messages';
+export type VersionModule = 'sla' | 'rules' | 'conversion' | 'reasons' | 'checklist' | 'qualification' | 'reports' | 'messages' | 'products';
 
-export const MODULE_LABELS: Record<VersionModule, string> = { sla: 'SLA et horaires', rules: 'Cycles NR, rappels et documents', conversion: 'Verrous de conversion', reasons: 'Motifs et listes', checklist: 'Checklists documentaires', qualification: 'Formulaires de qualification', reports: 'Objectifs et alertes KPI', messages: 'Modèles de message' };
+export const MODULE_LABELS: Record<VersionModule, string> = { sla: 'SLA et horaires', rules: 'Cycles NR, rappels et documents', conversion: 'Verrous de conversion', reasons: 'Motifs et listes', checklist: 'Checklists documentaires', qualification: 'Formulaires de qualification', reports: 'Objectifs et alertes KPI', messages: 'Modèles de message', products: 'Produits et offres' };
 
 /** Une ligne du journal d'audit (cl_audit), telle que lue. */
 export interface AuditRow {
@@ -57,6 +59,7 @@ export function moduleOf(row: Pick<AuditRow, 'entityType' | 'entityId' | 'action
   if (row.entityType === 'settings' && row.entityId === 'reasons') return 'reasons';
   if (row.entityType === 'settings' && row.entityId === 'reports') return 'reports';
   if (row.entityType === 'settings' && row.entityId === 'messages') return 'messages';
+  if (row.entityType === 'settings' && row.entityId === 'products') return 'products';
   // Seules les publications sont des versions : un brouillon n'affecte aucun lead.
   if (row.entityType === 'settings' && row.entityId.startsWith('qualification_') && row.action === 'qualification.publish') return 'qualification';
   if (row.entityType === 'checklist') return 'checklist';
@@ -147,6 +150,23 @@ export function describeChanges(module: VersionModule, beforeRaw: unknown, after
     }
     for (const o of b.objectives) if (!aObj.has(o.id)) out.push(`Objectif retiré : ${objText(o)}`);
     if (first && out.length === 0) out.push('Objectifs et alertes enregistrés');
+  } else if (module === 'products') {
+    const b = parseProductRules(before.products === undefined ? undefined : before);
+    const a = parseProductRules(after);
+    const bm = new Map(b.map((p) => [p.code, p]));
+    const am = new Map(a.map((p) => [p.code, p]));
+    const zones = (z: string[]) => (z.length ? z.join(', ') : 'toute la France');
+    for (const p of a) {
+      const o = bm.get(p.code);
+      if (!o) { out.push(`Produit configuré : ${p.code}`); continue; }
+      if (o.active !== p.active) out.push(`${p.code} : ${p.active ? 'réactivé' : 'suspendu'}`);
+      if (!same(o.zones, p.zones)) out.push(`${p.code} : périmètre ${zones(o.zones)} → ${zones(p.zones)}`);
+      if (!same(o.aids, p.aids)) out.push(`${p.code} : aides ${o.aids.map((x) => AID_LABELS[x]).join(', ') || 'aucune'} → ${p.aids.map((x) => AID_LABELS[x]).join(', ') || 'aucune'}`);
+      if (!same(o.criteria, p.criteria)) out.push(`${p.code} : critères d’éligibilité modifiés`);
+      if (o.note !== p.note) out.push(`${p.code} : note modifiée`);
+    }
+    for (const p of b) if (!am.has(p.code)) out.push(`Produit retiré de la configuration : ${p.code}`);
+    if (first && out.length === 0) out.push('Configuration des produits enregistrée');
   } else if (module === 'messages') {
     const b = parseMessageTemplates(before.templates === undefined ? undefined : before);
     const a = parseMessageTemplates(after);
@@ -182,6 +202,7 @@ export function describeChanges(module: VersionModule, beforeRaw: unknown, after
       else {
         if (old.label !== it.label) out.push(`Pièce renommée : ${String(old.label)} → ${String(it.label)}`);
         if (old.mandatory !== it.mandatory) out.push(`${String(it.label)} : ${it.mandatory === true ? 'devient obligatoire' : 'devient facultative'}`);
+        if (!same(arr(old.when), arr(it.when))) out.push(`${String(it.label)} : ${arr(it.when).length > 0 ? `demandée seulement si ${arr(it.when).map((w) => SITUATION_LABELS[w as Situation] ?? String(w)).join(' ou ')}` : 'demandée dans tous les cas'}`);
       }
     }
     for (const it of b) if (!afterCodes.has(it.code)) out.push(`Pièce retirée : ${String(it.label)}`);
@@ -196,7 +217,7 @@ function payloadOf(module: VersionModule, after: unknown): Record<string, unknow
   if (after === null || after === undefined) return null;
   const a = rec(after);
   if (module === 'qualification') return { productCode: typeof a.productCode === 'string' ? a.productCode : null, form: a.published ?? null };
-  if (module === 'checklist') return { productCode: typeof a.productCode === 'string' ? a.productCode : null, items: arr(a.items).map((i) => ({ code: rec(i).code, label: rec(i).label, mandatory: rec(i).mandatory === true })) };
+  if (module === 'checklist') return { productCode: typeof a.productCode === 'string' ? a.productCode : null, items: arr(a.items).map((i) => ({ code: rec(i).code, label: rec(i).label, mandatory: rec(i).mandatory === true, ...(arr(rec(i).when).length > 0 ? { when: arr(rec(i).when) } : {}) })) };
   const { updatedAt: _u, updatedBy: _b, createdAt: _c, ...rest } = a;
   void _u; void _b; void _c;
   return rest;

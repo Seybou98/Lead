@@ -12,6 +12,7 @@
 import { BUILTIN_REASONS } from '../settings/reasons';
 import type { LeadListItem } from '../leads/leadList';
 import { ratePct } from '../sales/outcome';
+import { zoneOf } from './zone';
 import { MIN_ALERT_VOLUME, scopeLeads, type ReportCampaign, type ReportFilters } from './direction';
 import { ABANDON_STATUSES } from './documents';
 
@@ -135,12 +136,7 @@ function tally(leads: readonly LeadListItem[]): QualityTally {
   return { received: leads.length, valid, excluded: leads.length - valid, flags, lowQuality: low, lowQualityRate: ratePct(low, leads.length) };
 }
 
-/** Département (2 chiffres, 3 en outre-mer) ; « Inconnue » si le code postal est absent ou illisible. */
-export function zoneOf(postalCode: string): string {
-  const cp = (postalCode ?? '').replace(/\s/g, '');
-  if (!/^\d{5}$/.test(cp)) return 'Inconnue';
-  return cp.startsWith('97') || cp.startsWith('98') ? cp.slice(0, 3) : cp.slice(0, 2);
-}
+export { zoneOf };
 
 export function dimKey(l: LeadListItem, dim: QualityDim, campaigns: readonly ReportCampaign[]): string {
   switch (dim) {

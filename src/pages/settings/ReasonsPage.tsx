@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Archive, ArchiveRestore, ArrowDown, ArrowUp, Plus } from 'lucide-react';
-import { COMMENT_ALWAYS_REQUIRED, FIXED_LISTS, MAX_ITEMS, newReasonCode, REASON_LISTS, REASON_LIST_LABELS, validateReasonSettings, type ReasonList, type ReasonSettings } from '../../domain/settings/reasons';
-import { errorMessage, saveReasons } from '../../lib/adminApi';
+import { COMMENT_ALWAYS_REQUIRED, FIXED_LISTS, MAX_ITEMS, newReasonCode, parseReasonSettings, REASON_LISTS, REASON_LIST_LABELS, validateReasonSettings, type ReasonList, type ReasonSettings } from '../../domain/settings/reasons';
+import { errorMessage, saveDraft } from '../../lib/adminApi';
+import { DraftBanner } from './DraftBanner';
 import { useSettings } from './useSettings';
 import { Feedback, inputCls, SaveBar, SettingsCard } from './settingsUi';
 
@@ -15,16 +16,17 @@ const clone = (s: ReasonSettings): ReasonSettings => JSON.parse(JSON.stringify(s
  */
 export function ReasonsPage() {
   const settings = useSettings();
-  const [draft, setDraft] = useState<ReasonSettings>(settings.reasons);
+  const base = settings.drafts.reasons ? parseReasonSettings(settings.drafts.reasons.doc) : settings.reasons;
+  const [draft, setDraft] = useState<ReasonSettings>(base);
   const [dirty, setDirty] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [adding, setAdding] = useState<Record<string, string>>({});
 
-  const loadedKey = `${settings.loading}:${JSON.stringify(settings.reasons)}`;
+  const loadedKey = `${settings.loading}:${JSON.stringify(base)}`;
   useEffect(() => {
     if (dirty) return;
-    setDraft(clone(settings.reasons));
+    setDraft(clone(base));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedKey]);
 
@@ -42,9 +44,9 @@ export function ReasonsPage() {
     setBusy(true);
     setNotice(null);
     try {
-      await saveReasons({ lists: Object.fromEntries(REASON_LISTS.map((l) => [l, draft[l].map(({ code, label, active, requireComment }) => ({ code, label, active, requireComment }))])) });
+      await saveDraft('reasons', { lists: Object.fromEntries(REASON_LISTS.map((l) => [l, draft[l].map(({ code, label, active, requireComment }) => ({ code, label, active, requireComment }))])) });
       setDirty(false);
-      setNotice({ kind: 'ok', text: 'Listes enregistrées. Elles s’appliquent aux prochaines qualifications ; les qualifications passées gardent leur motif tel qu’il était écrit.' });
+      setNotice({ kind: 'ok', text: 'Brouillon enregistré. Il n’affecte aucun lead : testez-le, mesurez son impact, puis publiez-le.' });
     } catch (e) {
       setNotice({ kind: 'error', text: errorMessage(e) });
     } finally {
@@ -72,6 +74,7 @@ export function ReasonsPage() {
       <h1 className="mt-1 text-2xl font-bold text-slate-900">Motifs et listes</h1>
       <p className="mt-1 text-slate-500">Les valeurs proposées aux conseillers à la fin d&apos;un appel et au contrôle des pièces. Une valeur utilisée ne se supprime pas : archivez-la, elle reste lisible dans les historiques et les rapports.</p>
 
+      <DraftBanner module="reasons" draft={settings.drafts.reasons} />
       {!settings.saved.reasons && !settings.loading && <p className="mt-4 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-900">Aucune liste n&apos;a encore été enregistrée : ce sont les valeurs du cahier des charges qui s&apos;appliquent.</p>}
       {settings.error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Lecture des réglages refusée ou indisponible : vérifiez vos droits et les règles Firestore.</p>}
 
@@ -115,7 +118,7 @@ export function ReasonsPage() {
       </div>
 
       <Feedback errors={dirty ? errors : []} notice={notice} />
-      <SaveBar onCancel={() => { setDraft(clone(settings.reasons)); setDirty(false); setNotice(null); }} onSave={save} busy={busy} blocked={errors.length > 0} dirty={dirty} />
+      <SaveBar onCancel={() => { setDraft(clone(base)); setDirty(false); setNotice(null); }} onSave={save} busy={busy} blocked={errors.length > 0} dirty={dirty} saveLabel="Enregistrer le brouillon" />
     </div>
   );
 }

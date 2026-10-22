@@ -6,6 +6,7 @@ import { useAuth } from '../../auth/AuthProvider';
 import type { Role } from '../../domain/enums';
 import { buildCockpit, PERIOD_LABELS, sinceLabel, type Cockpit, type LeadIssue, type Period } from '../../domain/cockpit/cockpit';
 import { activeFilterCount, applyLeadFilters, applyRowFilters, COCKPIT_FILTER_KEYS, COCKPIT_FILTER_LABELS, filterOptions, filtersFromParams, paramsWithFilters, type CockpitFilterKey } from '../../domain/cockpit/filters';
+import { watchItems } from '../../domain/integrations/hub';
 import { cockpitKpiAlerts } from '../../domain/cockpit/kpiAlerts';
 import { getSlaMs, slaElapsedMs } from '../../domain/leads/leadList';
 import { buildDocViews, buildPipeline, DOC_VIEW_DEFINITIONS, DOC_VIEW_LABELS, DOC_VIEWS, type DocView, type PipelineKey } from '../../domain/cockpit/pipeline';
@@ -88,6 +89,8 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
   const pipeline = useMemo(() => buildPipeline(items, flagged, data.nowMs), [items, flagged, data.nowMs]);
   const docViews = useMemo(() => buildDocViews(items, data.nowMs), [items, data.nowMs]);
   const byId = useMemo(() => new Map(items.map((l) => [l.id, l])), [items]);
+  // Alertes système du hub d'intégrations (§24.10) : planificateur arrêté, retour des statuts en erreur répétée.
+  const systemAlerts = useMemo(() => watchItems([], data.nowMs, data.scheduler?.lastRunAtMs ?? null, data.scheduler?.statusReturn ?? null).filter((w) => w.level === 'critical' || w.id === 'status_return'), [data.nowMs, data.scheduler]);
   const kpi = useMemo(
     () => cockpitKpiAlerts({ rules: data.kpiRules, leads: items, spends: data.spends, campaigns: data.reportCampaigns, filters, period, nowMs: data.nowMs, slaMs: getSlaMs(), elapsed: slaElapsedMs }),
     [data.kpiRules, items, data.spends, data.reportCampaigns, filters, period, data.nowMs]
@@ -162,6 +165,7 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
           <WifiOff className="h-4 w-4" /> Connexion perdue : les chiffres affichés datent de {data.syncedAtMs ? hm(data.syncedAtMs) : 'la dernière synchronisation'}.
         </p>
       )}
+      {systemAlerts.map((a) => <p key={a.id} role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"><AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" /><span><strong>{a.title}</strong> {a.detail}</span></p>)}
       {data.error && <p role="alert" className="mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="h-4 w-4" /> {data.error}</p>}
       {problem && (
         <p role="alert" className="mt-4 flex items-center justify-between gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -258,6 +262,7 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
               })}
             </ul>
           )}
+          {items.some((l) => l.status === 'transmission_error') && <Link to="/integrations" className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-blue-700 hover:underline">Erreurs de transmission au CRM principal <ArrowRight className="h-4 w-4" /></Link>}
           {cockpit.decisions.length > 6 && <p className="mt-2 text-xs text-slate-500">+ {cockpit.decisions.length - 6} autre(s) : ouvrez les cartes ci-dessus pour les voir toutes.</p>}
         </Card>
       </div>

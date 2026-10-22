@@ -243,6 +243,21 @@ describe('qualifyCall — autres résultats', () => {
     expect(p.documents).toBe(1);
   });
 
+  it('conclure maintenant : vente engagée, lead en montage, SLA arrêté, aucun statut de vente, aucun document demandé', async () => {
+    const db = seed();
+    const r = await run(db, args({ input: { kind: 'close_now', note: 'Accepte le devis PAC' } }));
+    expect(r).toMatchObject({ ok: true, status: 'file_building' });
+    expect(lead(db)).toMatchObject({ status: 'file_building', directSale: true });
+    expect(lead(db).sla.stoppedAt).not.toBeNull();
+    expect(lead(db).nextAction).toMatchObject({ type: 'build_file', priority: 'P1' });
+    expect(lead(db).lastNote).toMatchObject({ text: 'Accepte le devis PAC' });
+    // Une vente engagée n'est pas une vente : ni statut commercial (les rapports compteraient une vente), ni documents.
+    expect(lead(db)).not.toHaveProperty('commercialState');
+    expect(lead(db).documents).toBeUndefined();
+    expect(db.data.get('cl_leads/L1/events/req-12345678_call_result')).toMatchObject({ meta: { outcome: 'close_now', directSale: true } });
+    expect((db.data.get('cl_profiles/u1') as { load: Doc }).load.newLeads).toBe(2);
+  });
+
   it('intéressé : température et compteur « intéressés »', async () => {
     const db = seed();
     await run(db, args({ input: { kind: 'interested', temperature: 'hot', reason: 'planning', nextAction: 'call', nextActionAtMs: NOW + 86_400_000, comment: 'Très motivé' } }));

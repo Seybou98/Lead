@@ -69,6 +69,8 @@ export interface JournalEntry {
   kind: 'raw' | 'conversion' | 'audit';
   /** Identifiant du document d'origine (donnée brute ou lead). */
   sourceId: string;
+  /** Durée de l'opération (réception → traitement, ou transmission) ; absente quand elle n'est pas connue. */
+  durationMs?: number | null;
 }
 
 // ── Masquage ─────────────────────────────────────────────────────────────────
@@ -127,6 +129,8 @@ export interface RawLeadTrace {
   rejectionReason?: string | null;
   actorId?: string | null;
   replayedAtMs?: number | null;
+  /** Fin du traitement (accepté ou refusé) : sert à mesurer la durée de l'opération. */
+  processedAtMs?: number | null;
 }
 
 /** Une donnée brute encore « reçue » au-delà de ce délai n'a pas été traitée : à reprendre. */
@@ -161,6 +165,7 @@ export function entryFromRaw(r: RawLeadTrace, nowMs: number, sourceName?: string
     resolvedAtMs: resolved,
     kind: 'raw',
     sourceId: r.id,
+    durationMs: r.processedAtMs != null && r.processedAtMs >= r.receivedAtMs ? r.processedAtMs - r.receivedAtMs : null,
   };
 }
 
@@ -198,6 +203,8 @@ export function entryFromConversion(c: ConversionTrace): JournalEntry {
     resolvedAtMs: null,
     kind: 'conversion',
     sourceId: c.leadId,
+    // Une transmission en cours n'a pas de durée : elle n'est pas terminée.
+    durationMs: status !== 'pending' && c.createdAtMs !== null && c.updatedAtMs !== null && c.updatedAtMs >= c.createdAtMs ? c.updatedAtMs - c.createdAtMs : null,
   };
 }
 
@@ -263,6 +270,8 @@ export interface ConnectorCard {
   lastAtMs: number | null;
   lastSuccessAtMs: number | null;
   lastFailureAtMs: number | null;
+  /** Durée moyenne des opérations dont la durée est connue ; null sinon. */
+  avgDurationMs?: number | null;
   /** Opérations des dernières 24 h. */
   daily: number;
   errors24h: number;
@@ -288,7 +297,9 @@ export function connectorCards(entries: readonly JournalEntry[], nowMs: number, 
     const pending = mine.filter((e) => e.status === 'pending').length;
     const last = mine.reduce<number | null>((m, e) => (m === null || e.atMs > m ? e.atMs : m), null);
     const state: ConnectorState = mine.length === 0 ? 'inactive' : errors24h > 0 || pending > 0 ? 'attention' : 'operational';
-    return { def, state, lastAtMs: last, lastSuccessAtMs: lastSuccess, lastFailureAtMs: lastFailure, daily: recent.length, errors24h, pending };
+    const timed = mine.map((e) => e.durationMs).filter((d): d is number => typeof d === 'number');
+    const avgDurationMs = timed.length ? Math.round(timed.reduce((s, d) => s + d, 0) / timed.length) : null;
+    return { def, state, lastAtMs: last, lastSuccessAtMs: lastSuccess, lastFailureAtMs: lastFailure, avgDurationMs, daily: recent.length, errors24h, pending };
   });
 }
 
@@ -301,8 +312,39 @@ export interface WatchItem {
   level: 'critical' | 'warning';
 }
 
+// ── Retour des statuts du CRM principal (§24.8) ──────────────────────────────
+
+/** Trace du dernier passage de la lecture des statuts du CRM principal (écrite par le planificateur). */
+export interface StatusReturnTrace {
+  atMs: number;
+  /** Dossiers lus, étapes changées, ventes annulées côté CRM principal. */
+  read: number;
+  changed: number;
+  cancelled: number;
+  errorCount: number;
+  errors: string[];
+  durationMs: number | null;
+}
+
+export function parseStatusReturn(raw: unknown): StatusReturnTrace | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const x = raw as Record<string, unknown>;
+  const n = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  const at = typeof x.atMs === 'number' ? x.atMs : (x.at as { toMillis?: () => number } | undefined)?.toMillis?.() ?? null;
+  if (at === null) return null;
+  return { atMs: at, read: n(x.read), changed: n(x.changed), cancelled: n(x.cancelled), errorCount: n(x.errorCount), errors: Array.isArray(x.errors) ? x.errors.filter((e): e is string => typeof e === 'string').slice(0, 5) : [], durationMs: typeof x.durationMs === 'number' ? x.durationMs : null };
+}
+
+/** Le retour des statuts a-t-il échoué au dernier passage, ou ne passe-t-il plus ? Dépend du planificateur : arrêté, c'est lui qu'on signale. */
+export function statusReturnWatch(t: StatusReturnTrace | null, nowMs: number, schedulerLastRunMs: number | null): WatchItem | null {
+  if (!t) return null;
+  if (schedulerLastRunMs !== null && nowMs - schedulerLastRunMs > SCHEDULER_STALE_MS) return null;
+  if (t.errorCount === 0) return null;
+  return { id: 'status_return', connector: 'crm_main', title: 'Retour des statuts du CRM principal : erreurs', detail: `${t.errorCount} erreur${t.errorCount > 1 ? 's' : ''} au dernier passage${t.errors[0] ? ` (${t.errors[0]})` : ''}. Les étapes des dossiers peuvent être en retard.`, sinceMs: t.atMs, level: t.errorCount >= 5 ? 'critical' : 'warning' };
+}
+
 /** « À surveiller » : erreurs non résolues regroupées par connecteur et par cause, et traces en attente depuis longtemps. */
-export function watchItems(entries: readonly JournalEntry[], nowMs: number, schedulerLastRunMs: number | null): WatchItem[] {
+export function watchItems(entries: readonly JournalEntry[], nowMs: number, schedulerLastRunMs: number | null, statusReturn: StatusReturnTrace | null = null): WatchItem[] {
   const out: WatchItem[] = [];
   const open = entries.filter((e) => e.status === 'error' && e.resolvedAtMs === null);
   const groups = new Map<string, JournalEntry[]>();
@@ -325,6 +367,8 @@ export function watchItems(entries: readonly JournalEntry[], nowMs: number, sche
   if (schedulerLastRunMs !== null && nowMs - schedulerLastRunMs > SCHEDULER_STALE_MS) {
     out.push({ id: 'scheduler_stale', connector: 'scheduler', title: 'Planificateur serveur arrêté', detail: 'Aucun passage depuis plus de 15 minutes : escalades, recyclage et reprises ne tournent plus.', sinceMs: schedulerLastRunMs, level: 'critical' });
   }
+  const sr = statusReturnWatch(statusReturn, nowMs, schedulerLastRunMs);
+  if (sr) out.push(sr);
   const stalePending = entries.filter((e) => e.status === 'pending' && nowMs - e.atMs > HOUR);
   if (stalePending.length > 0) out.push({ id: 'pending_old', connector: stalePending[0].connector, title: `${stalePending.length} opération${stalePending.length > 1 ? 's' : ''} en attente depuis plus d’une heure`, detail: 'Transmission en cours ou à reprendre.', sinceMs: Math.min(...stalePending.map((e) => e.atMs)), level: 'warning' });
   return out.sort((a, b) => (a.level === b.level ? b.sinceMs - a.sinceMs : a.level === 'critical' ? -1 : 1));

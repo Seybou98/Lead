@@ -83,6 +83,10 @@ export function toListItem(id: string, d: DocumentData): LeadListItem | null {
     ...(typeof d.quality?.excludedReason === 'string' ? { excludedReason: d.quality.excludedReason } : {}),
     ...(d.closure && typeof d.closure.kind === 'string' && typeof d.closure.code === 'string' ? { closure: { kind: d.closure.kind, code: d.closure.code, label: str(d.closure.label, d.closure.code), ...(typeof d.closure.category === 'string' ? { category: d.closure.category } : {}), ...(typeof d.closure.opposition === 'boolean' ? { opposition: d.closure.opposition } : {}) } } : {}),
     nr: { attempt: Number(d.nr?.attempt ?? 0) || 0, cycle: Number(d.nr?.cycle ?? 1) || 1 },
+    ...(d.directSale === true ? { directSale: true } : {}),
+    ...(typeof d.teamId === 'string' ? { teamId: d.teamId } : {}),
+    ...(typeof d.origin?.adId === 'string' ? { adId: d.origin.adId } : {}),
+    ...(typeof d.origin?.formId === 'string' ? { formId: d.origin.formId } : {}),
     ...(d.cockpitAlerts && typeof d.cockpitAlerts === 'object' && Object.keys(parseAlertStates(d.cockpitAlerts)).length > 0 ? { alertStates: parseAlertStates(d.cockpitAlerts) } : {}),
     ...(d.montage && typeof d.montage === 'object'
       ? { montage: { validationState: str(d.montage.validationState, 'none'), blocking: num(d.montage.blocking), toConfirm: num(d.montage.toConfirm), totalTtcCents: num(d.montage.totalTtcCents), remainderCents: num(d.montage.remainderCents), updatedAtMs: ms(d.montage.updatedAt), financingMode: typeof d.montage.financingMode === 'string' ? d.montage.financingMode : null, validated: typeof d.montage.validated === 'number' ? d.montage.validated : null, total: typeof d.montage.total === 'number' ? d.montage.total : null } }

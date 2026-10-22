@@ -1,11 +1,14 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, ChevronRight, Clock, Plug, PauseCircle, Bell } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { connectorCards, CONNECTOR_STATE_LABELS, watchItems, type ConnectorCard, type ConnectorId, type ConnectorState } from '../../domain/integrations/hub';
+import { connectorCards, CONNECTOR_STATE_LABELS, watchItems, type ConnectorCard, type ConnectorId, type ConnectorState, type StatusReturnTrace } from '../../domain/integrations/hub';
+import { useAuth } from '../../auth/AuthProvider';
+import { testMainCrmConnection } from '../../lib/hubApi';
+import { ManagerErrorsView } from '../integrations/ManagerErrorsView';
 import { sinceLabel } from '../../domain/cockpit/cockpit';
 import { IntegrationsHeader } from '../integrations/IntegrationsNav';
-import { fmtShort, useJournal, useSchedulerLastRun } from '../integrations/useJournal';
+import { fmtDuration, fmtShort, useJournal, useSchedulerStatus } from '../integrations/useJournal';
 import { useNow } from '../leads/useLeadsData';
 
 const STATE_TONE: Record<ConnectorState, string> = {
@@ -24,11 +27,17 @@ const DETAIL_LINK: Partial<Record<ConnectorId, string>> = { webhook: '/integrati
  * un faux « opérationnel ».
  */
 export function IntegrationsPage() {
+  const { user } = useAuth();
+  // Un manager ne voit que les erreurs de transmission de son équipe (§24.11) ; le reste du hub est réservé à l'administrateur.
+  return user?.role === 'manager' ? <ManagerErrorsView /> : <AdminIntegrations />;
+}
+
+function AdminIntegrations() {
   const journal = useJournal();
-  const schedulerAt = useSchedulerLastRun();
+  const { lastRunAtMs: schedulerAt, statusReturn } = useSchedulerStatus();
   const now = useNow(30_000);
   const cards = useMemo(() => connectorCards(journal.entries, now, schedulerAt), [journal.entries, now, schedulerAt]);
-  const watch = useMemo(() => watchItems(journal.entries, now, schedulerAt), [journal.entries, now, schedulerAt]);
+  const watch = useMemo(() => watchItems(journal.entries, now, schedulerAt, statusReturn), [journal.entries, now, schedulerAt, statusReturn]);
   const live = cards.filter((c) => c.def.live);
   const count = (s: ConnectorState) => cards.filter((c) => c.state === s).length;
 
@@ -47,7 +56,7 @@ export function IntegrationsPage() {
             <Summary icon={<PauseCircle className="h-5 w-5 text-slate-500" />} tone="bg-slate-100" value={count('inactive') + count('not_connected')} label="sans activité" sub="Aucune trace, ou non connectés" />
           </div>
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {cards.map((c) => <Card key={c.def.id} c={c} now={now} />)}
+            {cards.map((c) => <Card key={c.def.id} c={c} now={now} statusReturn={c.def.id === 'crm_main' ? statusReturn : null} />)}
           </div>
         </div>
 
@@ -82,8 +91,14 @@ function Summary({ icon, tone, value, label, sub }: { icon: React.ReactNode; ton
   );
 }
 
-function Card({ c, now }: { c: ConnectorCard; now: number }) {
+function Card({ c, now, statusReturn }: { c: ConnectorCard; now: number; statusReturn: StatusReturnTrace | null }) {
   const link = DETAIL_LINK[c.def.id];
+  const [test, setTest] = useState<{ busy: boolean; text: string | null; ok: boolean }>({ busy: false, text: null, ok: true });
+  const runTest = async () => {
+    setTest({ busy: true, text: null, ok: true });
+    const r = await testMainCrmConnection();
+    setTest({ busy: false, ok: r.ok && r.reachable, text: r.ok ? `${r.message} (${fmtDuration(r.ms)})` : r.message });
+  };
   return (
     <div className={cn('flex flex-col rounded-xl border bg-white p-4', c.def.live ? 'border-slate-200' : 'border-dashed border-slate-300 bg-slate-50/60')}>
       <div className="flex items-start justify-between gap-2">
@@ -95,9 +110,20 @@ function Card({ c, now }: { c: ConnectorCard; now: number }) {
         <dl className="mt-3 space-y-1 text-xs">
           <div className="flex justify-between gap-2"><dt className="text-slate-500">Dernière activité</dt><dd className="text-slate-800">{c.lastAtMs ? `${fmtShort(c.lastAtMs)} · il y a ${sinceLabel(c.lastAtMs, now)}` : '—'}</dd></div>
           {c.def.id !== 'scheduler' && <div className="flex justify-between gap-2"><dt className="text-slate-500">Volume sur 24 h</dt><dd className="tabular-nums text-slate-800">{c.daily}{c.errors24h > 0 && <span className="ml-1 text-red-600">({c.errors24h} en erreur)</span>}</dd></div>}
+          {c.avgDurationMs != null && <div className="flex justify-between gap-2"><dt className="text-slate-500">Délai moyen</dt><dd className="tabular-nums text-slate-800">{fmtDuration(c.avgDurationMs)}</dd></div>}
           {c.lastFailureAtMs && <div className="flex justify-between gap-2"><dt className="text-slate-500">Dernier échec</dt><dd className="text-slate-800">{fmtShort(c.lastFailureAtMs)}</dd></div>}
         </dl>
       ) : <p className="mt-3 text-xs text-slate-400">Hors V1 : aucune trace, aucun envoi.</p>}
+      {c.def.id === 'crm_main' && (
+        <div className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs" aria-label="Retour des statuts">
+          <p className="font-medium text-slate-700">Retour des statuts</p>
+          {statusReturn ? (
+            <p className={cn('mt-0.5', statusReturn.errorCount > 0 ? 'text-red-700' : 'text-slate-600')}>Dernier passage {fmtShort(statusReturn.atMs)} · {statusReturn.read} dossier{statusReturn.read > 1 ? 's' : ''} lu{statusReturn.read > 1 ? 's' : ''}, {statusReturn.changed} étape{statusReturn.changed > 1 ? 's' : ''} changée{statusReturn.changed > 1 ? 's' : ''}{statusReturn.cancelled > 0 ? `, ${statusReturn.cancelled} annulée${statusReturn.cancelled > 1 ? 's' : ''}` : ''} · {fmtDuration(statusReturn.durationMs)}{statusReturn.errorCount > 0 ? ` · ${statusReturn.errorCount} erreur${statusReturn.errorCount > 1 ? 's' : ''}` : ''}</p>
+          ) : <p className="mt-0.5 text-slate-500">Aucun passage enregistré pour le moment.</p>}
+          <button type="button" onClick={() => void runTest()} disabled={test.busy} className="mt-2 rounded-md border border-slate-300 bg-white px-2 py-1 font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-60">{test.busy ? 'Test en cours…' : 'Tester la connexion'}</button>
+          {test.text && <p role="status" className={cn('mt-1', test.ok ? 'text-emerald-700' : 'text-red-700')}>{test.text}</p>}
+        </div>
+      )}
       {link && <Link to={link} className="mt-auto inline-flex items-center justify-between rounded-lg border border-blue-300 px-3 py-1.5 pt-1.5 text-sm font-medium text-blue-700 hover:bg-blue-50" style={{ marginTop: 12 }}>Voir les détails <ChevronRight className="h-4 w-4" /></Link>}
     </div>
   );

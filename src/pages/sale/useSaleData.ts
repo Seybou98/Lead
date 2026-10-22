@@ -18,6 +18,8 @@ export interface SaleLead {
   email: string | null;
   address: { line: string; postalCode: string; city: string };
   consent: boolean | null;
+  /** Vente engagée depuis l'appel (« Conclure maintenant »). */
+  directSale: boolean;
   productCode: string | null;
   qualification: Record<string, unknown>;
   /** Réponses enregistrées au formulaire de qualification (Paramètres → Qualification) ; vide tant que rien n'est saisi. */
@@ -110,6 +112,7 @@ export function useSaleData(leadId: string): SaleData {
               email: typeof d.email === 'string' ? d.email : null,
               address: { line: str(d.address?.line), postalCode: str(d.address?.postalCode), city: str(d.address?.city) },
               consent: typeof d.consent === 'boolean' ? d.consent : null,
+              directSale: d.directSale === true,
               productCode: typeof d.productCode === 'string' ? d.productCode : null,
               qualification: d.qualification && typeof d.qualification === 'object' ? (d.qualification as Record<string, unknown>) : {},
               qualificationAnswers: d.qualificationForm?.answers && typeof d.qualificationForm.answers === 'object' ? (d.qualificationForm.answers as Record<string, unknown>) : {},

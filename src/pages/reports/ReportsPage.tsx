@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, Download, Euro, FileCheck2, Info, Phone, ShoppingCart, Tag, Users, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../auth/AuthProvider';
@@ -7,8 +7,9 @@ import { computeCampaignStats, computeTotals, formatEuros, formatPercent, type C
 import { downloadText, toCsv } from '../../domain/csv';
 import { ratePct } from '../../domain/sales/outcome';
 import type { LeadListItem } from '../../domain/leads/leadList';
-import { buildDirectionReport, DATE_MODE_LABELS, directionRows, stagePopulation, STAGE_DEFINITIONS, type DateMode, type Kpi, type ReportFilters, type Stage } from '../../domain/reports/direction';
+import { buildDirectionReport, COMPARE_LABELS, DATE_MODE_LABELS, directionRows, GRANULARITY_LABELS, type CompareMode, type Granularity, stagePopulation, STAGE_DEFINITIONS, type DateMode, type Kpi, type ReportFilters, type Stage } from '../../domain/reports/direction';
 import { PERIOD_LABELS, PERIODS, periodRange, type PeriodKey } from '../../domain/reports/periods';
+import { zoneOf } from '../../domain/reports/zone';
 import { inputCls } from '../settings/settingsUi';
 import { useNow } from '../leads/useLeadsData';
 import { getSlaMs, slaElapsedMs } from '../../domain/leads/leadList';
@@ -47,18 +48,40 @@ export function ReportsPage() {
 export function ReportsView({ data, nowOverride, initialView = 'direction' }: { data: ReportsData; nowOverride?: number; initialView?: View }) {
   const liveNow = useNow(60_000);
   const now = nowOverride ?? liveNow;
-  const [view, setView] = useState<View>(initialView);
-  const [period, setPeriod] = useState<PeriodKey>('month');
-  const [mode, setMode] = useState<DateMode>('event');
-  const [sourceId, setSourceId] = useState('');
-  const [product, setProduct] = useState('');
-  const [owner, setOwner] = useState('');
-  const [raw, setRaw] = useState(false);
+  // Vue, période et filtres vivent dans l'adresse : un rapport se partage par lien et se retrouve au retour d'une fiche (§22.3).
+  const [params, setParams] = useSearchParams();
+  const put = (k: string, v: string, def = '') => setParams((cur) => { const n = new URLSearchParams(cur); if (v === def || v === '') n.delete(k); else n.set(k, v); return n; }, { replace: true });
+  const get = (k: string) => params.get(k) ?? '';
+  const viewParam = get('vue');
+  const view: View = (Object.keys(VIEW_TEXT) as View[]).includes(viewParam as View) ? (viewParam as View) : initialView;
+  const setView = (v: View) => put('vue', v, initialView);
+  const period: PeriodKey = (PERIODS as readonly string[]).includes(get('periode')) ? (get('periode') as PeriodKey) : 'month';
+  const setPeriod = (v: PeriodKey) => put('periode', v, 'month');
+  const mode: DateMode = get('date') === 'cohort' ? 'cohort' : 'event';
+  const setMode = (v: DateMode) => put('date', v, 'event');
+  const sourceId = get('source');
+  const setSourceId = (v: string) => put('source', v);
+  const product = get('produit');
+  const setProduct = (v: string) => put('produit', v);
+  const owner = get('telepro');
+  const setOwner = (v: string) => put('telepro', v);
+  const campaignId = get('campagne');
+  const team = get('equipe');
+  const zone = get('zone');
+  const ad = get('pub');
+  const form = get('formulaire');
+  const compare: CompareMode = get('comparer') === 'year' ? 'year' : 'previous';
+  const granularity: Granularity = get('pas') === 'day' ? 'day' : get('pas') === 'month' ? 'month' : 'week';
+  const raw = get('brut') === '1';
+  const setRaw = (v: boolean) => put('brut', v ? '1' : '');
   const range = useMemo(() => periodRange(period, now), [period, now]);
-  const filters: ReportFilters = useMemo(() => ({ ...range, mode, sourceId, campaignId: '', product, owner }), [range, mode, sourceId, product, owner]);
+  const filters: ReportFilters = useMemo(() => ({ ...range, mode, sourceId, campaignId, product, owner, team, zone, ad, form }), [range, mode, sourceId, campaignId, product, owner, team, zone, ad, form]);
   const products = useMemo(() => [...new Set(data.leads.map((l) => l.productCode).filter((p): p is string => !!p))].sort((a, b) => a.localeCompare(b, 'fr')), [data.leads]);
   const owners = useMemo(() => [...new Map(data.leads.filter((l) => l.ownerId).map((l) => [l.ownerId as string, data.names.users.get(l.ownerId as string) ?? (l.ownerId as string)])).entries()].sort((a, b) => a[1].localeCompare(b[1], 'fr')), [data.leads, data.names]);
-  const active = [sourceId && 'source', product && 'produit', owner && 'télépro'].filter(Boolean).length;
+  const zones = useMemo(() => [...new Set(data.leads.map((l) => zoneOf(l.postalCode)).filter((z) => z !== 'Inconnue'))].sort(), [data.leads]);
+  const ads = useMemo(() => [...new Set(data.leads.map((l) => l.adId).filter((x): x is string => !!x))].sort(), [data.leads]);
+  const forms = useMemo(() => [...new Set(data.leads.map((l) => l.formId).filter((x): x is string => !!x))].sort(), [data.leads]);
+  const active = [sourceId, campaignId, team, zone, ad, form, product, owner].filter(Boolean).length;
 
   return (
     <div className="w-full">
@@ -77,6 +100,11 @@ export function ReportsView({ data, nowOverride, initialView = 'direction' }: { 
       <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
         <select aria-label="Période" value={period} onChange={(e) => setPeriod(e.target.value as PeriodKey)} className={inputCls}>{PERIODS.map((p) => <option key={p} value={p}>{PERIOD_LABELS[p]}</option>)}</select>
         <select aria-label="Source" value={sourceId} onChange={(e) => setSourceId(e.target.value)} className={inputCls}><option value="">Toutes les sources</option>{data.sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
+        <select aria-label="Campagne" value={campaignId} onChange={(e) => put('campagne', e.target.value)} className={inputCls}><option value="">Toutes les campagnes</option>{data.reportCampaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        {(data.teams?.length ?? 0) > 0 && <select aria-label="Équipe" value={team} onChange={(e) => put('equipe', e.target.value)} className={inputCls}><option value="">Toutes les équipes</option>{data.teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>}
+        <select aria-label="Zone" value={zone} onChange={(e) => put('zone', e.target.value)} className={inputCls}><option value="">Toutes les zones</option>{zones.map((z) => <option key={z} value={z}>Département {z}</option>)}</select>
+        {ads.length > 0 && <select aria-label="Publicité" value={ad} onChange={(e) => put('pub', e.target.value)} className={inputCls}><option value="">Toutes les publicités</option>{ads.map((a) => <option key={a} value={a}>{a}</option>)}</select>}
+        {forms.length > 0 && <select aria-label="Formulaire" value={form} onChange={(e) => put('formulaire', e.target.value)} className={inputCls}><option value="">Tous les formulaires</option>{forms.map((x) => <option key={x} value={x}>{x}</option>)}</select>}
         <select aria-label="Produit" value={product} onChange={(e) => setProduct(e.target.value)} className={inputCls}><option value="">Tous les produits</option>{products.map((p) => <option key={p}>{p}</option>)}</select>
         <select aria-label="Télépro" value={owner} onChange={(e) => setOwner(e.target.value)} className={inputCls}><option value="">Tous les télépros</option>{owners.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</select>
         {view === 'direction' || view === 'telepros' || view === 'documents' || view === 'profitability' || view === 'exports' ? (
@@ -92,13 +120,13 @@ export function ReportsView({ data, nowOverride, initialView = 'direction' }: { 
             ))}
           </div>
         ) : null}
-        {active > 0 && <button type="button" onClick={() => { setSourceId(''); setProduct(''); setOwner(''); }} className="text-xs font-medium text-blue-700 hover:underline">Réinitialiser les filtres ({active})</button>}
+        {active > 0 && <button type="button" onClick={() => setParams((cur) => { const n = new URLSearchParams(cur); for (const k of ['source', 'campagne', 'equipe', 'zone', 'pub', 'formulaire', 'produit', 'telepro']) n.delete(k); return n; }, { replace: true })} className="text-xs font-medium text-blue-700 hover:underline">Réinitialiser les filtres ({active})</button>}
       </div>
 
       {data.error && <p role="alert" className="mt-4 flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="h-4 w-4" /> {data.error}</p>}
       {data.truncated && <p role="status" className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">Seuls les leads les plus récents sont chargés : les chiffres peuvent être incomplets.</p>}
 
-      {view === 'direction' && <DirectionView data={data} filters={filters} now={now} />}
+      {view === 'direction' && <DirectionView data={data} filters={filters} now={now} compare={compare} granularity={granularity} onCompare={(v) => put('comparer', v, 'previous')} onGranularity={(v) => put('pas', v, 'week')} />}
       {view === 'campaigns' && <CampaignsView data={data} filters={filters} raw={raw} now={now} />}
       {view === 'telepros' && <TeleprosView data={data} filters={filters} now={now} />}
       {view === 'documents' && <DocumentsView data={data} filters={filters} now={now} />}
@@ -112,12 +140,12 @@ export function ReportsView({ data, nowOverride, initialView = 'direction' }: { 
 // ── Direction (fig. 30) ──────────────────────────────────────────────────────
 
 function Delta({ k, invert = false }: { k: Kpi; invert?: boolean }) {
-  if (k.delta === null) return <span className="text-xs text-slate-400" title="Période précédente vide ou non calculable">—</span>;
+  if (k.delta === null) return <span className="text-xs text-slate-400" title="Période comparée vide ou non calculable">—</span>;
   const up = k.delta > 0;
   const good = k.delta === 0 ? null : invert ? !up : up;
   const Icon = up ? ArrowUp : ArrowDown;
   return (
-    <span className={cn('inline-flex items-center gap-0.5 text-xs font-medium', good === null ? 'text-slate-500' : good ? 'text-emerald-600' : 'text-red-600')} title={`Période précédente : ${k.previous === null ? '—' : fmtInt(k.previous)}`}>
+    <span className={cn('inline-flex items-center gap-0.5 text-xs font-medium', good === null ? 'text-slate-500' : good ? 'text-emerald-600' : 'text-red-600')} title={`Période comparée : ${k.previous === null ? '—' : fmtInt(k.previous)}`}>
       {k.delta !== 0 && <Icon className="h-3 w-3" />}
       {Math.abs(k.delta).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} {k.deltaUnit === 'pts' ? 'pts' : '%'}
     </span>
@@ -137,11 +165,11 @@ function KpiCard({ icon, tone, label, value, kpi, invert, hint }: { icon: React.
   );
 }
 
-function DirectionView({ data, filters, now }: { data: ReportsData; filters: ReportFilters; now: number }) {
+function DirectionView({ data, filters, now, compare, granularity, onCompare, onGranularity }: { data: ReportsData; filters: ReportFilters; now: number; compare: CompareMode; granularity: Granularity; onCompare: (v: CompareMode) => void; onGranularity: (v: Granularity) => void }) {
   const [open, setOpen] = useState<Stage | null>(null);
   const [blockedOpen, setBlockedOpen] = useState<{ days: number } | null>(null);
   const { reports } = useSettings();
-  const report = useMemo(() => buildDirectionReport({ leads: data.leads, spends: data.spends, campaigns: data.reportCampaigns, filters, nowMs: now }), [data.leads, data.spends, data.reportCampaigns, filters, now]);
+  const report = useMemo(() => buildDirectionReport({ leads: data.leads, spends: data.spends, campaigns: data.reportCampaigns, filters, nowMs: now, compare, granularity }), [data.leads, data.spends, data.reportCampaigns, filters, now, compare, granularity]);
   const k = report.kpis;
   // Alertes réglables (Paramètres → Objectifs et alertes) : seuil ET volume minimum, évaluées sur le périmètre affiché.
   const alerts = useMemo(
@@ -171,8 +199,11 @@ function DirectionView({ data, filters, now }: { data: ReportsData; filters: Rep
         <KpiCard icon={<ShoppingCart className="h-5 w-5 text-rose-600" />} tone="bg-rose-50" label="Ventes" value={fmtInt(k.sales.value)} kpi={k.sales} hint={STAGE_DEFINITIONS.sales} />
       </div>
       <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
-        <span className="inline-flex items-center gap-1"><Info className="h-3.5 w-3.5" /> {DATE_MODE_LABELS[filters.mode]} · période comparée : {new Date(report.previousRange.fromMs).toLocaleDateString('fr-FR')} au {new Date(report.previousRange.toMs - 1).toLocaleDateString('fr-FR')}</span>
+        <span className="inline-flex items-center gap-1"><Info className="h-3.5 w-3.5" /> {DATE_MODE_LABELS[filters.mode]} · {COMPARE_LABELS[compare].toLowerCase()} : {new Date(report.previousRange.fromMs).toLocaleDateString('fr-FR')} au {new Date(report.previousRange.toMs - 1).toLocaleDateString('fr-FR')}</span>
         <span>Coût par vente : <strong className="text-slate-700">{formatEuros(k.costPerSaleCents.value)}</strong> <Delta k={k.costPerSaleCents} invert /></span>
+        <label className="inline-flex items-center gap-1.5">Comparer à
+          <select aria-label="Comparer à" value={compare} onChange={(e) => onCompare(e.target.value as CompareMode)} className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs">{(Object.keys(COMPARE_LABELS) as CompareMode[]).map((c) => <option key={c} value={c}>{COMPARE_LABELS[c]}</option>)}</select>
+        </label>
         <span>Après la vente : {report.current.installed} installée{report.current.installed > 1 ? 's' : ''}, {report.current.invoiced} facturée{report.current.invoiced > 1 ? 's' : ''}, {report.current.cancelled} annulée{report.current.cancelled > 1 ? 's' : ''}</span>
         <button type="button" onClick={exportCsv} className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 font-medium text-slate-700 hover:bg-slate-50"><Download className="h-3.5 w-3.5" /> Exporter</button>
       </p>
@@ -220,7 +251,10 @@ function DirectionView({ data, filters, now }: { data: ReportsData; filters: Rep
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
         <section className="rounded-xl border border-slate-200 bg-white p-5">
-          <h2 className="text-sm font-semibold text-slate-900">Dépenses et ventes par semaine</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold text-slate-900">Dépenses et ventes par {GRANULARITY_LABELS[granularity].toLowerCase()}</h2>
+            <select aria-label="Pas de la série" value={granularity} onChange={(e) => onGranularity(e.target.value as Granularity)} className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs">{(Object.keys(GRANULARITY_LABELS) as Granularity[]).map((g) => <option key={g} value={g}>{GRANULARITY_LABELS[g]}</option>)}</select>
+          </div>
           <div className="mt-3 flex gap-4 text-xs text-slate-500"><span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-blue-300" /> Dépenses (€)</span><span className="inline-flex items-center gap-1.5"><span className="h-0.5 w-4 bg-emerald-500" /> Ventes (n)</span></div>
           <WeeklyChart weeks={report.weeks} maxSpend={maxSpend} maxSales={maxSales} nowMs={now} />
         </section>
@@ -278,7 +312,7 @@ function WeeklyChart({ weeks, maxSpend, maxSales, nowMs }: { weeks: { startMs: n
   const seen = weeks.map((w, i) => ({ w, i })).filter(({ w }) => w.startMs <= nowMs);
   const line = seen.map(({ w, i }, k) => `${k === 0 ? 'M' : 'L'}${pad.l + step * i + step / 2},${y(w.sales, maxSales)}`).join(' ');
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Dépenses et ventes par semaine" className="mt-2 h-52 w-full">
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Dépenses et ventes de la période" className="mt-2 h-52 w-full">
       {[0, 0.5, 1].map((t) => (
         <g key={t}>
           <line x1={pad.l} x2={W - pad.r} y1={pad.t + ih * (1 - t)} y2={pad.t + ih * (1 - t)} className="stroke-slate-100" />
@@ -290,7 +324,7 @@ function WeeklyChart({ weeks, maxSpend, maxSales, nowMs }: { weeks: { startMs: n
         const h = (w.spendCents / maxSpend) * ih;
         return (
           <g key={w.label + i}>
-            <rect x={pad.l + step * i + step * 0.2} y={pad.t + ih - h} width={step * 0.6} height={h} rx={2} className="fill-blue-300"><title>{`Semaine du ${w.label} : ${(w.spendCents / 100).toLocaleString('fr-FR')} € · ${w.sales} vente${w.sales > 1 ? 's' : ''}`}</title></rect>
+            <rect x={pad.l + step * i + step * 0.2} y={pad.t + ih - h} width={step * 0.6} height={h} rx={2} className="fill-blue-300"><title>{`${w.label} : ${(w.spendCents / 100).toLocaleString('fr-FR')} € · ${w.sales} vente${w.sales > 1 ? 's' : ''}`}</title></rect>
             <text x={pad.l + step * i + step / 2} y={H - 8} textAnchor="middle" className="fill-slate-400 text-[9px]">{w.label}</text>
           </g>
         );

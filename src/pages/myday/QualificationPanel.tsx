@@ -1,4 +1,6 @@
 import { useChecklistFor } from '../documents/useChecklists';
+import { applicableItems, defaultSituations, SITUATION_LABELS, SITUATIONS } from '../../domain/documents/checklist';
+import { ruleFor } from '../../domain/products/rules';
 import { useSettings } from '../settings/useSettings';
 import { INELIGIBLE_LIST } from '../../domain/settings/reasons';
 import { callRulesFrom } from '../../domain/settings/runtime';
@@ -239,8 +241,14 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
   const checklist = useChecklistFor(lead.productCode);
   const rules = useMemo(() => ({ ...baseRules, documentTypes: checklist.items }), [baseRules, checklist.items]);
   const [docs, setDocs] = useState<string[]>(DEFAULT_DOCUMENT_TYPES.filter((d) => d.mandatory).map((d) => d.code));
-  // Quand la checklist change (chargement, autre produit), on repart des pièces obligatoires.
-  useEffect(() => setDocs(checklist.items.filter((d) => d.mandatory).map((d) => d.code)), [checklist.items]);
+  // Situation du client (aide, financement, logement) : proposée d'après les aides du produit, elle décide des pièces conditionnelles.
+  const productRule = ruleFor(settings.products, lead.productCode);
+  const [situations, setSituations] = useState<string[]>(() => defaultSituations(productRule?.aids ?? []));
+  const applicable = useMemo(() => applicableItems(checklist.items, situations), [checklist.items, situations]);
+  // Quand la checklist ou les situations changent, on garde les pièces encore applicables et on ajoute les obligatoires.
+  useEffect(() => setDocs((cur) => { const ok = new Set(applicable.map((d) => d.code)); return [...new Set([...cur.filter((c) => ok.has(c)), ...applicable.filter((d) => d.mandatory).map((d) => d.code)])]; }), [applicable]);
+  // ── Conclure maintenant (§23.1) ──
+  const [saleNote, setSaleNote] = useState('');
   const [docChannel, setDocChannel] = useState<DocumentChannelKey | ''>('');
   const [docPromised, setDocPromised] = useState(false);
   const [docDate, setDocDate] = useState(soon.date);
@@ -274,7 +282,7 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
   const at = (d: string, t: string) => fromLocalFields(d, t);
 
   // Ce qui est en cours de saisie : la fenêtre ouverte, sinon le formulaire « documents » de la fig. 5.
-  const active: ModalKey | 'request_documents' | null = modal !== 'close_pick' ? (modal ?? (choice === 'request_documents' ? 'request_documents' : null)) : null;
+  const active: ModalKey | 'request_documents' | 'close_now' | null = modal !== 'close_pick' ? (modal ?? (choice === 'request_documents' ? 'request_documents' : choice === 'close_now' ? 'close_now' : null)) : null;
 
   const input: CallOutcomeInput | null = (() => {
     switch (active) {
@@ -287,7 +295,9 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
       case 'interested':
         return { kind: 'interested', temperature: intTemp as 'hot', reason: intReason as InterestReason, nextAction: intAction as InterestNextAction, nextActionAtMs: at(intDate, intTime), comment: intComment };
       case 'request_documents':
-        return { kind: 'request_documents', documents: docs, channel: docChannel as DocumentChannelKey, promisedAtMs: docPromised ? at(docDate, docTime) : null, note: docNote };
+        return { kind: 'request_documents', documents: docs, channel: docChannel as DocumentChannelKey, promisedAtMs: docPromised ? at(docDate, docTime) : null, note: docNote, situations };
+      case 'close_now':
+        return { kind: 'close_now', note: saleNote };
       case 'close_not_interested':
         return { kind: 'close_not_interested', motive: niMotive as RefusalMotive, comment: niComment, followUp: niFollow, recycleAtMs: niFollow === 'recycle' ? at(niDate, '09:00') : null, opposition: niOpposition };
       case 'close_ineligible':
@@ -398,7 +408,7 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
 
           <div className="mt-6 grid gap-3.5 sm:grid-cols-3" role="radiogroup" aria-label="Résultat de l'appel">
             {CALL_CHOICES.map((c) => {
-              const disabled = c === 'close_now';
+              const disabled = false;
               const selected = choice === c;
               return (
                 <button
@@ -420,6 +430,23 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
             })}
           </div>
 
+          {/* Conclure maintenant (fig. 35) : la vente est engagée, le montage de l'offre s'ouvre juste après */}
+          {choice === 'close_now' && modal === null && (
+            <div className="mt-6 border-t border-slate-100 pt-5" aria-label="Conclure maintenant">
+              <div className="flex items-start gap-2.5">
+                <Handshake className="mt-0.5 h-6 w-6 text-blue-600" strokeWidth={2.25} />
+                <div>
+                  <p className="text-sm font-bold text-slate-900">Le client accepte l’offre pendant l’appel</p>
+                  <p className="text-xs text-slate-500">Une vente <strong>engagée</strong> est créée (ce n’est pas encore une vente) et le montage de l’offre s’ouvre : offre, règlement, vérification, signature. Aucun passage préalable par « En attente de documents » ; les pièces se demandent en parallèle.</p>
+                </div>
+              </div>
+              <label className="mt-4 block text-sm"><span className="font-medium text-slate-700">Note (facultatif)</span>
+                <input aria-label="Note de la vente engagée" value={saleNote} maxLength={500} onChange={(e) => setSaleNote(e.target.value)} placeholder="Ce que le client a accepté, ce qu’il faut retenir…" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+              </label>
+              {feedback}
+            </div>
+          )}
+
           {/* Documents : formulaire intégré, comme sur la fig. 5 */}
           {choice === 'request_documents' && modal === null && (
             <div className="mt-6 border-t border-slate-100 pt-5">
@@ -431,8 +458,15 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
                 </div>
               </div>
               <div className="mt-4 grid gap-6 md:grid-cols-[1fr_1fr_1fr]">
+                <div>
+                <fieldset className="mb-3"><legend className={labelClass}>Situation du client</legend>
+                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                    {SITUATIONS.map((s) => <label key={s} className="inline-flex items-center gap-1.5 text-sm text-slate-700"><input type="checkbox" checked={situations.includes(s)} onChange={(e) => setSituations(e.target.checked ? [...situations, s] : situations.filter((x) => x !== s))} className="h-4 w-4 rounded border-slate-300 text-blue-600" /> {SITUATION_LABELS[s]}</label>)}
+                  </div>
+                  {checklist.items.length !== applicable.length && <p className="mt-1 text-xs text-slate-500">{checklist.items.length - applicable.length} pièce(s) conditionnelle(s) non demandée(s) dans cette situation.</p>}
+                </fieldset>
                 <ul className="space-y-2.5">
-                  {rules.documentTypes.map((d) => (
+                  {applicable.map((d) => (
                     <li key={d.code}>
                       <label className="flex items-center gap-2.5 text-sm text-slate-800">
                         <input type="checkbox" checked={docs.includes(d.code)} onChange={(e) => setDocs(e.target.checked ? [...docs, d.code] : docs.filter((c) => c !== d.code))} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
@@ -441,6 +475,7 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
                     </li>
                   ))}
                 </ul>
+                </div>
                 <div>
                   <p className={labelClass}>Canal d'envoi <Req /></p>
                   <div className="flex flex-wrap gap-2">
@@ -477,8 +512,8 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
             <CancelButton onClick={onCancel} disabled={submitting} />
             <button
               type="button"
-              disabled={submitting || choice === null || choice === 'close_now'}
-              onClick={() => (choice === 'request_documents' ? void submit() : choice && MODAL_OF[choice] ? open(MODAL_OF[choice]!) : undefined)}
+              disabled={submitting || choice === null}
+              onClick={() => (choice === 'request_documents' || choice === 'close_now' ? void submit() : choice && MODAL_OF[choice] ? open(MODAL_OF[choice]!) : undefined)}
               className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-6 py-3 text-sm font-bold uppercase tracking-wide text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {submitting ? 'Enregistrement…' : (<><ArrowRight className="h-4 w-4" /> Valider et passer au client suivant</>)}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { COL } from '../../domain/collections';
-import type { JournalEntry } from '../../domain/integrations/hub';
+import { parseStatusReturn, type JournalEntry, type StatusReturnTrace } from '../../domain/integrations/hub';
 import { fetchJournal } from '../../lib/hubApi';
 import { ms } from '../../lib/firestoreViews';
 
@@ -30,6 +30,21 @@ export function useJournal(): JournalState {
   return { ...state, refresh: load };
 }
 
+/** Dernier passage du planificateur et trace du retour des statuts du CRM principal (null : jamais passé ou illisible). */
+export function useSchedulerStatus(): { lastRunAtMs: number | null; statusReturn: StatusReturnTrace | null } {
+  const [state, setState] = useState<{ lastRunAtMs: number | null; statusReturn: StatusReturnTrace | null }>({ lastRunAtMs: null, statusReturn: null });
+  useEffect(
+    () =>
+      onSnapshot(
+        doc(db, COL.config, 'schedulerStatus'),
+        (s) => setState({ lastRunAtMs: s.exists() ? ms(s.get('lastRunAt')) : null, statusReturn: s.exists() ? parseStatusReturn(s.get('statusReturn')) : null }),
+        () => setState({ lastRunAtMs: null, statusReturn: null })
+      ),
+    []
+  );
+  return state;
+}
+
 /** Dernier passage du planificateur serveur (null : jamais passé ou illisible). */
 export function useSchedulerLastRun(): number | null {
   const [at, setAt] = useState<number | null>(null);
@@ -46,4 +61,11 @@ export function useSchedulerLastRun(): number | null {
 }
 
 export const fmtDateTime = (atMs: number): string => new Date(atMs).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+/** « 840 ms », « 2,4 s », « 3 min » ; « — » quand la durée n'est pas connue. */
+export function fmtDuration(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined) return '—';
+  if (ms < 1000) return `${Math.round(ms)} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s`;
+  return `${Math.round(ms / 60_000)} min`;
+}
 export const fmtShort = (atMs: number | null): string => (atMs === null ? '—' : new Date(atMs).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }));

@@ -121,6 +121,11 @@ export function MontageView({ leadId, lead, data, canAct }: { leadId: string; le
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
       <div className="space-y-5">
+        {lead.directSale && (
+          <p role="status" className="flex items-start gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+            <strong>Vente engagée depuis l’appel.</strong> Construisez l’offre maintenant ; la vente ne sera créée qu’une fois le dossier complet et les pièces obligatoires conformes. Demandez les documents au client depuis l’écran Documents.
+          </p>
+        )}
         {/* Étapes (§11.4) */}
         <ol className="flex flex-wrap gap-x-5 gap-y-2" aria-label="Étapes du montage">
           {MONTAGE_STEPS.map((s, i) => {

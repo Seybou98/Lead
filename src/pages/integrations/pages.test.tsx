@@ -10,7 +10,9 @@ const MIN = 60_000;
 
 vi.mock('../../lib/firebase', () => ({ db: {}, auth: { currentUser: null } }));
 vi.mock('firebase/firestore', () => ({ doc: () => ({}), collection: () => ({}), onSnapshot: () => () => undefined, getDocs: async () => ({ docs: [] }) }));
-vi.mock('../../lib/hubApi', () => ({ fetchJournal: async () => ({ ok: false, message: 'x' }), replayRawLead: async () => ({ ok: true, message: 'ok', kind: 'created', leadId: 'L1' }) }));
+let role: 'admin' | 'manager' = 'admin';
+vi.mock('../../auth/AuthProvider', () => ({ useAuth: () => ({ state: 'ready', user: { uid: 'u1', role }, logout: async () => undefined }) }));
+vi.mock('../../lib/hubApi', () => ({ fetchTransmissionErrors: async () => ({ ok: true, entries: [], truncated: false }), testMainCrmConnection: async () => ({ ok: true, reachable: true, ms: 12, message: 'ok' }), fetchJournal: async () => ({ ok: false, message: 'x' }), replayRawLead: async () => ({ ok: true, message: 'ok', kind: 'created', leadId: 'L1' }) }));
 vi.mock('../../lib/adminApi', () => ({ errorMessage: (e: unknown) => String(e), saveSource: async () => ({ ok: true }) }));
 vi.mock('../../lib/importApi', () => ({ newBatchId: () => 'b1', sendImportBatch: async () => ({ ok: false, message: 'x', retryable: false }) }));
 vi.mock('../intake/useIntakeOptions', () => ({ useIntakeOptions: () => ({ loading: false, error: false, sources: [{ id: 'pabbly', name: 'Pabbly', enabled: true }], campaigns: [{ id: 'c1', name: 'PAC IDF', status: 'active' }], products: ['PAC', 'SSC'] }) }));
@@ -27,7 +29,7 @@ const ENTRIES: JournalEntry[] = [
   entryFromConversion({ leadId: 'L8', state: 'confirmed', attempts: 1, createdAtMs: NOW - 7_200_000, updatedAtMs: NOW - 2 * 3_600_000, dossierId: 'D8' }),
 ].sort((x, y) => y.atMs - x.atMs);
 
-vi.mock('./useJournal', async (orig) => ({ ...(await orig<typeof import('./useJournal')>()), useJournal: () => ({ loading: false, error: null, entries: ENTRIES, truncated: false, fetchedAtMs: NOW, refresh: async () => undefined }), useSchedulerLastRun: () => NOW - 3 * MIN }));
+vi.mock('./useJournal', async (orig) => ({ ...(await orig<typeof import('./useJournal')>()), useSchedulerStatus: () => ({ lastRunAtMs: NOW - MIN, statusReturn: { atMs: NOW - MIN, read: 14, changed: 3, cancelled: 1, errorCount: 2, errors: ['dossier D3 illisible'], durationMs: 2300 } }), useJournal: () => ({ loading: false, error: null, entries: ENTRIES, truncated: false, fetchedAtMs: NOW, refresh: async () => undefined }), useSchedulerLastRun: () => NOW - 3 * MIN }));
 
 import { IntegrationsPage } from '../transmission/IntegrationsPage';
 import { ErrorsPage } from './ErrorsPage';
@@ -94,5 +96,30 @@ describe('import et saisie manuelle', () => {
     expect(h).toContain('Nouveau lead');
     for (const l of ['Prénom', 'Téléphone', 'Email', 'Code postal', 'Pabbly', 'PAC IDF', 'SSC', 'Créer le lead']) expect(h).toContain(l);
     expect(h).toContain('au moins un téléphone ou un email');
+  });
+});
+
+describe('hub d’intégrations : délais, retour des statuts, accès manager', () => {
+  it('connecteurs : trace du retour des statuts, test de connexion, alerte', () => {
+    role = 'admin';
+    const h = render(<IntegrationsPage />);
+    expect(h).toContain('Retour des statuts');
+    expect(h).toContain('14 dossiers lus, 3 étapes changées, 1 annulée');
+    expect(h).toContain('2 erreurs');
+    expect(h).toContain('Tester la connexion');
+    expect(h).toContain('Retour des statuts du CRM principal : erreurs');
+  });
+  it('journal : colonne Durée', () => {
+    role = 'admin';
+    expect(render(<JournalPage />)).toContain('>Durée<');
+  });
+  it('manager : seulement les erreurs de transmission de son équipe, aucun connecteur', () => {
+    role = 'manager';
+    const h = render(<IntegrationsPage />);
+    expect(h).toContain('Erreurs de transmission');
+    expect(h).toContain('Les dossiers de votre équipe');
+    expect(h).not.toContain('Planificateur serveur');
+    expect(h).not.toContain('Tester la connexion');
+    role = 'admin';
   });
 });

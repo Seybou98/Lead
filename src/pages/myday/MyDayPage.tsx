@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { AlertTriangle, Check, ChevronRight, Copy, Pause, FileText, MapPin, Phone, PhoneCall, Trophy, UserRound, Users, X } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../auth/AuthProvider';
@@ -173,6 +173,7 @@ export function MyDayView({
 }) {
   const liveNow = useNow(1000);
   const now = nowOverride ?? liveNow;
+  const navigate = useNavigate();
 
   const [session, setSessionState] = useState<CallSession | null>(() => (initialSession !== undefined ? initialSession : loadSession(uid, Date.now())));
   const [done, setDone] = useState<string | null>(null);
@@ -248,6 +249,8 @@ export function MyDayView({
     if (res.ok) {
       setSession(null);
       setDone(res.summary);
+      // Vente engagée : le montage de l'offre s'ouvre directement (deux clics depuis « Terminer et qualifier », §23.12).
+      if (input.kind === 'close_now') navigate(`/dossiers/${session.leadId}`);
     }
     return res;
   };

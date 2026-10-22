@@ -10,6 +10,8 @@ import { DISTRIBUTION_LABELS, ROLE_LABELS } from '../../domain/labels';
 import { getSlaMs, formatPhoneDisplay, type LeadListItem } from '../../domain/leads/leadList';
 import { buildDayQueue } from '../../domain/leads/myDay';
 import { recentActivity } from '../../domain/leads/activity';
+import { salesTrend, type SalesTrend } from '../../domain/portfolio/salesTrend';
+import { formatEuros } from '../../domain/conversion/finance';
 import { formatWeeklySchedule } from '../../domain/admin/scheduleFormat';
 import { useSettings } from '../settings/useSettings';
 import { FAMILIES, FAMILY_LABELS, loadRatio, portfolioTotal, type Family } from '../../domain/portfolio/portfolio';
@@ -112,6 +114,7 @@ export function TelecallerView({ data, uid }: { data: PortfolioData; uid: string
   // Dernières actions utiles : sur les leads dont il est propriétaire ou propriétaire d'origine (portefeuille transféré).
   const activity = useMemo(() => recentActivity(data.items.filter((l) => l.ownerId === uid), 5), [data.items, uid]);
   const funnel = useMemo(() => monthlyFunnel(data.items, uid, nowMs), [data.items, uid, nowMs]);
+  const trend = useMemo(() => salesTrend(data.items, uid, nowMs), [data.items, uid, nowMs]);
 
   if (!row) {
     return (
@@ -269,6 +272,7 @@ export function TelecallerView({ data, uid }: { data: PortfolioData; uid: string
           </div>
 
           <FunnelCard funnel={funnel} />
+          <SalesTrendCard trend={trend} />
         </div>
       )}
 
@@ -315,6 +319,42 @@ export function TelecallerView({ data, uid }: { data: PortfolioData; uid: string
       )}
 
       {tab === 'journal' && <JournalTab uid={uid} role={role} nowMs={nowMs} />}
+    </div>
+  );
+}
+
+/** Évolution des ventes (fig. 22) : ventes nettes par mois sur six mois, et ventes du mois comparées au mois précédent. */
+function SalesTrendCard({ trend }: { trend: SalesTrend }) {
+  const max = Math.max(1, ...trend.months.map((m) => m.sales));
+  const W = 360;
+  const H = 120;
+  const step = W / trend.months.length;
+  const pts = trend.months.map((m, i) => `${i === 0 ? 'M' : 'L'}${step * i + step / 2},${H - 18 - ((H - 36) * m.sales) / max}`).join(' ');
+  return (
+    <div className="mt-5">
+      <Card title="Évolution des ventes">
+        <div className="grid gap-5 sm:grid-cols-[minmax(0,1fr)_220px]">
+          <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Ventes par mois sur six mois" className="h-32 w-full">
+            {trend.months.map((m, i) => {
+              const h = ((H - 36) * m.sales) / max;
+              return (
+                <g key={m.startMs}>
+                  <rect x={step * i + step * 0.22} y={H - 18 - h} width={step * 0.56} height={Math.max(h, 1)} rx={2} className={i === trend.months.length - 1 ? 'fill-blue-500' : 'fill-blue-200'}><title>{`${m.label} : ${m.sales} vente${m.sales > 1 ? 's' : ''}`}</title></rect>
+                  <text x={step * i + step / 2} y={H - 4} textAnchor="middle" className="fill-slate-500 text-[10px]">{m.label}</text>
+                  <text x={step * i + step / 2} y={H - 22 - h} textAnchor="middle" className="fill-slate-700 text-[10px] font-semibold">{m.sales}</text>
+                </g>
+              );
+            })}
+            <path d={pts} fill="none" className="stroke-emerald-500" strokeWidth={1.5} />
+          </svg>
+          <dl className="space-y-3 text-sm">
+            <div><dt className="text-xs text-slate-500">Ventes du mois ({trend.current.label})</dt><dd className="text-2xl font-bold text-slate-900">{trend.current.sales}{trend.delta !== null && <span className={cn('ml-2 text-xs font-medium', trend.delta >= 0 ? 'text-emerald-600' : 'text-red-600')}>{trend.delta > 0 ? '+' : ''}{trend.delta.toString().replace('.', ',')} % vs mois précédent</span>}</dd></div>
+            <div><dt className="text-xs text-slate-500">Chiffre d’affaires TTC du mois</dt><dd className="font-semibold text-slate-900">{trend.current.revenueCents > 0 ? formatEuros(trend.current.revenueCents) : '—'}</dd></div>
+            <div><dt className="text-xs text-slate-500">Sur six mois</dt><dd className="font-semibold text-slate-900">{trend.total} vente{trend.total > 1 ? 's' : ''}</dd></div>
+          </dl>
+        </div>
+        <p className="mt-3 text-xs text-slate-500">Ventes nettes (annulées retirées), comptées à leur date de transmission. Montants : TTC du montage du dossier.</p>
+      </Card>
     </div>
   );
 }

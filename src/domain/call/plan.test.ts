@@ -228,6 +228,32 @@ describe('Documents (fig. 9, §10)', () => {
     const p = ok(base, ctx({ nowMs: at(9, 18) }));
     expect(p.nextAction?.dueAtMs).toBeGreaterThanOrEqual(at(12, 9));
   });
+  describe('pièces conditionnelles (§21.4 : aide, financement, logement)', () => {
+    const types = [
+      { code: 'identity', label: 'Identité', mandatory: true },
+      { code: 'mpr_notice', label: 'Avis MaPrimeRénov’', mandatory: true, when: ['mpr'] },
+      { code: 'financing_form', label: 'Dossier de financement', mandatory: false, when: ['financing', 'cee'] },
+    ];
+    const withTypes = () => ctx({ rules: { ...DEFAULT_CALL_RULES, documentTypes: types } });
+    it('une pièce conditionnelle est demandable seulement si sa situation est cochée', () => {
+      expect(planCallOutcome({ ...base, documents: ['identity', 'mpr_notice'], situations: ['mpr'] }, withTypes()).ok).toBe(true);
+      const refused = planCallOutcome({ ...base, documents: ['identity', 'mpr_notice'], situations: [] }, withTypes());
+      expect(refused.ok).toBe(false);
+      if (!refused.ok) expect(refused.errors.documents).toBeDefined();
+    });
+    it('une seule des situations suffit ; la pièce sans condition reste toujours demandable', () => {
+      expect(planCallOutcome({ ...base, documents: ['financing_form'], situations: ['cee'] }, withTypes()).ok).toBe(true);
+      expect(planCallOutcome({ ...base, documents: ['identity'] }, withTypes()).ok).toBe(true);
+    });
+    it('les situations cochées sont conservées dans la trace ; une situation inconnue est refusée', () => {
+      const p = planCallOutcome({ ...base, documents: ['identity', 'mpr_notice'], situations: ['mpr'] }, withTypes());
+      if (!p.ok) throw new Error('refusé');
+      expect(p.plan.events.find((e) => e.key === 'call_result')?.meta).toMatchObject({ situations: ['mpr'] });
+      const bad = planCallOutcome({ ...base, documents: ['identity'], situations: ['zzz'] }, withTypes());
+      expect(bad.ok).toBe(false);
+      if (!bad.ok) expect(bad.errors.situations).toBeDefined();
+    });
+  });
   it('exige au moins une pièce connue et un canal', () => {
     expect(ko({ ...base, documents: [] }).errors.documents).toBeDefined();
     expect(ko({ ...base, documents: ['identity', 'inconnue'] }).errors.documents).toBeDefined();

@@ -22,6 +22,11 @@ export interface NewUserInput {
   /** Vide = valeur par défaut de la configuration. */
   cap: string;
   autoDistribution: boolean;
+  /** Fig. 21 : leads réattribuables automatiquement, participation au recyclage, équipe de secours (vide = aucune), authentification renforcée. */
+  reassignable: boolean;
+  recycling: boolean;
+  backupTeamId: string;
+  strongAuth: boolean;
   /** Envoi de l'e-mail d'invitation (l'utilisateur choisit son mot de passe). */
   invite: boolean;
   /** Mot de passe choisi par l'administrateur ; exigé seulement sans invitation. */
@@ -42,6 +47,10 @@ export const EMPTY_NEW_USER: NewUserInput = {
   campaignIds: [],
   cap: '10',
   autoDistribution: true,
+  reassignable: true,
+  recycling: true,
+  backupTeamId: '',
+  strongAuth: false,
   invite: true,
   password: '',
 };

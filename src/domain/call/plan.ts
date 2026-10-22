@@ -12,6 +12,7 @@ import {
   type Temperature,
 } from '../enums';
 import { nextWorkingTime, type ScheduleLike } from '../engine/schedule';
+import { applicableItems, SITUATIONS } from '../documents/checklist';
 import { DEFAULT_REASON_CATALOG, INELIGIBLE_LIST, reasonLabel, type ReasonCatalog } from '../settings/reasons';
 import {
   DEFAULT_DOCUMENT_TYPES,
@@ -134,6 +135,8 @@ export interface QualificationPlan {
   quality?: { excluded: true; reason: string };
   /** Motif de la clôture (non-intérêt, inéligibilité, faux lead), recopié sur le lead pour la qualité des leads (§22.5). */
   closure?: LeadClosure;
+  /** Vente engagée depuis l'appel (« Conclure maintenant », §23.1) : le montage de l'offre est la prochaine étape. */
+  directSale?: boolean;
   /** Variation des compteurs du profil du télépro propriétaire. */
   loadDelta: Partial<Record<LoadBucket, number>>;
   callAttempt: {
@@ -263,6 +266,7 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
   let closure: QualificationPlan['closure'];
   let notifyManagers: QualificationPlan['notifyManagers'] = null;
   let nrNumber: number | null = null;
+  let directSale = false;
   let reason: string | undefined;
   let summary = '';
   const meta: Record<string, unknown> = { outcome: input.kind };
@@ -345,7 +349,10 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
     }
 
     case 'request_documents': {
-      const known = new Map(rules.documentTypes.map((d) => [d.code, d]));
+      // Pièces conditionnelles : seules celles dont la situation du client est cochée sont demandables (§21.4).
+      const situations = Array.isArray(input.situations) ? input.situations.filter((s): s is string => typeof s === 'string') : [];
+      if (situations.some((s) => !(SITUATIONS as readonly string[]).includes(s))) errors.situations = 'Une des situations du client est inconnue.';
+      const known = new Map(applicableItems(rules.documentTypes, situations).map((d) => [d.code, d]));
       const codes = [...new Set(Array.isArray(input.documents) ? input.documents : [])];
       if (codes.length === 0) errors.documents = 'Sélectionnez au moins une pièce à demander.';
       else if (codes.some((c) => !known.has(c))) errors.documents = 'Une des pièces demandées est inconnue.';
@@ -370,7 +377,20 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
       documents = { types, channel: input.channel, promisedAtMs: promised, nextFollowUpAtMs: followAt };
       meta.documents = codes;
       meta.channel = input.channel;
+      if (situations.length > 0) meta.situations = situations;
       summary = `${types.length} pièce(s) demandée(s) par ${DOCUMENT_CHANNELS[input.channel]}. ${promised !== null ? `Contrôle ${formatWhen(followAt, nowMs, tz)}` : `Première relance ${formatWhen(followAt, nowMs, tz)}`}.`;
+      break;
+    }
+
+    case 'close_now': {
+      // Une vente engagée n'est PAS une vente : aucun statut commercial n'est posé tant que le dossier n'est pas monté et la vente créée
+      // (les rapports ne comptent que les ventes créées). Le lead passe en « montage en cours », sans documents préalables (§23).
+      note = text(input.note, 500) || null;
+      status = 'file_building';
+      directSale = true;
+      nextAction = action('build_file', 'P1', nowMs, 'Vente engagée : construire l’offre (offre, règlement, vérification, signature)');
+      meta.directSale = true;
+      summary = 'Vente engagée. Construisez l’offre : le lead est en montage, les documents se demandent en parallèle.';
       break;
     }
 
@@ -494,6 +514,7 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
       documents,
       quality,
       closure,
+      ...(directSale ? { directSale: true } : {}),
       loadDelta: loadDeltaFor(lead.status, status),
       callAttempt: {
         result: input.kind,

@@ -439,6 +439,7 @@ export function UsersView({ data, initialNotice = null }: { data: UsersData; ini
         <ProfileModal
           row={profileRow}
           raw={data.rawProfiles.get(profileRow.uid)}
+          teams={data.teams.filter((t) => t.active).map((t) => ({ id: t.id, name: t.name }))}
           hasActiveOverride={!!data.profiles.get(profileRow.uid)?.capacity.override && (data.profiles.get(profileRow.uid)!.capacity.override!.untilMs > data.nowMs)}
           onClose={() => setProfileRow(null)}
           onSaved={saved('Profil')}

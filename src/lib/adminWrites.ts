@@ -26,6 +26,7 @@ import { auth, db } from './firebase';
 import { COL } from '../domain/collections';
 import { cleanString } from '../domain/admin/validate';
 import { parseSlaSettings } from '../domain/settings/settings';
+import { planDraftDiscard, planDraftPublish, planDraftSave } from '../domain/admin/drafts';
 import {
   AdminRuleError,
   asRecord,
@@ -42,6 +43,7 @@ import {
   planReportsSave,
   planExportsSave,
   planMessagesSave,
+  planProductsSave,
   qualificationKey,
   planRulesSave,
   planSlaOverrideSave,
@@ -312,6 +314,61 @@ export async function logReportExportDirect(entry: { kind: string; format: strin
   return runTransaction(db, async (tx) => {
     writeAudit(tx, actor, { action: 'report.export_identifying', entityType: 'report', entityId: String(entry.kind).slice(0, 40), before: null, after: { format: entry.format, rows: entry.rows, detailCount: entry.detailCount, columns: entry.columns, filters: entry.filters }, reason: null });
     return { ok: true as const, id: entry.kind, warnings: [] };
+  });
+}
+
+/** Enregistre un BROUILLON de réglage : aucun lead, aucun écran ni aucune fonction serveur ne le lit (§21.9). */
+export async function saveDraftDirect(module: unknown, input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  const mod = typeof module === 'string' ? module : '';
+  const publishedRef = doc(db, COL.settings, mod || '_');
+  return runTransaction(db, async (tx) => {
+    const plan = planDraftSave({ module, input, before: data(await tx.get(publishedRef)), actorId: actor, nowMs });
+    tx.set(doc(db, COL.settings, plan.id), plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: plan.id, warnings: [] };
+  });
+}
+
+/** Publie le brouillon : le réglage publié change, avec la trace et la version d'un enregistrement ordinaire. */
+export async function publishDraftDirect(module: unknown, reason: string, force = false): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  const mod = typeof module === 'string' ? module : '';
+  const publishedRef = doc(db, COL.settings, mod || '_');
+  const draftRef = doc(db, COL.settings, `draft_${mod}`);
+  return runTransaction(db, async (tx) => {
+    const [pub, draft] = await Promise.all([tx.get(publishedRef), tx.get(draftRef)]);
+    const plan = planDraftPublish({ module, draft: data(draft), before: data(pub), actorId: actor, nowMs, reason, force });
+    tx.set(doc(db, COL.settings, plan.id), plan.doc);
+    tx.delete(doc(db, COL.settings, plan.draftId));
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: plan.id, warnings: [] };
+  });
+}
+
+export async function discardDraftDirect(module: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const mod = typeof module === 'string' ? module : '';
+  const draftRef = doc(db, COL.settings, `draft_${mod}`);
+  return runTransaction(db, async (tx) => {
+    const plan = planDraftDiscard({ module, draft: data(await tx.get(draftRef)), actorId: actor });
+    tx.delete(doc(db, COL.settings, plan.draftId));
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: plan.draftId, warnings: [] };
+  });
+}
+
+export async function saveProductsDirect(input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  const ref = doc(db, COL.settings, 'products');
+  return runTransaction(db, async (tx) => {
+    const plan = planProductsSave({ input, before: data(await tx.get(ref)), actorId: actor, nowMs });
+    tx.set(ref, plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: 'products', warnings: [] };
   });
 }
 

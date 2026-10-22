@@ -50,6 +50,7 @@ export async function readJournal(db: Firestore, nowMs: number): Promise<Journal
           rejectionReason: d.get('rejectionReason') ?? null,
           actorId: (d.get('actorId') as string | null) ?? null,
           replayedAtMs: ms(d.get('replayedAt')),
+          processedAtMs: ms(d.get('processedAt')),
         },
         nowMs,
         (d.get('sourceId') as string | null) ? (names.get(d.get('sourceId') as string) ?? null) : null
@@ -76,6 +77,64 @@ export async function readJournal(db: Firestore, nowMs: number): Promise<Journal
     entries.push(entryFromReplayAudit({ id: d.id, atMs: ms(d.get('at')) ?? 0, actorId: String(d.get('actorId') ?? ''), rawLeadId: after.rawLeadId ?? '', outcome: after.outcome ?? 'created', leadId: after.leadId ?? null }));
   }
   return { entries: sortJournal(entries), truncated: raws.size >= RAW_LIMIT || convs.size >= CONVERSION_LIMIT, limits: { raw: RAW_LIMIT, conversions: CONVERSION_LIMIT } };
+}
+
+// ── Erreurs métier du périmètre d'un manager (§24.11) ────────────────────────
+
+const CHUNK = 30;
+
+/**
+ * Ce qu'un manager voit du hub : les transmissions au CRM principal en échec pour les leads de SON périmètre (`managerIds`),
+ * avec leur cause et leur ancienneté. Ni donnée brute, ni charge utile, ni secret : la reprise se fait sur la fiche du dossier.
+ * L'administrateur voit toutes les erreurs de transmission.
+ */
+export async function readTransmissionErrors(db: Firestore, uid: string, role: 'admin' | 'manager'): Promise<{ entries: JournalEntry[]; truncated: boolean }> {
+  const snap = await db.collection(COL.conversions).where('state', '==', 'failed').limit(CONVERSION_LIMIT).get();
+  let docs = snap.docs;
+  if (role === 'manager') {
+    const allowed = new Set<string>();
+    for (let i = 0; i < docs.length; i += CHUNK) {
+      const refs = docs.slice(i, i + CHUNK).map((d) => db.collection(COL.leads).doc(d.id));
+      const leads = await db.getAll(...refs);
+      for (const l of leads) if (l.exists && Array.isArray(l.get('managerIds')) && (l.get('managerIds') as string[]).includes(uid)) allowed.add(l.id);
+    }
+    docs = docs.filter((d) => allowed.has(d.id));
+  }
+  const entries = docs
+    .map((d) =>
+      entryFromConversion({
+        leadId: d.id,
+        state: String(d.get('state') ?? 'failed'),
+        attempts: Number(d.get('attempts') ?? 0),
+        lastError: (d.get('lastError') as { code?: string; message?: string } | null) ?? null,
+        createdAtMs: ms(d.get('createdAt')),
+        updatedAtMs: ms(d.get('updatedAt')),
+        dossierId: (d.get('dossierId') as string | null) ?? null,
+        clientId: null,
+        saleId: null,
+      })
+    )
+    .map((e) => ({ ...e, payload: null }));
+  return { entries: sortJournal(entries), truncated: snap.size >= CONVERSION_LIMIT };
+}
+
+// ── Test de la connexion au CRM principal ────────────────────────────────────
+
+export interface ConnectionTest {
+  ok: boolean;
+  ms: number;
+  message: string;
+}
+
+/** Lecture d'un seul dossier du CRM principal : prouve que la base répond et que le compte de service y a accès. Aucune écriture. */
+export async function testMainCrm(db: Firestore, clock: () => number = Date.now): Promise<ConnectionTest> {
+  const t0 = clock();
+  try {
+    const snap = await db.collection('dossiers').limit(1).get();
+    return { ok: true, ms: clock() - t0, message: snap.empty ? 'Connexion établie ; aucun dossier dans le CRM principal.' : 'Connexion établie : le CRM principal répond en lecture.' };
+  } catch (e) {
+    return { ok: false, ms: clock() - t0, message: `Lecture du CRM principal impossible (${(e as { code?: string | number }).code ?? 'erreur'}).` };
+  }
 }
 
 // ── Reprise d'un lead refusé ─────────────────────────────────────────────────

@@ -15,12 +15,15 @@ const toLocalInput = (ms: number) => {
 export function ProfileModal({
   row,
   raw,
+  teams = [],
   hasActiveOverride,
   onClose,
   onSaved,
 }: {
   row: UserRow;
   raw: RawProfile | undefined;
+  /** Équipes actives proposées comme équipe de secours (fig. 21). */
+  teams?: { id: string; name: string }[];
   hasActiveOverride: boolean;
   onClose: () => void;
   onSaved: (warnings: string[]) => void;
@@ -39,6 +42,10 @@ export function ProfileModal({
   const catalog = useProductCatalog();
   const [zones, setZones] = useState((raw?.scope.zones ?? []).join(', '));
   const [suspended, setSuspended] = useState(row.distribution === 'suspended');
+  const [reassignable, setReassignable] = useState(raw?.reassignable ?? true);
+  const [recycling, setRecycling] = useState(raw?.recycling ?? true);
+  const [backupTeamId, setBackupTeamId] = useState(raw?.backupTeamId ?? '');
+  const [strongAuth, setStrongAuth] = useState(raw?.strongAuth ?? false);
   const [weekly, setWeekly] = useState<WeeklySlot[]>(schedule.weekly);
   const [override, setOverride] = useState<'keep' | 'set' | 'remove'>('keep');
   const [ovValue, setOvValue] = useState('15');
@@ -67,6 +74,10 @@ export function ProfileModal({
         sourceIds: raw?.scope.sourceIds ?? [],
       },
       distributionSuspended: suspended,
+      reassignable,
+      recycling,
+      backupTeamId: backupTeamId || null,
+      strongAuth,
       reason: reason.trim() || undefined,
     };
 
@@ -139,6 +150,27 @@ export function ProfileModal({
             <label className="flex items-center gap-3 self-end rounded-lg border border-slate-200 px-4 py-3">
               <input type="checkbox" checked={suspended} onChange={(e) => setSuspended(e.target.checked)} className="h-4 w-4" />
               <span className="text-sm text-slate-800">Suspendre la distribution</span>
+            </label>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2" role="group" aria-label="Réattribution et recyclage">
+            <label className="flex items-start gap-3 rounded-lg border border-slate-200 px-4 py-3">
+              <input type="checkbox" checked={reassignable} onChange={(e) => setReassignable(e.target.checked)} className="mt-0.5 h-4 w-4" />
+              <span className="text-sm text-slate-800">Réattribution possible<span className="block text-xs text-slate-500">Décoché : ses leads ne sont jamais réattribués automatiquement (règle SLA).</span></span>
+            </label>
+            <label className="flex items-start gap-3 rounded-lg border border-slate-200 px-4 py-3">
+              <input type="checkbox" checked={recycling} onChange={(e) => setRecycling(e.target.checked)} className="mt-0.5 h-4 w-4" />
+              <span className="text-sm text-slate-800">Participation au recyclage<span className="block text-xs text-slate-500">Enregistré ; le moteur de recyclage ne le lit pas encore.</span></span>
+            </label>
+            <Field label="Équipe de secours" hint="Reprend ses leads lors d'une réattribution automatique, avant l'équipe de secours de la campagne.">
+              <select className={inputClass} value={backupTeamId} onChange={(e) => setBackupTeamId(e.target.value)} aria-label="Équipe de secours">
+                <option value="">Aucune</option>
+                {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+              </select>
+            </Field>
+            <label className="flex items-start gap-3 self-start rounded-lg border border-slate-200 px-4 py-3">
+              <input type="checkbox" checked={strongAuth} onChange={(e) => setStrongAuth(e.target.checked)} className="mt-0.5 h-4 w-4" />
+              <span className="text-sm text-slate-800">Authentification renforcée<span className="block text-xs text-slate-500">Enregistré ; appliqué dès que l'authentification à deux facteurs sera branchée.</span></span>
             </label>
           </div>
 

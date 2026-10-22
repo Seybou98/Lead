@@ -62,3 +62,28 @@ describe('handleHubHttp', () => {
     expect(d.log.error).toHaveBeenCalled();
   });
 });
+
+describe('handleHubHttp : erreurs de transmission et test de connexion', () => {
+  const errors = vi.fn(async () => ({ entries: [], truncated: false }));
+  const test = vi.fn(async () => ({ ok: true, ms: 40, message: 'Connexion établie' }));
+  it('manager : voit les erreurs de son périmètre (son identité vient du jeton), rien d’autre', async () => {
+    const d = deps({ resolveRole: vi.fn(async () => 'manager' as const), errors, test });
+    expect(await handleHubHttp(req({ action: 'errors', uid: 'pirate' }), d)).toEqual({ status: 200, body: { ok: true, entries: [], truncated: false } });
+    expect(errors).toHaveBeenCalledWith('adm', 'manager');
+    for (const body of [{ action: 'journal' }, { action: 'test' }, { action: 'replay', rawLeadId: 'rx_1' }]) expect((await handleHubHttp(req(body), d)).status).toBe(403);
+    expect(test).not.toHaveBeenCalled();
+  });
+  it('administrateur : erreurs de toutes les équipes, test de connexion', async () => {
+    const d = deps({ errors, test });
+    expect((await handleHubHttp(req({ action: 'errors' }), d)).status).toBe(200);
+    expect(errors).toHaveBeenLastCalledWith('adm', 'admin');
+    expect(await handleHubHttp(req({ action: 'test' }), d)).toEqual({ status: 200, body: { ok: true, reachable: true, ms: 40, message: 'Connexion établie' } });
+  });
+  it('télépro ou compte inactif : refusé pour les erreurs aussi', async () => {
+    for (const role of ['telepro', null] as const) expect((await handleHubHttp(req({ action: 'errors' }), deps({ resolveRole: vi.fn(async () => role), errors }))).status).toBe(403);
+  });
+  it('échec du test : 200 avec reachable false (la fonction répond, c’est le CRM principal qui ne répond pas)', async () => {
+    const r = await handleHubHttp(req({ action: 'test' }), deps({ test: vi.fn(async () => ({ ok: false, ms: 5000, message: 'Lecture impossible' })) }));
+    expect(r.body).toMatchObject({ ok: true, reachable: false });
+  });
+});

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { DEFAULT_CONVERSION_SETTINGS, validateConversionSettings, type ConversionSettings } from '../../domain/settings/settings';
-import { errorMessage, saveConversion } from '../../lib/adminApi';
+import { DEFAULT_CONVERSION_SETTINGS, parseConversionSettings, validateConversionSettings, type ConversionSettings } from '../../domain/settings/settings';
+import { errorMessage, saveDraft } from '../../lib/adminApi';
+import { DraftBanner } from './DraftBanner';
 import { useSettings } from './useSettings';
 import { Feedback, NumberField, SaveBar, SettingsCard, Switch } from './settingsUi';
 
@@ -27,10 +28,11 @@ export function ConversionRulesPage() {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
-  const loadedKey = `${settings.loading}:${JSON.stringify(settings.conversion)}`;
+  const base = settings.drafts.conversion ? parseConversionSettings(settings.drafts.conversion.doc) : settings.conversion;
+  const loadedKey = `${settings.loading}:${JSON.stringify(base)}`;
   useEffect(() => {
     if (dirty) return;
-    setDraft(settings.conversion);
+    setDraft(base);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedKey]);
 
@@ -44,9 +46,9 @@ export function ConversionRulesPage() {
     setBusy(true);
     setNotice(null);
     try {
-      await saveConversion(draft);
+      await saveDraft('conversion', draft);
       setDirty(false);
-      setNotice({ kind: 'ok', text: 'Paramètres enregistrés. Ils s’appliquent aux prochains contrôles de dossier ; une vente déjà créée ne change pas, et une approbation déjà donnée reste valable tant que le dossier n’est pas modifié.' });
+      setNotice({ kind: 'ok', text: 'Brouillon enregistré. Il n’affecte aucun dossier : testez-le, mesurez son impact, puis publiez-le.' });
     } catch (e) {
       setNotice({ kind: 'error', text: errorMessage(e) });
     } finally {
@@ -64,6 +66,7 @@ export function ConversionRulesPage() {
       <h1 className="mt-1 text-2xl font-bold text-slate-900">Verrous de conversion</h1>
       <p className="mt-1 text-slate-500">Réglez ce qui demande l&apos;accord d&apos;un manager avant de créer une vente. Une exception ne supprime jamais le contrôle : elle ouvre une demande de validation.</p>
 
+      <DraftBanner module="conversion" draft={settings.drafts.conversion} />
       {!settings.saved.conversion && !settings.loading && <p className="mt-4 rounded-lg bg-blue-50 px-4 py-3 text-sm text-blue-900">Aucun réglage n&apos;a encore été enregistré : ce sont les valeurs du cahier des charges qui s&apos;appliquent. Enregistrez pour les rendre vôtres.</p>}
       {settings.error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">Lecture des réglages refusée ou indisponible : vérifiez vos droits et les règles Firestore.</p>}
 
@@ -92,7 +95,7 @@ export function ConversionRulesPage() {
       </div>
 
       <Feedback errors={dirty ? errors : []} notice={notice} />
-      <SaveBar onCancel={() => { setDraft(settings.conversion); setDirty(false); setNotice(null); }} onSave={save} busy={busy} blocked={errors.length > 0} dirty={dirty} />
+      <SaveBar onCancel={() => { setDraft(base); setDirty(false); setNotice(null); }} onSave={save} busy={busy} blocked={errors.length > 0} dirty={dirty} saveLabel="Enregistrer le brouillon" />
     </div>
   );
 }

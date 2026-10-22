@@ -85,6 +85,19 @@ describe('deriveMembership', () => {
   });
 });
 
+describe('validateProfilePatch : champs de la fig. 21', () => {
+  it('réattribution possible, recyclage, authentification renforcée : booléens', () => {
+    const ok = validateProfilePatch({ reassignable: false, recycling: false, strongAuth: true }, NOW);
+    expect(ok.ok && ok.value).toMatchObject({ reassignable: false, recycling: false, strongAuth: true });
+    for (const key of ['reassignable', 'recycling', 'strongAuth']) expect(validateProfilePatch({ [key]: 'oui' }, NOW).ok).toBe(false);
+  });
+  it('équipe de secours : un identifiant, ou vide / null pour la retirer', () => {
+    expect((validateProfilePatch({ backupTeamId: 'team_1' }, NOW) as { value: { backupTeamId: string } }).value.backupTeamId).toBe('team_1');
+    for (const empty of [null, '']) expect((validateProfilePatch({ backupTeamId: empty }, NOW) as { value: { backupTeamId: null } }).value.backupTeamId).toBeNull();
+    for (const bad of ['a/b', 12, 'x'.repeat(200)]) expect(validateProfilePatch({ backupTeamId: bad }, NOW).ok).toBe(false);
+  });
+});
+
 describe('validateProfilePatch', () => {
   it('refuse une demande vide', () => {
     expect(errorsOf(validateProfilePatch({}, NOW))[0]).toMatch(/Aucune/);

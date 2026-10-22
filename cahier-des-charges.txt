@@ -37,7 +37,7 @@ Ce qui reste : la marge brute (coût d'achat),
 les communications (SMS, email, WhatsApp), la partie de la vente à distance qui dépend de prestataires (contrat PDF, signature électronique,
 financement), les règles Storage, la mise en production, puis le Lot 6 (hors V1).
 
-Qualité : 2076 tests unitaires (107 fichiers) ; typecheck de l'application, des fonctions Netlify et des
+Qualité : 2177 tests unitaires (117 fichiers) ; typecheck de l'application, des fonctions Netlify et des
 fonctions Firebase ; build de production OK ; Lead compile, se construit et se teste seul, copié hors du projet.
 Recettes réelles sur la base de DEV : 28/28 (fonctions serveur), 34/34 (montage et vente), 29/29 (transmission
 avec Storage et IGN réels), 31/31 (données transmises et suivi de la vente), 16/16 (retour des statuts), 4/4 (verrous de conversion réglés), 13/13 (file tampon et réattribution
@@ -182,18 +182,27 @@ PHASE 1 — Lot 1, socle                                                        
           « Horaires & absences » (propres au télépro, sinon ceux de l'entreprise, avec les pauses).
   [FAIT]  Fig. 24 : « Enregistrer comme brouillon » : le choix du manager (catégories, destination, cause) est
           conservé, repris en un clic ; la simulation est recalculée avec la charge du moment.
-  [PARTIEL] Fig. 22 : courbe « évolution des ventes » et ventes du mois non affichées (les ventes existent
-          désormais dans cl_sales, l'écran ne les lit pas encore). Un lead « intéressé » n'est transféré que si
-          on le choisit (cas par cas).
+  [FAIT]  Fig. 22 : carte « Évolution des ventes » (onglet Performance de la fiche télépro) : ventes nettes par mois sur
+          six mois (barres + courbe), ventes du mois comparées au mois précédent, chiffre d'affaires TTC du mois. Ventes
+          nettes (annulées retirées) à leur date de transmission ; même définition que les rapports. 6 tests. NON vérifié
+          dans le navigateur.
+  [PARTIEL] Fig. 22 : un lead « intéressé » n'est transféré que si on le choisit (cas par cas).
   Back-office admin
   [FAIT]  Utilisateurs et équipes (fig. 20-21) : liste, état des équipes, modification du profil CRM Leads
           (équipes, périmètre produit/zone, plafond, horaires).
   [FAIT]  Création d'un utilisateur depuis le CRM Leads (fig. 21) : identité, rôle, périmètre, plafond,
           résumé du profil. Compte Firebase créé comme dans le CRM principal ; l'invitation est l'e-mail
           Firebase de choix du mot de passe ; « brouillon » = compte inactif, sans équipe ni profil.
-  [PARTIEL] Fig. 21 : non reprises, faute de champ dans le modèle : authentification renforcée,
-          réattribution possible, participation au recyclage, équipe de secours (réglée sur l'équipe).
-          Pas de modification d'un utilisateur existant depuis cet écran (profil : menu « ⋯ » de la liste).
+  [FAIT]  Fig. 21, champs du profil : RÉATTRIBUTION POSSIBLE (décoché : le planificateur ne retire jamais ses leads
+          automatiquement à la règle SLA, seul un manager décide) et ÉQUIPE DE SECOURS (reprend ses leads lors d'une
+          réattribution automatique, avant l'équipe de secours de la campagne) : appliqués par le moteur ; PARTICIPATION
+          AU RECYCLAGE et AUTHENTIFICATION RENFORCÉE : enregistrés sur le profil, avec la mention à l'écran que le moteur de
+          recyclage et l'authentification à deux facteurs ne les lisent pas encore. Présents à la création (écran « Créer
+          un utilisateur ») et dans les paramètres d'un utilisateur existant (menu « ⋯ » de la liste). Valeurs par défaut
+          pour les profils existants : réattribuable, participe au recyclage, sans équipe de secours, sans authentification
+          renforcée. 10 tests. NON vérifié dans le navigateur.
+          Limite : pas de modification d'un utilisateur existant depuis l'écran de création lui-même (le menu « ⋯ » porte
+          les profils, l'identité reste celle du compte).
   [FAIT]  Campagnes (fig. 15-16) : liste et performance, création / modification, dépenses publicitaires.
   [FAIT]  Règles d'attribution (fig. 17) : critères, ordre de départage, plafond, simulation.
   [FAIT]  Journal (fig. 19) : historique des distributions, export CSV.
@@ -237,10 +246,19 @@ PHASE 1 — Lot 1, socle                                                        
           ancienne version est évalué contre la version en vigueur (la stratégie « conserver, migrer ou choisir » par lead
           n'existe pas). Pas de glisser-déposer (ajout par clic, ordre par flèches), pas de test d'impact sur les leads
           actifs (comptage), pas d'offres combinées avec fusion, pas de modèle de formulaire par campagne.
-  [À FAIRE] Éligibilité et aides par produit, offres
-          combinées avec fusion et contradictions (fig. 28, partie fusion), workflows et statuts éditables,
-          règles de conversion avec test et impact (fig. 29, avec le lot
-          Conversion), communications versionnées.
+  [FAIT]  Périmètre, éligibilité et aides par produit (§21.2, figs. 26 et 28), Paramètres → Produits & offres : pour chaque
+          famille du catalogue, bouton « Configurer » : produit actif ou suspendu (plus proposé aux nouvelles campagnes, les
+          leads en cours ne changent pas), départements couverts (vide = toute la France), aides compatibles (MaPrimeRénov',
+          CEE, financement, autres), critères d'éligibilité à confirmer avec le client, note interne. Passe par le cycle
+          Brouillon → Tester → Impact → Publier (module « Produits et offres », versionné, retour arrière) : la simulation
+          signale un produit suspendu vendu par une campagne active, une campagne dont des départements sortent du périmètre,
+          un produit actif sans aide ; l'impact compte les leads actifs hors périmètre avant / après. Effet pour le télépro :
+          bloc « Repères du produit » en tête de la qualification (zone du lead couverte, hors zone ou illisible ; aides ;
+          critères à confirmer). 27 tests. NON vérifié dans le navigateur.
+          Limites : ce sont des REPÈRES et des anomalies de configuration, le moteur de conversion ne les applique pas (l'éligibilité
+          d'un dossier reste celle de son montage et du formulaire de qualification publié) ; pas d'offres combinées avec fusion et
+          contradictions, ni de workflows et statuts éditables, ni de règles de conversion avec test et impact sur des dossiers
+          existants (fig. 29) : le test et l'impact du cycle de publication couvrent les verrous de conversion existants.
   [FAIT]  Motifs et listes administrables (§21.6), Paramètres → Motifs et listes : rappel, mauvais moment, prospect
           intéressé, non-intérêt, faux lead, inéligibilité (4 catégories) et non-conformité d'une pièce, réattribution et température (codes fixes). Chaque
           valeur a un libellé, un ordre, un code statistique stable et une exigence de commentaire ; une valeur
@@ -259,10 +277,26 @@ PHASE 1 — Lot 1, socle                                                        
             demandés, dossiers complets, ventes (à atteindre) et coût par vente (à ne pas dépasser). Pas de coût par télépro
             (une dépense ne s'y rattache pas). Pas d'objectif d'équipe, de valeur ni de marge (aucune donnée).
           - Versions et retour arrière comme les autres réglages (module « Objectifs et alertes KPI »).
-  [PARTIEL] Pas de cycle Brouillon → Test → Impact → Publication : un réglage enregistré est appliqué
-          immédiatement aux prochains leads, appels et relances ; l'historique et le retour arrière sont là,
-          pas la mise en brouillon ni la simulation sur un lead fictif. Les 300 derniers enregistrements du
-          journal sont lus.
+  [FAIT]  Cycle Brouillon → Tester → Vérifier l'impact → Publier (§21.9, §21.10, fig. 25) pour les réglages qui agissent sur
+          les leads : SLA et horaires (réglages généraux), cycles NR / rappels / documents, verrous de conversion, motifs et
+          listes, modèles de message. « Enregistrer » devient « Enregistrer le brouillon » : le brouillon est un document à
+          part (cl_settings/draft_<module>) que le moteur, les télépros et les fonctions du serveur ne lisent jamais ; il
+          passe par les mêmes contrôles de forme que la publication. Un bandeau le signale sur la page du réglage (abandon
+          possible). Page Paramètres → Publier : 1. différences avec le publié (ancienne → nouvelle valeur) ; 2. TEST avec
+          des données fictives : contrôles de cohérence (bloquants ou avertissements) et exemples calculés, sans créer ni
+          lead, ni dossier, ni tâche, ni message ; 3. IMPACT : leads actifs concernés avec leur liste (SLA : leads neufs qui
+          passeraient « dépassé » ou ne le seraient plus ; cycles : leads en NR / documents ; conversion : dossiers en
+          montage ou en validation ; motifs : valeurs archivées et leads qui les portent ; messages : leads dont le message
+          change), stratégie pour les leads en cours, prise de connaissance ; 4. PUBLIER avec justification obligatoire,
+          avertissements acceptés explicitement, refus si une anomalie bloque ou si le réglage publié a changé depuis le
+          brouillon (publication forcée possible, tracée). La publication écrit le réglage avec la trace et la version d'un
+          enregistrement ordinaire (Versions & publication, retour arrière). La carte « Versions » des Paramètres compte les
+          brouillons à publier. 24 tests. NON vérifié dans le navigateur.
+          Limites : les réglages propres à une campagne (réattribution) et les objectifs / alertes KPI restent enregistrés
+          directement ; les leads en cours sont évalués avec le nouveau réglage dès la publication, leurs échéances déjà
+          calculées restent celles du lead (seul le constructeur de qualification garde une version par lead) ; un retour
+          arrière depuis Versions s'applique directement ; les brouillons sont lisibles par le personnel (pas de règle
+          dédiée).
   Leads
   [FAIT]  Liste des leads (rôles télépro / manager / admin) : onglets, filtres, tri par urgence, compteur SLA.
   [FAIT]  Fiche lead (fig. 45) : Résumé (prochaine action, informations essentielles, progression, dernière
@@ -320,9 +354,20 @@ PHASE 2 — Lot 2, exécution                                                   
   [FAIT]  Cycle NR1 à NR5 avec horaires commerciaux (jamais hors horaires), fin de cycle « Injoignable ».
   [FAIT]  Champs obligatoires et refus des saisies incomplètes (RG08, aucune clôture sans motif), résultat
           idempotent (double clic sans effet), historique immuable, compteurs de charge à jour, SLA arrêté.
-  [PARTIEL] « Conclure maintenant » grisé : la vente se crée depuis le montage du dossier (pièces conformes), pas
-          encore depuis l'appel (assistant « Offre, Règlement, Vérification, Signature », §23). Fig. 10 : la
-          « relance exceptionnelle » et les preuves / fichiers des figs. 11-12 ne sont pas faits.
+  [FAIT]  « Conclure maintenant » (§23.1, fig. 35), dans « Comment s'est terminé l'appel ? » : la tuile est disponible. Le
+          télépro la choisit, ajoute une note facultative et valide : une vente ENGAGÉE est enregistrée (résultat d'appel
+          « Vente engagée », SLA arrêté, lead en « montage en cours », prochaine action « construire l'offre » en priorité
+          P1, repère « directSale » sur le lead) et le montage s'ouvre aussitôt (2 clics depuis « Terminer et qualifier »,
+          §23.12), sans passage préalable par « En attente de documents ». Une vente engagée n'est PAS une vente : aucun
+          statut commercial n'est posé (les rapports et les tableaux ne comptent que les ventes créées) ; un bandeau
+          « Vente engagée depuis l'appel » rappelle l'étape dans le montage. Même planificateur côté écran et côté
+          serveur (idempotent, historisé) ; un lead clos ou déjà converti ne peut pas conclure. 6 tests. NON vérifié
+          dans le navigateur.
+          Limites : le montage reste celui du §11 (identité, projet, aides, offre et financement, vérifications) et NON
+          l'assistant en quatre écrans du §23.2 ; la création de la vente exige toujours les pièces obligatoires
+          conformes (les documents se demandent en parallèle) ; Floa, financement par organisme, document contractuel
+          versionné et signature électronique : voir « prestataires externes » (phase 4).
+  [PARTIEL] Fig. 10 : la « relance exceptionnelle » et les preuves / fichiers des figs. 11-12 ne sont pas faits.
   [FAIT]  Recyclage automatique (entrée en recyclage après le délai, période creuse, archivage après N cycles) :
           fait par le planificateur serveur.
   [À FAIRE] SMS automatique après une tentative (option ultérieure).
@@ -370,8 +415,16 @@ PHASE 3 — Lot 3, documents                                                    
           une liste « par défaut ». Le télépro voit celle du produit du lead quand il demande des documents ;
           chaque pièce garde son libellé dans le dossier. Les dossiers déjà ouverts ne changent pas.
   [FAIT]  Alerte rouge J+7 et décision J+14 vers le manager : faites par le planificateur serveur.
-  [À FAIRE] Checklists selon aide et type de dossier (le cahier les croise aussi avec MPR / CEE / financement,
-          fig. 28 : sources de règle, fusion, conflits), modale fig. 9 complète, relances réellement envoyées.
+  [FAIT]  Checklists selon l'aide et la situation du client (§21.4, fig. 28) : chaque pièce d'une checklist peut n'être demandée
+          que dans certaines SITUATIONS (MaPrimeRénov', prime CEE, financement, propriétaire bailleur, copropriété) ; Paramètres →
+          Documents : pastilles « Demandée seulement si » sous chaque pièce (versionné : changements lisibles et retour
+          arrière). En demandant les documents, le télépro coche la situation du client (proposée d'après les aides du produit) et
+          la liste se recalcule : pièces sans condition toujours là, pièces conditionnelles ajoutées si une de leurs conditions est
+          remplie, pièces obligatoires cochées d'office. Le serveur refuse une pièce conditionnelle dont la situation n'est pas
+          cochée et garde les situations dans la trace de l'appel. 15 tests. NON vérifié dans le navigateur.
+          Limites : une situation par case à cocher (pas de combinaison ET / OU libre, pas de fusion de pièces communes à plusieurs
+          sources ni de détection de contradiction), pas de contraintes par pièce (validité, recto-verso), les dossiers déjà ouverts
+          gardent leurs pièces ; relances réellement envoyées : voir Communications (Lot 6).
   [À FAIRE] Règles Storage (§15.1, §15.2) : la règle publiée sur crm-pose-dev (lue le 9 octobre) est « tout compte
           connecté lit, écrit et supprime tout fichier », sans contrôle de type ni de taille (ce n'est pas le fichier
           storage.rules du dépôt, plus strict). Un fichier prêt à coller existe : firebase/storage.dev.rules (lecture et
@@ -594,9 +647,22 @@ PHASE 5 — Lot 5, pilotage et reporting                                        
   [PARTIEL] Exports : pas d'export Excel natif, pas d'API, pas de PDF généré par le serveur (page imprimable à
           enregistrer en PDF avec l'impression du navigateur). La planification, l'envoi par lien et l'historique
           partagé sont faits (voir plus bas).
-  [À FAIRE] Rapports : filtres équipe, publicité, formulaire, zone, offre, comparaison avec l'année précédente,
-          granularité jour / mois, filtres partageables par URL ; marge BRUTE
-          (pas de coût d'achat en base) ; correction ou exclusion d'un lead avec motif (§22.5) ; coûts importés (CSV, Meta, Google).
+  [FAIT]  Rapports, lot filtres et comparaison (§22.3, §22.12) :
+          - Filtres de périmètre ajoutés : CAMPAGNE, ÉQUIPE (équipe du lead), ZONE (département du code postal), PUBLICITÉ et
+            FORMULAIRE (identifiants d'origine du lead, proposés s'ils existent), en plus de période, source, produit et
+            télépro ; ils s'appliquent à tous les rapports (Direction, Campagnes, Télépros, Documents, Qualité, Rentabilité)
+            et sont restitués dans les exports. Avec un filtre télépro, équipe, zone, publicité ou formulaire, les dépenses
+            ne sont pas attribuables (elles se rattachent à une campagne) : coûts et marges affichés « — », jamais inventés.
+          - COMPARAISON avec l'année précédente (mêmes dates un an plus tôt, 29 février ramené au 28) ou avec la période
+            précédente, sur les cartes du rapport Direction.
+          - GRANULARITÉ de la série dépenses / ventes : jour, semaine ou mois.
+          - FILTRES PARTAGEABLES PAR URL : vue, période, mode de date, tous les filtres, comparaison et pas sont dans
+            l'adresse (lien à copier, sélection conservée au retour d'une fiche).
+          21 tests. NON vérifié dans le navigateur.
+  [À FAIRE] Rapports : filtre OFFRE (pas de champ « offre » distinct du produit sur le lead), comparaison avec l'année
+          précédente dans les autres rapports et dans les alertes (elles comparent toujours à la période précédente), marge
+          BRUTE (pas de coût d'achat en base) ; correction ou exclusion d'un lead avec motif (§22.5) ; coûts importés (CSV,
+          Meta, Google).
 
   [FAIT]  Exports programmés (§22.10, fig. 34), onglet Exports > « Rapports programmés » (administrateur) et
           « Historique » (administrateur : tout ; manager : ses fichiers). Livré en local, non encore déployé :
@@ -664,11 +730,24 @@ PHASE 6 — Sections 23 et 24                                                   
           script (10/10) ; sur le site déployé (22 octobre) : les cinq onglets s'ouvrent sans erreur, le journal et les
           erreurs lisent les vraies traces (dont deux refus anciens de la base de DEV, repérés « critiques » et reprenables).
           Non vérifié sur le site : le clic « Relancer maintenant » (la reprise n'a été exécutée que par script).
-  [PARTIEL] Hub : lecture bornée aux 400 dernières données brutes et 300 dernières transmissions (annoncée à l'écran) ;
-          pas de durée par opération ni de nombre de tentatives de réception (une seule) ; le retour des statuts du
-          CRM principal n'a pas de trace propre (seul le planificateur est suivi) ; pas de tentatives d'un envoi externe
-          (aucun envoi en V1) ; managers sans accès au hub (§24.11 leur ouvre les erreurs métier) ; pas d'alerte critique
-          envoyée aux administrateurs ni remontée dans le cockpit ; pas de « tester la connexion ».
+  [FAIT]  Hub d'intégrations, lot 2 (§24.10, §24.11) :
+          - DURÉE par opération : la fin du traitement d'un lead reçu est désormais consignée (processedAt) ; durée affichée
+            dans le journal (colonne « Durée » et détail) et DÉLAI MOYEN par connecteur. Les traces d'avant ce lot n'ont
+            pas de durée (« — »).
+          - TRACE PROPRE du retour des statuts du CRM principal : le planificateur consigne à chaque passage (cl_config/
+            schedulerStatus.statusReturn) dossiers lus, étapes changées, ventes annulées, durée et erreurs ; affichées sur la
+            carte « CRM principal » ; des erreurs répétées (5 ou plus : critique) alimentent « À surveiller ».
+          - « TESTER LA CONNEXION » au CRM principal (administrateur) : lecture d'un seul dossier, aucune écriture, avec le
+            temps de réponse.
+          - ACCÈS MANAGER : un manager n'a pas le menu Intégrations (§25.2) ; il atteint, depuis le cockpit (lien « Erreurs
+            de transmission au CRM principal »), la liste des transmissions en échec de SON équipe (leads dont il est
+            manager), sans donnée brute, charge utile ni secret ; la reprise se fait sur la fiche du dossier. Les autres
+            écrans du hub (journal, erreurs, sources, transmission) restent à l'administrateur (refus serveur et écran).
+          - ALERTES CRITIQUES DANS LE COCKPIT : planificateur arrêté depuis plus de 15 minutes, retour des statuts en
+            erreur répétée, bandeau rouge en tête du cockpit. 28 tests. NON vérifié dans le navigateur.
+          Limites : lecture bornée aux 400 dernières données brutes et 300 dernières transmissions (annoncée à l'écran) ;
+          une seule tentative de réception par lead ; pas de tentatives d'un envoi externe (aucun envoi en V1) ; pas
+          d'alerte critique envoyée par email aux administrateurs (communications, Lot 6).
   [À FAIRE] Configuration d'un connecteur Meta Lead Ads (fig. 43 : connexion, sources, correspondance des champs, règles et
           activation), messages et SMS / email automatiques, reconnaissance automatique des documents (OCR).
           Le Lot 6 est explicitement hors V1.
@@ -698,7 +777,10 @@ PHASE 6 — Sections 23 et 24                                                   
   [FAIT]    Incident du 8 octobre : toutes les fonctions du site de test répondaient 502 (module ES chargé par
             firebase-admin/auth, incompatible avec le Node 20 de Netlify), réception des leads comprise. Corrigé
             (jetons vérifiés avec « jose »), redéployé, vérifié. Les 9 fonctions se chargent sous la contrainte Node 20.
-  [À FAIRE] Redéployer le site Netlify avec le dernier lot (fonction lead-conversion avec suivi de vente, menus
+  [FAIT]  Site Netlify redéployé (relié à Git : chaque commit redéploie l'application et les fonctions) ; contrôlé le 22 octobre sur
+          la base de DEV : fonctions présentes (401 sans jeton), cockpit, communications, rapports et messages vérifiés. Reste, pour la
+          PRODUCTION, à renseigner les variables ci-dessous (dont EMAILJS_PRIVATE_KEY) sur le site de production. Rappel des
+          variables (lot précédent) : fonction lead-conversion avec suivi de vente, menus
             « Dossiers » et « Ventes », cockpit, reprise des transmissions par le planificateur, parcelle
             automatique, données transmises complétées, redirection /api/pabbly/leads).
             Variables : CL_INGEST_SECRET (ou CRM_SHARED_SECRET), FIREBASE_SERVICE_ACCOUNT_JSON_BASE64, VITE_FIREBASE_*.
@@ -775,7 +857,7 @@ recette sur la base de DEV.
 
   cd Lead
   npm run dev                       application + fonctions sur http://localhost:5180
-  npm test                          les 2076 tests
+  npm test                          les 2177 tests
   node scripts/send-test-leads.mjs --url http://localhost:5180 --secret <CRM_SHARED_SECRET> --count 5
                                     envoie de faux leads (option --scenario mix pour les cas limites)
   node scripts/test-file-tampon.mjs [--keep]

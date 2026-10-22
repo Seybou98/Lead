@@ -38,6 +38,11 @@ export interface RawProfile {
   schedule: { timezone: string; weekly: SlotRaw[]; breaks: SlotRaw[] };
   /** null = valeur par défaut. */
   newLeadsCap: number | null;
+  /** Fig. 21 (absent = valeur par défaut : oui, oui, aucune, non). */
+  reassignable: boolean;
+  recycling: boolean;
+  backupTeamId: string | null;
+  strongAuth: boolean;
 }
 export interface RawTeam {
   productCodes: string[];
@@ -119,6 +124,10 @@ export function useUsersData(): UsersData {
                 breaks: Array.isArray(x.schedule?.breaks) ? x.schedule.breaks : [],
               },
               newLeadsCap: typeof x.capacity?.newLeadsCap === 'number' ? x.capacity.newLeadsCap : null,
+              reassignable: x.reassignable !== false,
+              recycling: x.recycling !== false,
+              backupTeamId: typeof x.backupTeamId === 'string' ? x.backupTeamId : null,
+              strongAuth: x.strongAuth === true,
             });
           });
           setProfiles(p);

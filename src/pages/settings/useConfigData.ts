@@ -48,7 +48,7 @@ export function useConfigData(): ConfigData {
     const unsubs = [
       onSnapshot(collection(db, COL.teams), (s) => { setTeams(s.docs.map((d) => ({ id: d.id, name: String(d.get('name') ?? d.id), active: d.get('active') !== false, productCodes: strs(d.get('productCodes')) }))); done('teams'); }, fail('teams')),
       onSnapshot(collection(db, COL.profiles), (s) => { setProfiles(s.docs.map((d) => ({ uid: d.id, productCodes: strs(d.get('scope')?.productCodes) }))); done('profiles'); }, fail('profiles')),
-      onSnapshot(collection(db, COL.campaigns), (s) => { setCampaigns(s.docs.map((d) => ({ id: d.id, name: String(d.get('name') ?? d.id), status: String(d.get('status') ?? 'draft'), productCode: typeof d.get('productCode') === 'string' ? (d.get('productCode') as string) : null }))); done('campaigns'); }, fail('campaigns')),
+      onSnapshot(collection(db, COL.campaigns), (s) => { setCampaigns(s.docs.map((d) => ({ id: d.id, name: String(d.get('name') ?? d.id), status: String(d.get('status') ?? 'draft'), productCode: typeof d.get('productCode') === 'string' ? (d.get('productCode') as string) : null, zones: Array.isArray(d.get('zones')) ? (d.get('zones') as unknown[]).filter((z): z is string => typeof z === 'string') : [] }))); done('campaigns'); }, fail('campaigns')),
       // Le journal est secondaire : sans lui, les versions et les modifications récentes sont vides, rien d'autre ne casse.
       onSnapshot(
         query(collection(db, COL.audit), orderBy('at', 'desc'), limit(300)),

@@ -130,6 +130,20 @@ describe('planTeamSave', () => {
   });
 });
 
+describe('planProfileUpdate : champs de la fig. 21', () => {
+  const upd = (input: unknown, before: Record<string, unknown> | null = null) => planProfileUpdate({ uid: 'sarah', input, user: user('telepro commercial'), before, actorId: 'admin1', nowMs: NOW });
+  it('un profil neuf est réattribuable, participe au recyclage, sans équipe de secours ni authentification renforcée', () => {
+    expect(upd({ uid: 'sarah', newLeadsCap: 10 }).next).toMatchObject({ reassignable: true, recycling: true, backupTeamId: null, strongAuth: false });
+  });
+  it('les réglages sont enregistrés ; un profil ancien (sans ces champs) est complété sans rien casser', () => {
+    const p = upd({ uid: 'sarah', reassignable: false, backupTeamId: 'team_9', strongAuth: true });
+    expect(p.next).toMatchObject({ reassignable: false, backupTeamId: 'team_9', strongAuth: true, recycling: true });
+    const old = { ...defaultProfile('sarah', new Date(NOW)) } as Record<string, unknown>;
+    delete old.reassignable;
+    expect(upd({ uid: 'sarah', recycling: false }, old).next).toMatchObject({ recycling: false });
+  });
+});
+
 describe('planProfileUpdate', () => {
   const run = (input: unknown, over: Partial<Parameters<typeof planProfileUpdate>[0]> = {}) =>
     planProfileUpdate({ uid: 'sarah', input, user: user('telepro commercial'), before: null, actorId: 'admin1', nowMs: NOW, ...over });

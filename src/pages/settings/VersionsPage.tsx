@@ -5,12 +5,12 @@ import { cn } from '../../lib/utils';
 import { Modal } from '../../components/ui/Modal';
 import { MODULE_LABELS, versionsOf, type VersionEntry, type VersionModule } from '../../domain/settings/versions';
 import { checklistKey } from '../../domain/documents/checklist';
-import { errorMessage, publishQualification, saveChecklist, saveConversion, saveReasons, saveMessages, saveReportsConfig, saveRules, saveSla } from '../../lib/adminApi';
+import { errorMessage, publishQualification, saveChecklist, saveConversion, saveReasons, saveMessages, saveProducts, saveReportsConfig, saveRules, saveSla } from '../../lib/adminApi';
 import { qualificationKey } from '../../domain/admin/plans';
 import { sinceLabel } from '../../domain/cockpit/cockpit';
 import { useConfigData } from './useConfigData';
 
-const MODULES: VersionModule[] = ['sla', 'rules', 'conversion', 'reasons', 'checklist', 'qualification', 'reports', 'messages'];
+const MODULES: VersionModule[] = ['sla', 'rules', 'conversion', 'reasons', 'checklist', 'qualification', 'reports', 'messages', 'products'];
 
 /**
  * Versions & publication (§21.9, fig. 25) : l'historique de chaque réglage et le retour arrière. Un retour arrière ne
@@ -43,6 +43,7 @@ export function VersionsPage() {
       else if (target.module === 'reasons') await saveReasons(input);
       else if (target.module === 'reports') await saveReportsConfig(input);
       else if (target.module === 'messages') await saveMessages(input);
+      else if (target.module === 'products') await saveProducts(input);
       else if (target.module === 'qualification') await publishQualification(input);
       else await saveChecklist(input as never);
       setNotice({ kind: 'ok', text: `Version v${target.number} rétablie : elle devient une nouvelle version, l'historique est conservé.` });

@@ -23,6 +23,8 @@ export interface NavItem {
   href: string;
   icon: NavIconName;
   roles: readonly Role[];
+  /** Accessible par son adresse mais absent du menu (ex. : lien depuis le cockpit). */
+  hidden?: boolean;
 }
 
 export interface NavGroup {
@@ -61,6 +63,8 @@ export const NAVIGATION: NavGroup[] = [
       { name: 'Utilisateurs', href: '/utilisateurs', icon: 'user-cog', roles: ADMIN },
       { name: 'Journal', href: '/journal', icon: 'scroll-text', roles: ADMIN },
       { name: 'Intégrations', href: '/integrations', icon: 'plug', roles: ADMIN },
+      // Le manager n'a pas ce menu (§25.2) : il y accède depuis le cockpit pour les erreurs de transmission de son équipe (§24.11).
+      { name: 'Erreurs de transmission', href: '/integrations', icon: 'plug', roles: ['manager'], hidden: true },
       { name: 'Paramètres', href: '/parametres', icon: 'settings', roles: ADMIN },
     ],
   },
@@ -70,7 +74,7 @@ export const NAVIGATION: NavGroup[] = [
 export function getNavigation(role: Role): NavGroup[] {
   return NAVIGATION.map((group) => ({
     ...group,
-    items: group.items.filter((item) => item.roles.includes(role)),
+    items: group.items.filter((item) => item.roles.includes(role) && !item.hidden),
   })).filter((group) => group.items.length > 0);
 }
 

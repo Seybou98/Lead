@@ -388,6 +388,22 @@ describe('runScheduler — réattribution au SLA', () => {
     expect((db.data.get('cl_profiles/u2')!.load as Doc).newLeads).toBe(1);
     expect(db.data.get('cl_audit/reassign_L1_sla_L1_1')).toMatchObject({ action: 'lead.reassign', actorId: 'engine' });
   });
+  it('télépro « non réattribuable » : ses leads ne sont jamais retirés automatiquement', async () => {
+    const db = setup(on);
+    db.data.set('cl_profiles/u1', { ...db.data.get('cl_profiles/u1'), reassignable: false });
+    expect((await run(db)).slaReassigned).toBe(0);
+    expect(db.data.get('cl_leads/L1')).toMatchObject({ ownerId: 'u1' });
+  });
+  it('équipe de secours du télépro : elle reprend ses leads quand personne d’autre ne peut les prendre', async () => {
+    const db = setup(on);
+    // Le seul autre télépro (u2) est hors de la distribution ; u3, membre de l'équipe de secours de u1, la reprend.
+    db.data.set('cl_profiles/u2', { ...db.data.get('cl_profiles/u2'), distributionSuspended: true });
+    withTelepro(db, 'u3', { teamIds: ['backup'], primaryTeamId: 'backup' });
+    db.data.set('cl_profiles/u1', { ...db.data.get('cl_profiles/u1'), backupTeamId: 'backup' });
+    const r = await run(db);
+    expect(r.slaReassigned).toBe(1);
+    expect(db.data.get('cl_leads/L1')).toMatchObject({ ownerId: 'u3' });
+  });
   it('un second passage ne le réattribue pas aussitôt : le nouveau propriétaire a le même délai', async () => {
     const db = setup(on);
     await run(db);

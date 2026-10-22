@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, FileText, Info, Plus, Trash2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { checklistKey, DEFAULT_CHECKLIST_KEY, MAX_CHECKLIST_ITEMS, MAX_LABEL, parseChecklist, resolveChecklist, validateChecklist, type ChecklistItem } from '../../domain/documents/checklist';
+import { checklistKey, DEFAULT_CHECKLIST_KEY, MAX_CHECKLIST_ITEMS, MAX_LABEL, parseChecklist, resolveChecklist, SITUATION_LABELS, SITUATIONS, validateChecklist, type ChecklistItem, type Situation } from '../../domain/documents/checklist';
 import { reorderList } from '../../domain/admin/reorder';
 import { deleteChecklist, errorMessage, saveChecklist } from '../../lib/adminApi';
 import { useProductCatalog } from '../products/useProductCatalog';
@@ -11,6 +11,8 @@ import { useChecklists } from '../documents/useChecklists';
 interface Row extends Partial<Pick<ChecklistItem, 'code'>> {
   label: string;
   mandatory: boolean;
+  /** Situations du client qui déclenchent la pièce ; vide = toujours demandée. */
+  when?: Situation[];
 }
 
 const fmt = (ms: number | null) => (ms === null ? '' : new Date(ms).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' }));
@@ -48,7 +50,7 @@ export function ChecklistsPage() {
   const loadedFor = `${current.key}:${lists.loading}:${JSON.stringify(own)}`;
   useEffect(() => {
     if (dirty) return;
-    setRows(resolved.items.map((i) => ({ code: i.code, label: i.label, mandatory: i.mandatory })));
+    setRows(resolved.items.map((i) => ({ code: i.code, label: i.label, mandatory: i.mandatory, when: (i.when ?? []) as Situation[] })));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadedFor]);
 
@@ -66,14 +68,14 @@ export function ChecklistsPage() {
     setNotice(null);
   };
 
-  const errors = validateChecklist(rows.map((r) => ({ code: r.code ?? '-', label: r.label, mandatory: r.mandatory })));
+  const errors = validateChecklist(rows.map((r) => ({ code: r.code ?? '-', label: r.label, mandatory: r.mandatory, when: r.when })));
   const inheritedFrom = own ? null : resolved.source === 'default' ? 'la checklist par défaut' : 'la liste d’origine du CRM';
 
   const save = async () => {
     setBusy(true);
     setNotice(null);
     try {
-      await saveChecklist({ productCode: current.key === DEFAULT_CHECKLIST_KEY ? null : current.label, items: rows.map((r) => ({ code: r.code, label: r.label.trim(), mandatory: r.mandatory })) });
+      await saveChecklist({ productCode: current.key === DEFAULT_CHECKLIST_KEY ? null : current.label, items: rows.map((r) => ({ code: r.code, label: r.label.trim(), mandatory: r.mandatory, when: r.when ?? [] })) });
       setDirty(false);
       setNotice({ kind: 'ok', text: `Checklist « ${current.label} » enregistrée. Elle s'applique aux prochaines demandes de documents.` });
     } catch (e) {
@@ -168,6 +170,13 @@ export function ChecklistsPage() {
                   <input type="checkbox" checked={r.mandatory} onChange={(e) => edit(rows.map((x, j) => (j === i ? { ...x, mandatory: e.target.checked } : x)))} className="h-4 w-4 rounded border-slate-300 text-blue-600" />
                   Obligatoire
                 </label>
+                <div className="flex w-full flex-wrap items-center gap-1.5 pl-7 text-xs text-slate-500" role="group" aria-label={`Situations de ${r.label || 'la pièce'}`}>
+                  <span>{(r.when ?? []).length === 0 ? 'Demandée dans tous les cas. Seulement si :' : 'Demandée seulement si :'}</span>
+                  {SITUATIONS.map((s) => {
+                    const on = (r.when ?? []).includes(s);
+                    return <button key={s} type="button" aria-pressed={on} onClick={() => edit(rows.map((x, j) => (j === i ? { ...x, when: on ? (x.when ?? []).filter((w) => w !== s) : [...(x.when ?? []), s] } : x)))} className={cn('rounded-full border px-2 py-0.5', on ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-300 hover:bg-slate-50')}>{SITUATION_LABELS[s]}</button>;
+                  })}
+                </div>
                 <button type="button" aria-label={`Retirer ${r.label || 'la pièce'}`} onClick={() => edit(rows.filter((_, j) => j !== i))} className="rounded-lg p-2 text-slate-400 hover:bg-red-50 hover:text-red-600"><Trash2 className="h-4 w-4" /></button>
               </li>
             ))}

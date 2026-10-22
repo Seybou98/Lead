@@ -4,6 +4,8 @@ import { db } from '../../lib/firebase';
 import { COL } from '../../domain/collections';
 import { catalogOf, DEFAULT_REASON_SETTINGS, parseReasonSettings, type ReasonCatalog, type ReasonSettings } from '../../domain/settings/reasons';
 import { DEFAULT_CONVERSION_SETTINGS, DEFAULT_RULES_SETTINGS, DEFAULT_SLA_SETTINGS, parseConversionSettings, parseRulesSettings, parseSlaOverride, parseSlaSettings, type ConversionSettings, type RulesSettings, type SlaOverride, type SlaSettings } from '../../domain/settings/settings';
+import { parseProductRules, type ProductRule } from '../../domain/products/rules';
+import { DRAFT_MODULES, draftDocId, parseDraft, type Draft, type DraftModule } from '../../domain/settings/publication';
 import { parseMessageTemplates, type MessageTemplate } from '../../domain/messages/templates';
 import { parseReportSettings, DEFAULT_REPORT_SETTINGS, type ReportSettings } from '../../domain/reports/targets';
 import { setSlaRuntime } from '../../domain/leads/leadList';
@@ -24,6 +26,12 @@ export interface SettingsData {
   reports: ReportSettings;
   /** Modèles de message des communications (§24.5) ; les modèles d'origine tant que rien n'est enregistré. */
   messages: MessageTemplate[];
+  /** Périmètre, éligibilité et aides par produit (rien d'enregistré = aucune restriction). */
+  products: ProductRule[];
+  /** Brouillons en préparation (cl_settings/draft_<module>) : jamais lus par le moteur, seulement par les écrans de paramétrage. */
+  drafts: Partial<Record<DraftModule, Draft>>;
+  /** Documents publiés bruts (tels qu'enregistrés) des modules à brouillon : base de comparaison de la publication. */
+  published: Partial<Record<DraftModule, Record<string, unknown>>>;
   /** Règle de réattribution propre à chaque campagne (cl_settings/sla_<campagne>). */
   overrides: Record<string, SlaOverride>;
   /** Un réglage a-t-il déjà été enregistré ? Sinon on montre les valeurs du cahier, non encore choisies. */
@@ -31,7 +39,7 @@ export interface SettingsData {
   updatedAtMs: { sla: number | null; rules: number | null; conversion: number | null; reasons: number | null; reports: number | null };
 }
 
-const EMPTY: SettingsData = { loading: true, error: false, sla: DEFAULT_SLA_SETTINGS, rules: DEFAULT_RULES_SETTINGS, conversion: DEFAULT_CONVERSION_SETTINGS, reasons: DEFAULT_REASON_SETTINGS, reasonCatalog: catalogOf(DEFAULT_REASON_SETTINGS), reports: DEFAULT_REPORT_SETTINGS, messages: parseMessageTemplates(undefined), overrides: {}, saved: { sla: false, rules: false, conversion: false, reasons: false, reports: false, messages: false }, updatedAtMs: { sla: null, rules: null, conversion: null, reasons: null, reports: null } };
+const EMPTY: SettingsData = { loading: true, error: false, sla: DEFAULT_SLA_SETTINGS, rules: DEFAULT_RULES_SETTINGS, conversion: DEFAULT_CONVERSION_SETTINGS, reasons: DEFAULT_REASON_SETTINGS, reasonCatalog: catalogOf(DEFAULT_REASON_SETTINGS), reports: DEFAULT_REPORT_SETTINGS, messages: parseMessageTemplates(undefined), products: [], drafts: {}, published: {}, overrides: {}, saved: { sla: false, rules: false, conversion: false, reasons: false, reports: false, messages: false }, updatedAtMs: { sla: null, rules: null, conversion: null, reasons: null, reports: null } };
 
 /** Réglages d'administration en temps réel (cl_settings), lisibles par tout le personnel. */
 export function useSettings(): SettingsData {
@@ -48,6 +56,14 @@ export function useSettings(): SettingsData {
           const reasonsDoc = byId.get('reasons');
           const reportsDoc = byId.get('reports');
           const messagesDoc = byId.get('messages');
+          const drafts: Partial<Record<DraftModule, Draft>> = {};
+          const published: Partial<Record<DraftModule, Record<string, unknown>>> = {};
+          for (const m of DRAFT_MODULES) {
+            const d = parseDraft(byId.get(draftDocId(m))?.data());
+            if (d) drafts[m] = d;
+            const raw = byId.get(m)?.data();
+            if (raw) published[m] = raw;
+          }
           const reasons = parseReasonSettings(reasonsDoc?.data());
           const overrides: Record<string, SlaOverride> = {};
           for (const d of s.docs) if (d.id.startsWith('sla_')) overrides[d.id.slice(4)] = parseSlaOverride(d.data());
@@ -61,6 +77,9 @@ export function useSettings(): SettingsData {
             reasonCatalog: catalogOf(reasons),
             reports: parseReportSettings(reportsDoc?.data()),
             messages: parseMessageTemplates(messagesDoc?.data()),
+            products: parseProductRules(byId.get('products')?.data()),
+            drafts,
+            published,
             overrides,
             saved: { sla: !!sla, rules: !!rules, conversion: !!conversion, reasons: !!reasonsDoc, reports: !!reportsDoc, messages: !!messagesDoc },
             updatedAtMs: { sla: ms(sla?.get('updatedAt')), rules: ms(rules?.get('updatedAt')), conversion: ms(conversion?.get('updatedAt')), reasons: ms(reasonsDoc?.get('updatedAt')), reports: ms(reportsDoc?.get('updatedAt')) },

@@ -11,6 +11,7 @@ import { ChecklistsPage } from './pages/settings/ChecklistsPage';
 import { SlaHoursPage } from './pages/settings/SlaHoursPage';
 import { ProductsPage } from './pages/settings/ProductsPage';
 import { VersionsPage } from './pages/settings/VersionsPage';
+import { PublishPage } from './pages/settings/PublishPage';
 import { RulesPage } from './pages/settings/RulesPage';
 import { ConversionRulesPage } from './pages/settings/ConversionRulesPage';
 import { ReasonsPage } from './pages/settings/ReasonsPage';
@@ -54,6 +55,13 @@ function Home() {
 function ManagerOnly({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   if (user && user.role === 'telepro') return <Navigate to={homePathForRole(user.role)} replace />;
+  return <>{children}</>;
+}
+
+/** Écrans du hub d'intégrations réservés à l'administrateur : un manager n'a que la liste des erreurs de transmission de son équipe (§24.11). */
+function AdminOnly({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (user && user.role !== 'admin') return <Navigate to="/integrations" replace />;
   return <>{children}</>;
 }
 
@@ -108,16 +116,17 @@ export default function App() {
         <Route path="/utilisateurs/:uid/absence" element={<ManagerOnly><AbsencePage /></ManagerOnly>} />
         <Route path="/utilisateurs/:uid/transfert" element={<ManagerOnly><TransferPage /></ManagerOnly>} />
         <Route path="/integrations" element={<IntegrationsPage />} />
-        <Route path="/integrations/journal" element={<IntegrationJournalPage />} />
-        <Route path="/integrations/erreurs" element={<ErrorsPage />} />
-        <Route path="/integrations/sources" element={<SourcesPage />} />
-        <Route path="/integrations/transmission" element={<TransmissionPage />} />
+        <Route path="/integrations/journal" element={<AdminOnly><IntegrationJournalPage /></AdminOnly>} />
+        <Route path="/integrations/erreurs" element={<AdminOnly><ErrorsPage /></AdminOnly>} />
+        <Route path="/integrations/sources" element={<AdminOnly><SourcesPage /></AdminOnly>} />
+        <Route path="/integrations/transmission" element={<AdminOnly><TransmissionPage /></AdminOnly>} />
         <Route path="/parametres" element={<SettingsHome />} />
         <Route path="/parametres/attribution" element={<AssignmentRulesPage />} />
         <Route path="/parametres/documents" element={<ChecklistsPage />} />
         <Route path="/parametres/sla" element={<SlaHoursPage />} />
         <Route path="/parametres/produits" element={<ProductsPage />} />
         <Route path="/parametres/versions" element={<VersionsPage />} />
+        <Route path="/parametres/publier/:module" element={<PublishPage />} />
         <Route path="/parametres/cycles" element={<RulesPage />} />
         <Route path="/parametres/conversion" element={<ConversionRulesPage />} />
         <Route path="/parametres/motifs" element={<ReasonsPage />} />

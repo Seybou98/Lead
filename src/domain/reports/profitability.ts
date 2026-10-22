@@ -13,7 +13,7 @@
 
 import type { LeadListItem } from '../leads/leadList';
 import { outcomeOf, ratePct, toOutcomeInput } from '../sales/outcome';
-import { MIN_ALERT_VOLUME, scopeLeads, stageHits, type ReportCampaign, type ReportFilters, type ReportSpend } from './direction';
+import { MIN_ALERT_VOLUME, scopeLeads, spendAttributable, stageHits, type ReportCampaign, type ReportFilters, type ReportSpend } from './direction';
 
 export const PROFIT_DIMS = ['campaign', 'source', 'product', 'owner'] as const;
 export type ProfitDim = (typeof PROFIT_DIMS)[number];
@@ -83,7 +83,7 @@ function keyOf(l: LeadListItem, dim: ProfitDim, byId: Map<string, ReportCampaign
 
 /** Dépenses de la période par clé de dimension. null = non attribuables (filtre ou découpage par télépro). */
 function spendByKey(spends: readonly ReportSpend[], campaigns: readonly ReportCampaign[], f: ReportFilters, dim: ProfitDim): Map<string, number> | null {
-  if (f.owner || dim === 'owner') return null;
+  if (!spendAttributable(f) || dim === 'owner') return null;
   const byId = new Map(campaigns.map((c) => [c.id, c]));
   const out = new Map<string, number>();
   for (const sp of spends) {
@@ -154,7 +154,7 @@ export function buildProfitReport(args: { leads: readonly LeadListItem[]; spends
   const spend = spendByKey(args.spends, args.campaigns, f, dim);
   if (spend) for (const [key, cents] of spend) groups.set(key, { ...(groups.get(key) ?? empty()), spendCents: cents });
   // Total : toutes les dépenses du périmètre, quelle que soit la dimension (sauf filtre télépro).
-  const all = f.owner ? null : spendByKey(args.spends, args.campaigns, f, 'campaign');
+  const all = !spendAttributable(f) ? null : spendByKey(args.spends, args.campaigns, f, 'campaign');
   total.spendCents = all && all.size > 0 ? [...all.values()].reduce((s, v) => s + v, 0) : null;
 
   const rows = [...groups.entries()].map(([key, t]) => derive(key, t));

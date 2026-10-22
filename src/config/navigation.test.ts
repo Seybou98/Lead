@@ -66,8 +66,16 @@ describe('accès aux routes', () => {
     for (const role of ROLES) expect(canAccessPath(role, homePathForRole(role))).toBe(true);
   });
 
-  it('chaque href est unique', () => {
-    const hrefs = NAVIGATION.flatMap((g) => g.items.map((i) => i.href));
-    expect(new Set(hrefs).size).toBe(hrefs.length);
+  it('chaque href est unique pour un rôle donné (un href peut être partagé par des rôles différents)', () => {
+    for (const role of ['admin', 'manager', 'telepro'] as const) {
+      const hrefs = NAVIGATION.flatMap((g) => g.items.filter((i) => i.roles.includes(role)).map((i) => i.href));
+      expect(new Set(hrefs).size).toBe(hrefs.length);
+    }
+  });
+  it('manager : accès à Intégrations (erreurs de transmission de son équipe, §24.11) sans entrée de menu', () => {
+    expect(canAccessPath('manager', '/integrations')).toBe(true);
+    expect(getNavigation('manager').flatMap((g) => g.items).some((i) => i.href === '/integrations')).toBe(false);
+    expect(canAccessPath('telepro', '/integrations')).toBe(false);
+    expect(getNavigation('admin').flatMap((g) => g.items).some((i) => i.href === '/integrations')).toBe(true);
   });
 });

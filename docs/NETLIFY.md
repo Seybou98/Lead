@@ -152,6 +152,8 @@ Fonction `netlify/functions/integrations-hub.ts`, adresse `/api/integrations-hub
 - `{ action: 'replay', rawLeadId, overrides?: { phone?, email? } }` : rejoue une donnée brute REFUSÉE (ou jamais traitée depuis plus de
   5 minutes) avec les corrections demandées, sans modifier la donnée d'origine ; une seule reprise par donnée
   (`cl_idempotency/replay_<id>`), marquée `replayedAt/replayedBy/replayLeadId`, tracée dans l'audit.
+- `{ action: 'errors' }` : transmissions au CRM principal en échec. Administrateur : toutes ; **manager** : celles des leads dont il est manager (`managerIds`), sans charge utile.
+- `{ action: 'test' }` (administrateur) : lecture d'un dossier du CRM principal, `{ reachable, ms, message }`, aucune écriture.
 - Codes : 200 · 400 · 401 · 403 · 404 · 405 · 409 (déjà reprise ou en cours) · 422 (toujours refusée) · 500.
 
 ## Alertes du cockpit (clôture, report)

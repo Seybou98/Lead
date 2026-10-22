@@ -5,6 +5,7 @@ import type { LeadListItem } from '../../domain/leads/leadList';
 import { answersToKeep, evaluate, type Answers } from '../../domain/qualification/form';
 import { sendQualification } from '../../lib/qualificationApi';
 import { FormFields } from './FormFields';
+import { ProductReference } from './ProductReference';
 import { usePublishedQualification } from './useQualificationForm';
 
 const STATUS_TEXT = { complete: 'Complète', incomplete: 'Incomplète', blocked: 'Bloquée' } as const;
@@ -36,7 +37,7 @@ export function LeadQualificationCard({ lead, canEdit }: { lead: LeadListItem; c
 
   if (resolved.loading) return <p className="text-sm text-slate-500">Chargement du formulaire…</p>;
   if (!form || !ev) {
-    return <p className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">Aucun formulaire de qualification n’est publié pour {lead.productCode ? `le produit « ${lead.productCode} »` : 'ce lead'}. Il se configure dans Paramètres → Qualification.</p>;
+    return <div><ProductReference lead={lead} /><p className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">Aucun formulaire de qualification n’est publié pour {lead.productCode ? `le produit « ${lead.productCode} »` : 'ce lead'}. Il se configure dans Paramètres → Qualification.</p></div>;
   }
 
   const set = (id: string, v: unknown) => {
@@ -65,6 +66,7 @@ export function LeadQualificationCard({ lead, canEdit }: { lead: LeadListItem; c
   return (
     <div className="grid gap-6 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
       <div>
+        <ProductReference lead={lead} />
         {readOnly && <p className="mb-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">{closed ? 'Ce lead est clôturé : la qualification est en lecture seule.' : 'Seul le propriétaire du lead, son manager ou un administrateur peut renseigner la qualification.'}</p>}
         <FormFields evaluation={ev} onChange={set} disabled={readOnly || busy} />
         {notice && (

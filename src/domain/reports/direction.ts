@@ -13,6 +13,7 @@
 import { CONTACTED_STATUSES } from '../admin/campaignStats';
 import type { LeadListItem } from '../leads/leadList';
 import { outcomeOf, ratePct, toOutcomeInput } from '../sales/outcome';
+import { zoneOf } from './zone';
 
 const DAY = 86_400_000;
 
@@ -28,7 +29,15 @@ export interface ReportFilters {
   campaignId: string;
   product: string;
   owner: string;
+  /** Filtres facultatifs (§22.3) : équipe, zone (département), publicité, formulaire. Une dépense ne s'y rattache pas. */
+  team?: string;
+  zone?: string;
+  ad?: string;
+  form?: string;
 }
+
+/** Une dépense se rattache à une campagne : avec un de ces filtres, le coût n'est pas attribuable (jamais inventé). */
+export const spendAttributable = (f: Pick<ReportFilters, 'owner' | 'team' | 'zone' | 'ad' | 'form'>): boolean => !(f.owner || f.team || f.zone || f.ad || f.form);
 
 export interface ReportCampaign {
   id: string;
@@ -99,13 +108,17 @@ export function stageHits(l: LeadListItem): Record<Stage, StageHit> {
 const inRange = (ms: number, from: number, to: number) => ms >= from && ms < to;
 
 /** Leads retenus par les filtres de périmètre (source, campagne, produit, télépro) ; la période s'applique ensuite, étape par étape. */
-export function scopeLeads(leads: readonly LeadListItem[], f: Pick<ReportFilters, 'sourceId' | 'campaignId' | 'product' | 'owner'>, campaigns: readonly ReportCampaign[]): LeadListItem[] {
+export function scopeLeads(leads: readonly LeadListItem[], f: Pick<ReportFilters, 'sourceId' | 'campaignId' | 'product' | 'owner'> & Partial<Pick<ReportFilters, 'team' | 'zone' | 'ad' | 'form'>>, campaigns: readonly ReportCampaign[]): LeadListItem[] {
   const byId = new Map(campaigns.map((c) => [c.id, c]));
   return leads.filter((l) => {
     if (f.campaignId && l.campaignId !== f.campaignId) return false;
     if (f.sourceId && (l.campaignId === null || byId.get(l.campaignId)?.sourceId !== f.sourceId)) return false;
     if (f.product && l.productCode !== f.product) return false;
     if (f.owner && l.ownerId !== f.owner) return false;
+    if (f.team && l.teamId !== f.team) return false;
+    if (f.zone && zoneOf(l.postalCode) !== f.zone) return false;
+    if (f.ad && l.adId !== f.ad) return false;
+    if (f.form && l.formId !== f.form) return false;
     return true;
   });
 }
@@ -146,7 +159,7 @@ export function countPeriod(leads: readonly LeadListItem[], spends: readonly Rep
 
 function spendOf(spends: readonly ReportSpend[], campaigns: readonly ReportCampaign[], f: ReportFilters, from: number, to: number): number | null {
   // Une dépense se rattache à une campagne, pas à un télépro : filtrer par télépro rend le coût non attribuable.
-  if (f.owner) return null;
+  if (!spendAttributable(f)) return null;
   const byId = new Map(campaigns.map((c) => [c.id, c]));
   const mine = spends.filter((sp) => {
     if (!inRange(sp.atMs, from, to)) return false;
@@ -203,6 +216,8 @@ export interface DirectionReport {
   kpis: DirectionKpis;
   funnel: FunnelStep[];
   weeks: WeekPoint[];
+  /** Pas de la série : jour, semaine ou mois. */
+  granularity: Granularity;
   projection: { salesSoFar: number; projected: number; elapsedDays: number; totalDays: number } | null;
   current: PeriodCounts;
   previous: PeriodCounts;
@@ -219,10 +234,24 @@ export function previousRange(f: Pick<ReportFilters, 'fromMs' | 'toMs'>): { from
   return { fromMs: f.fromMs - len, toMs: f.fromMs };
 }
 
-export function buildDirectionReport(args: { leads: readonly LeadListItem[]; spends: readonly ReportSpend[]; campaigns: readonly ReportCampaign[]; filters: ReportFilters; nowMs: number }): DirectionReport {
+export type CompareMode = 'previous' | 'year';
+export const COMPARE_LABELS: Record<CompareMode, string> = { previous: 'Période précédente', year: 'Même période, année précédente' };
+
+export type Granularity = 'day' | 'week' | 'month';
+export const GRANULARITY_LABELS: Record<Granularity, string> = { day: 'Jour', week: 'Semaine', month: 'Mois' };
+
+/** Même période un an plus tôt (mêmes dates du calendrier, 29 février ramené au 28). */
+export function yearAgoRange(f: Pick<ReportFilters, 'fromMs' | 'toMs'>): { fromMs: number; toMs: number } {
+  const back = (ms: number) => { const d = new Date(ms); const day = d.getDate(); d.setDate(1); d.setFullYear(d.getFullYear() - 1); d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate())); return d.getTime(); };
+  return { fromMs: back(f.fromMs), toMs: back(f.toMs) };
+}
+
+export const compareRange = (f: Pick<ReportFilters, 'fromMs' | 'toMs'>, mode: CompareMode): { fromMs: number; toMs: number } => (mode === 'year' ? yearAgoRange(f) : previousRange(f));
+
+export function buildDirectionReport(args: { leads: readonly LeadListItem[]; spends: readonly ReportSpend[]; campaigns: readonly ReportCampaign[]; filters: ReportFilters; nowMs: number; compare?: CompareMode; granularity?: Granularity }): DirectionReport {
   const { filters: f, nowMs } = args;
   const leads = scopeLeads(args.leads, f, args.campaigns);
-  const prevR = previousRange(f);
+  const prevR = compareRange(f, args.compare ?? 'previous');
   const cur = countPeriod(leads, args.spends, args.campaigns, f, f.fromMs, f.toMs);
   const prev = countPeriod(leads, args.spends, args.campaigns, f, prevR.fromMs, prevR.toMs);
 
@@ -245,16 +274,17 @@ export function buildDirectionReport(args: { leads: readonly LeadListItem[]; spe
     passage: i === 0 ? null : ratePct(cur.counts[stage], cur.counts[STAGES[i - 1]]),
   }));
 
-  // Série par semaine (lundi), dépenses à leur date, ventes à leur date de mode.
+  // Série par jour, semaine (lundi) ou mois, dépenses à leur date, ventes à leur date de mode.
+  const gran = args.granularity ?? 'week';
   const weeks: WeekPoint[] = [];
-  const monday = (ms: number) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.getTime(); };
-  for (let w = monday(f.fromMs); w < f.toMs; ) {
-    const next = new Date(w); next.setDate(next.getDate() + 7);
-    const from = Math.max(w, f.fromMs);
-    const to = Math.min(next.getTime(), f.toMs);
-    const part = countPeriod(leads, args.spends, args.campaigns, f, from, to);
-    weeks.push({ startMs: w, label: new Date(w).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Paris' }), spendCents: part.spendCents ?? 0, sales: part.counts.sales });
-    w = next.getTime();
+  const startOf = (ms: number) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); if (gran === 'week') d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); if (gran === 'month') d.setDate(1); return d.getTime(); };
+  const stepFrom = (ms: number) => { const d = new Date(ms); if (gran === 'month') d.setMonth(d.getMonth() + 1); else d.setDate(d.getDate() + (gran === 'week' ? 7 : 1)); return d.getTime(); };
+  const labelOf = (ms: number) => new Date(ms).toLocaleDateString('fr-FR', gran === 'month' ? { month: '2-digit', year: '2-digit', timeZone: 'Europe/Paris' } : { day: '2-digit', month: '2-digit', timeZone: 'Europe/Paris' });
+  for (let w = startOf(f.fromMs); w < f.toMs && weeks.length < 400; ) {
+    const next = stepFrom(w);
+    const part = countPeriod(leads, args.spends, args.campaigns, f, Math.max(w, f.fromMs), Math.min(next, f.toMs));
+    weeks.push({ startMs: w, label: labelOf(w), spendCents: part.spendCents ?? 0, sales: part.counts.sales });
+    w = next;
   }
 
   const covers = nowMs >= f.fromMs && nowMs < f.toMs;
@@ -262,7 +292,7 @@ export function buildDirectionReport(args: { leads: readonly LeadListItem[]; spe
   const totalDays = Math.max(1, Math.round((f.toMs - f.fromMs) / DAY));
   const projection = covers ? { salesSoFar: cur.counts.sales, projected: Math.round((cur.counts.sales / elapsedDays) * totalDays), elapsedDays, totalDays } : null;
 
-  return { kpis, funnel, weeks, projection, current: cur, previous: prev, previousRange: prevR, minVolume: MIN_ALERT_VOLUME };
+  return { kpis, funnel, weeks, granularity: gran, projection, current: cur, previous: prev, previousRange: prevR, minVolume: MIN_ALERT_VOLUME };
 }
 
 /** CSV du rapport : cartes et entonnoir, dans le mode affiché. */
