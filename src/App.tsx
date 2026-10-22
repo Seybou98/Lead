@@ -14,6 +14,8 @@ import { VersionsPage } from './pages/settings/VersionsPage';
 import { RulesPage } from './pages/settings/RulesPage';
 import { ConversionRulesPage } from './pages/settings/ConversionRulesPage';
 import { ReasonsPage } from './pages/settings/ReasonsPage';
+import { ObjectivesPage } from './pages/settings/ObjectivesPage';
+import { QualificationBuilderPage } from './pages/qualification/QualificationBuilderPage';
 import { CockpitPage } from './pages/cockpit/CockpitPage';
 import { TeamPage } from './pages/cockpit/TeamPage';
 import { TelecallerPage } from './pages/portfolio/TelecallerPage';
@@ -105,6 +107,8 @@ export default function App() {
         <Route path="/parametres/cycles" element={<RulesPage />} />
         <Route path="/parametres/conversion" element={<ConversionRulesPage />} />
         <Route path="/parametres/motifs" element={<ReasonsPage />} />
+        <Route path="/parametres/objectifs" element={<ObjectivesPage />} />
+        <Route path="/parametres/qualification" element={<QualificationBuilderPage />} />
         <Route path="/parametres/*" element={page('Paramètres', 'SLA, horaires, NR, checklists, motifs — versionnés.', '§14, §21', 'Phase 2 / 5')} />
         <Route path="/journal" element={<JournalPage />} />
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { AdminRuleError, planChecklistSave, planReasonsSave, planRulesSave, planSlaOverrideSave, planSlaSave } from './plans';
+import { AdminRuleError, planChecklistSave, planQualificationDiscard, planQualificationDraftSave, planQualificationPublish, planReasonsSave, planReportsSave, planRulesSave, qualificationKey, planSlaOverrideSave, planSlaSave } from './plans';
 import { versionsOf, type AuditRow } from '../settings/versions';
+import { blankField, type QualificationForm } from '../qualification/form';
 import { toStored, DEFAULT_REASON_SETTINGS } from '../settings/reasons';
 import { DEFAULT_RULES_SETTINGS, DEFAULT_SLA_SETTINGS } from '../settings/settings';
 
@@ -121,5 +122,94 @@ describe('retour arrière : une version rétablie repasse par la validation et r
     const versions = versionsOf([audited(v1, 'a', 1), audited(v2, 'b', 2)], 'checklist', 'pac');
     const back = planChecklistSave({ input: versions[1].payload, before: v2.doc, actorId: 'adm', nowMs: NOW + 2 });
     expect((back.doc.items as { label: string }[]).map((i) => i.label)).toEqual(['Identité']);
+  });
+});
+
+describe('constructeur de qualification : brouillon, publication, abandon', () => {
+  const form = (over: Partial<QualificationForm> = {}): QualificationForm => ({ fields: [{ ...blankField('yesno', 'q_owner'), label: 'Êtes-vous propriétaire ?', required: true }], rules: [], ...over });
+  const asDoc = (d: Record<string, unknown>) => JSON.parse(JSON.stringify(d)) as Record<string, unknown>;
+  const args = (input: unknown, before: Record<string, unknown> | null = null) => ({ input, before, actorId: 'adm', nowMs: NOW });
+
+  it('clé du document : une famille = un formulaire, « default » à défaut', () => {
+    expect(qualificationKey(null)).toBe('qualification_default');
+    expect(qualificationKey('PAC')).toBe('qualification_pac');
+  });
+  it('brouillon : accepté même avec des anomalies, sans toucher à la version publiée', () => {
+    const broken = form({ rules: [{ id: 'r_1', match: 'all', clauses: [], action: 'show', targets: ['q_fantome'], message: '', eligibility: null, compute: null }] });
+    const p = planQualificationDraftSave(args({ productCode: 'PAC', form: broken }));
+    expect(p.key).toBe('qualification_pac');
+    expect(p.audit).toMatchObject({ action: 'qualification.draft', entityType: 'settings', entityId: 'qualification_pac' });
+    expect((p.doc.draft as QualificationForm).rules).toHaveLength(1);
+    expect(p.doc.published).toBeNull();
+    expect(p.doc.version).toBe(0);
+  });
+  it('brouillon sans formulaire : refusé', () => {
+    expect(refusal(() => planQualificationDraftSave(args({ productCode: null }))).code).toBe('invalid-argument');
+  });
+  it('publication : nouvelle version, brouillon vidé, ancien formulaire conservé dans le journal', () => {
+    const draft = planQualificationDraftSave(args({ productCode: 'PAC', form: form() })).doc;
+    const p1 = planQualificationPublish(args({ productCode: 'PAC', reason: 'première version' }, asDoc(draft)));
+    expect(p1.doc).toMatchObject({ version: 1, draft: null, publishedBy: 'adm' });
+    expect(p1.audit).toMatchObject({ action: 'qualification.publish', reason: 'première version' });
+    const next = form({ fields: [...form().fields, { ...blankField('text', 'q_note'), label: 'Remarque' }] });
+    const p2 = planQualificationPublish(args({ productCode: 'PAC', form: next }, asDoc(p1.doc)));
+    expect(p2.doc.version).toBe(2);
+    expect((p2.audit.before as { published: QualificationForm }).published.fields).toHaveLength(1);
+    expect((p2.audit.after as { published: QualificationForm }).published.fields).toHaveLength(2);
+  });
+  it('publication refusée : aucun brouillon, formulaire vide, anomalie bloquante', () => {
+    expect(refusal(() => planQualificationPublish(args({ productCode: null }))).code).toBe('failed-precondition');
+    expect(refusal(() => planQualificationPublish(args({ productCode: null, form: form({ fields: [] }) }))).message).toMatch(/aucun champ/i);
+    const circular = form({ fields: [{ ...blankField('yesno', 'q_a'), label: 'Champ A' }], rules: [{ id: 'r_1', match: 'all', clauses: [{ fieldId: 'q_a', op: 'eq', value: true }], action: 'show', targets: ['q_a'], message: '', eligibility: null, compute: null }] });
+    const r = refusal(() => planQualificationPublish(args({ productCode: null, form: circular })));
+    expect(r.code).toBe('failed-precondition');
+    expect(r.message).toMatch(/Publication refusée/);
+  });
+  it('retour arrière : republier un ancien formulaire crée une NOUVELLE version', () => {
+    const v1 = planQualificationPublish(args({ productCode: null, form: form() })).doc;
+    const v2 = planQualificationPublish(args({ productCode: null, form: form({ fields: [{ ...blankField('text', 'q_x'), label: 'Autre champ' }] }) }, asDoc(v1))).doc;
+    const back = planQualificationPublish(args({ productCode: null, form: form() }, asDoc(v2)));
+    expect(back.doc.version).toBe(3);
+  });
+  it('abandon du brouillon : seulement s’il existe', () => {
+    expect(refusal(() => planQualificationDiscard(args({ productCode: null }))).code).toBe('not-found');
+    const withDraft = asDoc(planQualificationDraftSave(args({ productCode: null, form: form() })).doc);
+    const d = planQualificationDiscard(args({ productCode: null }, withDraft));
+    expect(d.doc.draft).toBeNull();
+    expect(d.audit.action).toBe('qualification.discard');
+  });
+});
+
+describe('planReportsSave : objectifs et alertes KPI', () => {
+  const alert = (over: Record<string, unknown> = {}) => ({ id: 'a_1', metric: 'costPerSale', mode: 'value', op: 'gt', threshold: 500, minVolume: 10, days: 7, level: 'warning', active: true, ...over });
+  const objective = (over: Record<string, unknown> = {}) => ({ id: 'o_1', month: '2026-10', scope: 'global', scopeId: '', metric: 'sales', target: 40, active: true, ...over });
+  const save = (input: unknown, before: Record<string, unknown> | null = null) => planReportsSave({ input, before, actorId: 'adm', nowMs: NOW });
+
+  it('enregistre alertes et objectifs, avec audit', () => {
+    const p = save({ alerts: [alert()], objectives: [objective()], reason: 'Cibles d’octobre' });
+    expect(p.doc).toMatchObject({ alerts: [{ id: 'a_1', threshold: 500, minVolume: 10 }], objectives: [{ id: 'o_1', target: 40 }], updatedBy: 'adm' });
+    expect(p.audit).toMatchObject({ action: 'settings.reports.create', entityType: 'settings', entityId: 'reports', reason: 'Cibles d’octobre' });
+    expect(save({ alerts: [], objectives: [] }, p.doc as Record<string, unknown>).audit.action).toBe('settings.reports.update');
+  });
+  it('liste d’alertes vide : acceptée (l’administrateur peut tout désactiver)', () => {
+    expect((save({ alerts: [], objectives: [] }).doc as { alerts: unknown[] }).alerts).toEqual([]);
+  });
+  it('refus : seuil, volume, cible, périmètre, doublon, coût par télépro', () => {
+    const bad: Record<string, unknown>[] = [
+      { alerts: [alert({ threshold: 'x' })], objectives: [] },
+      { alerts: [alert({ minVolume: -3 })], objectives: [] },
+      { alerts: [alert(), alert()], objectives: [] },
+      { alerts: [], objectives: [objective({ target: 0 })] },
+      { alerts: [], objectives: [objective({ scope: 'campaign' })] },
+      { alerts: [], objectives: [objective(), objective({ id: 'o_2' })] },
+      { alerts: [], objectives: [objective({ metric: 'costPerSale', scope: 'owner', scopeId: 'u1', target: 400 })] },
+    ];
+    for (const b of bad) expect(refusal(() => save(b)).code).toBe('invalid-argument');
+  });
+  it('un retour arrière rejoue la valeur enregistrée (versions et journal)', () => {
+    const v1 = save({ alerts: [alert()], objectives: [objective()] });
+    const v2 = save({ alerts: [alert({ threshold: 450 })], objectives: [] }, JSON.parse(JSON.stringify(v1.doc)));
+    const back = save(JSON.parse(JSON.stringify(v1.doc)), JSON.parse(JSON.stringify(v2.doc)));
+    expect(back.doc).toMatchObject({ alerts: [{ threshold: 500 }], objectives: [{ id: 'o_1' }] });
   });
 });

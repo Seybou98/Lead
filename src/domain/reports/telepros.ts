@@ -67,7 +67,7 @@ interface SlaTally {
   respected: number;
 }
 
-function slaTally(leads: readonly LeadListItem[], f: ReportFilters, nowMs: number, slaMs: number, elapsed: (fromMs: number, toMs: number) => number): SlaTally {
+export function slaTally(leads: readonly LeadListItem[], f: Pick<ReportFilters, 'fromMs' | 'toMs'>, nowMs: number, slaMs: number, elapsed: (fromMs: number, toMs: number) => number): SlaTally {
   const t = { measured: 0, respected: 0 };
   for (const l of leads) {
     if (l.duplicate || l.excluded || l.status === 'fake_lead') continue;

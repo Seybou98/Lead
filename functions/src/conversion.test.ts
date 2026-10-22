@@ -296,3 +296,59 @@ describe('toStoredValidation', () => {
     expect(v).toMatchObject({ state: 'pending', requestedAtMs: 5, requestedBy: 'u1', fingerprint: 'f' });
   });
 });
+
+describe('applyConversionAction — verrou « qualification complète » (Paramètres → Qualification)', () => {
+  const form = (): Doc => ({
+    published: {
+      fields: [
+        { id: 'q_heating', type: 'list', label: 'Chauffage actuel', help: '', required: true, blocking: false, options: [{ value: 'fuel', label: 'Fioul' }, { value: 'gas', label: 'Gaz' }], defaultValue: null, min: null, max: null, expected: null, products: [] },
+        { id: 'q_cons', type: 'number', label: 'Consommation annuelle', help: '', required: true, blocking: false, options: [], defaultValue: null, min: null, max: null, expected: null, products: [] },
+      ],
+      rules: [{ id: 'r_cons', match: 'all', clauses: [{ fieldId: 'q_heating', op: 'eq', value: 'fuel' }], action: 'show', targets: ['q_cons'], message: '', eligibility: null, compute: null }],
+    },
+    version: 2,
+  });
+  it('sans formulaire publié : aucun effet sur la vente', async () => {
+    const db = seed();
+    await saveDraft(db);
+    expect(await run(db, args())).toMatchObject({ ok: true, status: 'transmitting' });
+  });
+  it('formulaire publié non rempli : la vente est refusée et dit ce qui manque', async () => {
+    const db = seed();
+    db.data.set('cl_settings/qualification_pac', form());
+    await saveDraft(db);
+    const r = await run(db, args());
+    expect(r).toMatchObject({ ok: false, code: 'unavailable' });
+    expect(r.ok ? '' : r.message).toContain('Chauffage actuel');
+    expect(db.data.has('cl_sales/L1')).toBe(false);
+  });
+  it('formulaire par défaut : s’applique à un produit sans formulaire propre', async () => {
+    const db = seed();
+    db.data.set('cl_settings/qualification_default', form());
+    await saveDraft(db);
+    expect((await run(db, args())).ok).toBe(false);
+  });
+  it('réponses complètes : la vente passe ; un champ masqué n’est pas exigé', async () => {
+    const db = seed();
+    db.data.set('cl_settings/qualification_pac', form());
+    (db.data.get('cl_leads/L1') as Doc).qualificationForm = { answers: { q_heating: 'gas' } };
+    await saveDraft(db);
+    expect(await run(db, args())).toMatchObject({ ok: true, status: 'transmitting' });
+  });
+  it('chauffage au fioul : la consommation devient exigée', async () => {
+    const db = seed();
+    db.data.set('cl_settings/qualification_pac', form());
+    (db.data.get('cl_leads/L1') as Doc).qualificationForm = { answers: { q_heating: 'fuel' } };
+    await saveDraft(db);
+    const r = await run(db, args());
+    expect(r.ok ? '' : r.message).toContain('Consommation annuelle');
+    (db.data.get('cl_leads/L1') as Doc).qualificationForm = { answers: { q_heating: 'fuel', q_cons: 18000 } };
+    expect((await run(db, args())).ok).toBe(true);
+  });
+  it('un brouillon non publié n’a aucun effet', async () => {
+    const db = seed();
+    db.data.set('cl_settings/qualification_pac', { draft: form().published, published: null, version: 0 });
+    await saveDraft(db);
+    expect((await run(db, args())).ok).toBe(true);
+  });
+});

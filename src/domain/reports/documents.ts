@@ -103,6 +103,11 @@ const median = (xs: number[]): number | null => {
 };
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
+/** Dossiers en attente de pièces ou d'informations dont la dernière demande date de plus de N jours (photographie actuelle). */
+export function waitingDossiers(live: readonly LeadListItem[], nowMs: number, blockDays: number): LeadListItem[] {
+  return live.filter((l) => (l.status === 'awaiting_documents' || l.status === 'missing_info') && l.docs?.lastRequestAtMs != null && l.docs.lastRequestAtMs < nowMs - blockDays * DAY);
+}
+
 export function buildDocumentsReport(args: { leads: readonly LeadListItem[]; campaigns: readonly ReportCampaign[]; filters: ReportFilters; nowMs: number; blockDays?: number }): DocumentsReport {
   const f = args.filters;
   const blockDays = args.blockDays ?? 7;
@@ -135,7 +140,7 @@ export function buildDocumentsReport(args: { leads: readonly LeadListItem[]; cam
 
   // Goulots : photographie actuelle des dossiers du périmètre (pas limitée à la période).
   const live = scoped.filter((l) => valid(l) && !CLOSED_LEAD_STATUSES.includes(l.status));
-  const waiting = live.filter((l) => (l.status === 'awaiting_documents' || l.status === 'missing_info') && l.docs?.lastRequestAtMs != null && l.docs.lastRequestAtMs < args.nowMs - blockDays * DAY);
+  const waiting = waitingDossiers(live, args.nowMs, blockDays);
   const mountWait = live.filter((l) => l.status === 'file_ready_to_build' && l.docs?.completedAtMs != null && l.docs.completedAtMs < args.nowMs - MOUNT_WAIT_MS);
 
   // Non-conformités en cours sur les dossiers demandés de la période.

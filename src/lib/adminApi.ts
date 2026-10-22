@@ -4,7 +4,7 @@
 import { httpsCallable } from 'firebase/functions';
 import { functions } from './firebase';
 import { resolveWriteMode } from './adminErrors';
-import { deleteChecklistDirect, deleteSlaOverrideDirect, saveConversionDirect, saveReasonsDirect, saveRulesDirect, saveSlaDirect, saveSlaOverrideDirect, saveAssignmentConfigDirect, saveChecklistDirect, saveCampaignDirect, saveProfileDirect, saveSourceDirect, saveSpendDirect, saveTeamDirect } from './adminWrites';
+import { deleteChecklistDirect, deleteSlaOverrideDirect, discardQualificationDraftDirect, publishQualificationDirect, saveQualificationDraftDirect, saveConversionDirect, saveReasonsDirect, saveReportsConfigDirect, logReportExportDirect, saveRulesDirect, saveSlaDirect, saveSlaOverrideDirect, saveAssignmentConfigDirect, saveChecklistDirect, saveCampaignDirect, saveProfileDirect, saveSourceDirect, saveSpendDirect, saveTeamDirect } from './adminWrites';
 
 export interface AdminResult {
   ok: true;
@@ -126,5 +126,10 @@ export const saveSla = (input: unknown): Promise<AdminResult> => saveSlaDirect(i
 export const saveRules = (input: unknown): Promise<AdminResult> => saveRulesDirect(input);
 export const saveConversion = (input: unknown): Promise<AdminResult> => saveConversionDirect(input);
 export const saveReasons = (input: unknown): Promise<AdminResult> => saveReasonsDirect(input);
+export const logReportExport = (entry: Parameters<typeof logReportExportDirect>[0]): Promise<AdminResult> => logReportExportDirect(entry);
+export const saveReportsConfig = (input: unknown): Promise<AdminResult> => saveReportsConfigDirect(input);
+export const saveQualificationDraft = (input: unknown): Promise<AdminResult> => saveQualificationDraftDirect(input);
+export const publishQualification = (input: unknown): Promise<AdminResult> => publishQualificationDirect(input);
+export const discardQualificationDraft = (input: unknown): Promise<AdminResult> => discardQualificationDraftDirect(input);
 export const saveSlaOverride = (input: unknown): Promise<AdminResult> => saveSlaOverrideDirect(input);
 export const deleteSlaOverride = (campaignId: string): Promise<AdminResult> => deleteSlaOverrideDirect(campaignId);

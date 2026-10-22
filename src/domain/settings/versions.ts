@@ -4,12 +4,14 @@
 // version (équivalente à l'ancienne), elle-même tracée. Fonctions pures.
 
 import { REASON_LIST_LABELS, type ReasonList } from './reasons';
+import { diffForms, normalizeForm } from '../qualification/form';
+import { ALERT_METRIC_DEFS, OBJECTIVE_METRIC_LABELS, OBJECTIVE_SCOPE_LABELS, parseReportSettings, ruleText, type AlertMetric } from '../reports/targets';
 import { formatWeeklySchedule } from '../admin/scheduleFormat';
 import { formatDelay, OUTSIDE_HOURS_LABELS, type OutsideHours } from './settings';
 
-export type VersionModule = 'sla' | 'rules' | 'conversion' | 'reasons' | 'checklist';
+export type VersionModule = 'sla' | 'rules' | 'conversion' | 'reasons' | 'checklist' | 'qualification' | 'reports';
 
-export const MODULE_LABELS: Record<VersionModule, string> = { sla: 'SLA et horaires', rules: 'Cycles NR, rappels et documents', conversion: 'Verrous de conversion', reasons: 'Motifs et listes', checklist: 'Checklists documentaires' };
+export const MODULE_LABELS: Record<VersionModule, string> = { sla: 'SLA et horaires', rules: 'Cycles NR, rappels et documents', conversion: 'Verrous de conversion', reasons: 'Motifs et listes', checklist: 'Checklists documentaires', qualification: 'Formulaires de qualification', reports: 'Objectifs et alertes KPI' };
 
 /** Une ligne du journal d'audit (cl_audit), telle que lue. */
 export interface AuditRow {
@@ -52,6 +54,9 @@ export function moduleOf(row: Pick<AuditRow, 'entityType' | 'entityId' | 'action
   if (row.entityType === 'settings' && row.entityId === 'rules') return 'rules';
   if (row.entityType === 'settings' && row.entityId === 'conversion') return 'conversion';
   if (row.entityType === 'settings' && row.entityId === 'reasons') return 'reasons';
+  if (row.entityType === 'settings' && row.entityId === 'reports') return 'reports';
+  // Seules les publications sont des versions : un brouillon n'affecte aucun lead.
+  if (row.entityType === 'settings' && row.entityId.startsWith('qualification_') && row.action === 'qualification.publish') return 'qualification';
   if (row.entityType === 'checklist') return 'checklist';
   return null;
 }
@@ -118,6 +123,38 @@ export function describeChanges(module: VersionModule, beforeRaw: unknown, after
     line('Alerte « rappel non effectué »', before.callbackEscalationMin, after.callbackEscalationMin, min);
     line('Alerte « lead non attribué »', before.bufferWarnMin, after.bufferWarnMin, min);
     line('Anomalie « non attribué »', before.bufferAnomalyHours, after.bufferAnomalyHours, (v) => `${v} h`);
+  } else if (module === 'reports') {
+    const b = parseReportSettings(before.alerts === undefined && before.objectives === undefined ? undefined : before);
+    const a = parseReportSettings(after);
+    const bAlerts = new Map(b.alerts.map((x) => [x.id, x]));
+    const aAlerts = new Map(a.alerts.map((x) => [x.id, x]));
+    const name = (m: AlertMetric) => ALERT_METRIC_DEFS[m].label;
+    for (const r of a.alerts) {
+      const o = bAlerts.get(r.id);
+      if (!o) out.push(`Alerte ajoutée : ${ruleText(r)}`);
+      else if (!same(o, r)) out.push(`Alerte modifiée (${name(r.metric)}) : ${ruleText(r)}${o.active !== r.active ? (r.active ? ' — activée' : ' — désactivée') : ''}`);
+    }
+    for (const r of b.alerts) if (!aAlerts.has(r.id)) out.push(`Alerte retirée : ${name(r.metric)}`);
+    const bObj = new Map(b.objectives.map((x) => [x.id, x]));
+    const aObj = new Map(a.objectives.map((x) => [x.id, x]));
+    const objText = (o: (typeof a.objectives)[number]) => `${OBJECTIVE_METRIC_LABELS[o.metric]} ${o.month} (${OBJECTIVE_SCOPE_LABELS[o.scope]}${o.scopeId ? ` ${o.scopeId}` : ''}) : ${o.target}${o.metric === 'costPerSale' ? ' €' : ''}`;
+    for (const o of a.objectives) {
+      const p = bObj.get(o.id);
+      if (!p) out.push(`Objectif ajouté : ${objText(o)}`);
+      else if (!same(p, o)) out.push(`Objectif modifié : ${objText(o)}${p.active !== o.active ? (o.active ? ' — activé' : ' — désactivé') : ''}`);
+    }
+    for (const o of b.objectives) if (!aObj.has(o.id)) out.push(`Objectif retiré : ${objText(o)}`);
+    if (first && out.length === 0) out.push('Objectifs et alertes enregistrés');
+  } else if (module === 'qualification') {
+    const prev = before.published ? normalizeForm(before.published) : null;
+    const d = diffForms(prev, normalizeForm(after.published));
+    for (const f of d.addedFields) out.push(`Champ ajouté : ${f.label}${f.required ? ' (obligatoire)' : ''}`);
+    for (const f of d.removedFields) out.push(`Champ retiré : ${f.label}`);
+    for (const c of d.changedFields) out.push(`${c.label} : ${c.what.join(', ')}`);
+    for (const r of d.addedRules) out.push(`Condition ajoutée (${r.id.slice(2)})`);
+    for (const r of d.removedRules) out.push(`Condition retirée (${r.id.slice(2)})`);
+    for (const r of d.changedRules) out.push(`Condition modifiée (${r.id.slice(2)})`);
+    if (!first && out.length === 0 && !same(prev?.fields.map((f) => f.id), normalizeForm(after.published).fields.map((f) => f.id))) out.push('Ordre des champs modifié');
   } else {
     const items = (r: Record<string, unknown>) => arr(r.items).map((i) => rec(i));
     const b = items(before);
@@ -143,6 +180,7 @@ export function describeChanges(module: VersionModule, beforeRaw: unknown, after
 function payloadOf(module: VersionModule, after: unknown): Record<string, unknown> | null {
   if (after === null || after === undefined) return null;
   const a = rec(after);
+  if (module === 'qualification') return { productCode: typeof a.productCode === 'string' ? a.productCode : null, form: a.published ?? null };
   if (module === 'checklist') return { productCode: typeof a.productCode === 'string' ? a.productCode : null, items: arr(a.items).map((i) => ({ code: rec(i).code, label: rec(i).label, mandatory: rec(i).mandatory === true })) };
   const { updatedAt: _u, updatedBy: _b, createdAt: _c, ...rest } = a;
   void _u; void _b; void _c;

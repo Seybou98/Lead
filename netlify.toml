@@ -72,6 +72,13 @@
   status = 200
   force = true
 
+# Réponses au formulaire de qualification d'un lead (propriétaire, manager, administrateur) : jeton Firebase.
+[[redirects]]
+  from = "/api/lead-qualification"
+  to = "/.netlify/functions/lead-qualification"
+  status = 200
+  force = true
+
 # Déclenchement manuel du planificateur (administrateur) : jeton Firebase.
 [[redirects]]
   from = "/api/scheduler-run"

@@ -10,6 +10,9 @@ import { FieldValue, type DocumentData, type Firestore } from 'firebase-admin/fi
 import { COL, SUB } from '../../src/domain/collections';
 import type { Role } from '../../src/domain/enums';
 import { loadConversionRules } from './settings';
+import { readPublishedForm } from './qualificationForm';
+import { qualificationKey } from '../../src/domain/admin/plans';
+import { qualificationGaps } from '../../src/domain/qualification/form';
 import { sanitizeDraft, type MontageDraft } from '../../src/domain/conversion/montage';
 import { noValidation, planConversionAction, type ConversionActionInput, type StoredValidation } from '../../src/domain/conversion/plan';
 
@@ -95,6 +98,14 @@ export async function applyConversionAction(db: Firestore, args: ConversionArgs)
     const campaignName = campaignId ? ((await tx.get(db.collection(COL.campaigns).doc(campaignId))).get('name') as string | undefined) ?? null : null;
     const draft: MontageDraft | null = draftSnap.exists ? sanitizeDraft(draftSnap.data()) : null;
     const validation = toStoredValidation(validationSnap.data());
+    // Verrou « qualification complète » : le formulaire publié du produit, rempli par le télépro (Paramètres → Qualification).
+    const productCode: string | null = typeof lead.productCode === 'string' && lead.productCode ? lead.productCode : null;
+    const qKeys = productCode ? [qualificationKey(productCode), qualificationKey(null)] : [qualificationKey(null)];
+    const qSnaps = await Promise.all(qKeys.map((k) => tx.get(db.collection(COL.settings).doc(k))));
+    const qByKey = new Map(qKeys.map((k, i) => [k, qSnaps[i].exists ? (qSnaps[i].data() as Record<string, unknown>) : undefined]));
+    const publishedForm = await readPublishedForm(async (k) => qByKey.get(k), productCode);
+    const qAnswers = lead.qualificationForm && typeof lead.qualificationForm.answers === 'object' && lead.qualificationForm.answers ? (lead.qualificationForm.answers as Record<string, unknown>) : {};
+    const qualificationMissing = qualificationGaps(publishedForm?.form ?? null, qAnswers, productCode);
     const seq = counterSnap ? Number(counterSnap.get('n') ?? 0) + 1 : 0;
 
     const result = planConversionAction(args.input, {
@@ -111,7 +122,7 @@ export async function applyConversionAction(db: Firestore, args: ConversionArgs)
       draft,
       // « Validé avec réserve » : une pièce conforme portant `reserve: true` (réglage à venir côté documents).
       docs: { mandatory: mandatory.length, mandatoryConform: conform.length, withReserve: conform.filter((s) => s.get('reserve') === true).length },
-      qualificationMissing: [],
+      qualificationMissing,
       validation,
       nextSaleSeq: seq,
       actorId: args.uid,

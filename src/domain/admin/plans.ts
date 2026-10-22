@@ -8,6 +8,8 @@
 // les dates sont des `Date` (les deux SDK les convertissent en Timestamp à l'écriture).
 
 import { coerceReasonInput, toStored, validateReasonSettings } from '../settings/reasons';
+import { coerceReportInput, toStoredReports, validateReportSettings } from '../reports/targets';
+import { errorsOf, normalizeForm, validateForm, type QualificationForm } from '../qualification/form';
 import { coerceConversionInput, coerceRulesInput, coerceSlaInput, effectiveSla, parseSlaOverride, validateConversionSettings, validateRulesSettings, validateSlaSettings, type SlaSettings } from '../settings/settings';
 import { checklistKey, DEFAULT_CHECKLIST_KEY, slugCode, validateChecklist } from '../documents/checklist';
 import { resolveLeadRole } from '../../config/roles';
@@ -505,4 +507,79 @@ export function planReasonsSave(args: { input: unknown; before: Doc | null; acto
   if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
   const doc: Doc = { ...toStored(s), updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
   return { doc, audit: { action: args.before ? 'settings.reasons.update' : 'settings.reasons.create', entityType: 'settings', entityId: 'reasons', before: args.before, after: doc, reason: reasonOf(asRecord(args.input)) } };
+}
+
+// ── Constructeur de qualification (§21.3, §21.9) ─────────────────────────────
+
+/** Clé du document de réglage : une famille de produit = un formulaire, comme les checklists. */
+export const qualificationKey = (productCode: string | null | undefined): string => `qualification_${checklistKey(productCode)}`;
+
+const formOf = (v: unknown): QualificationForm | null => (v && typeof v === 'object' ? normalizeForm(v) : null);
+
+function qualificationBase(args: { input: unknown; before: Doc | null; actorId: string; nowMs: number }) {
+  const data = asRecord(args.input);
+  const productCode = typeof data.productCode === 'string' && data.productCode.trim() ? data.productCode.trim().slice(0, 80) : null;
+  const key = qualificationKey(productCode);
+  const b = args.before ?? {};
+  const now = new Date(args.nowMs);
+  return {
+    data,
+    key,
+    base: {
+      id: key,
+      productCode: key === qualificationKey(null) ? null : productCode,
+      draft: formOf(b.draft),
+      published: formOf(b.published),
+      version: typeof b.version === 'number' ? b.version : 0,
+      publishedAt: b.publishedAt ?? null,
+      publishedBy: b.publishedBy ?? null,
+      createdAt: b.createdAt ?? now,
+      updatedAt: now,
+      updatedBy: args.actorId,
+    } as Doc,
+  };
+}
+
+/** Enregistre le brouillon. Un brouillon peut contenir des erreurs : seules la structure et les tailles sont contrôlées. */
+export function planQualificationDraftSave(args: { input: unknown; before: Doc | null; actorId: string; nowMs: number }): { key: string; doc: Doc; audit: AuditDraft } {
+  const { data, key, base } = qualificationBase(args);
+  if (!data.form || typeof data.form !== 'object') throw new AdminRuleError('invalid-argument', 'Formulaire manquant.');
+  const doc: Doc = { ...base, draft: normalizeForm(data.form) };
+  return { key, doc, audit: { action: 'qualification.draft', entityType: 'settings', entityId: key, before: args.before, after: doc, reason: reasonOf(data) } };
+}
+
+/**
+ * Publie le brouillon (ou le formulaire fourni, pour un retour arrière) : nouvelle version, jamais de destruction.
+ * Toute erreur bloque la publication ; les avertissements l'accompagnent.
+ */
+export function planQualificationPublish(args: { input: unknown; before: Doc | null; actorId: string; nowMs: number }): { key: string; doc: Doc; audit: AuditDraft; warnings: string[] } {
+  const { data, key, base } = qualificationBase(args);
+  const form = data.form && typeof data.form === 'object' ? normalizeForm(data.form) : (base.draft as QualificationForm | null);
+  if (!form) throw new AdminRuleError('failed-precondition', 'Aucun brouillon à publier.');
+  const issues = validateForm(form);
+  const errors = errorsOf(issues);
+  if (form.fields.length === 0) throw new AdminRuleError('failed-precondition', 'Le formulaire ne contient aucun champ : rien à publier.');
+  if (errors.length > 0) throw new AdminRuleError('failed-precondition', `Publication refusée (${errors.length} erreur${errors.length > 1 ? 's' : ''}) : ${errors[0].message}`);
+  const version = (base.version as number) + 1;
+  const doc: Doc = { ...base, published: form, draft: null, version, publishedAt: new Date(args.nowMs), publishedBy: args.actorId };
+  return { key, doc, warnings: issues.filter((i) => i.level === 'warning').map((i) => i.message), audit: { action: 'qualification.publish', entityType: 'settings', entityId: key, before: args.before, after: doc, reason: reasonOf(data) } };
+}
+
+/** Abandonne le brouillon : on revient au formulaire publié. */
+export function planQualificationDiscard(args: { input: unknown; before: Doc | null; actorId: string; nowMs: number }): { key: string; doc: Doc; audit: AuditDraft } {
+  const { data, key, base } = qualificationBase(args);
+  if (!args.before || !base.draft) throw new AdminRuleError('not-found', 'Aucun brouillon à abandonner.');
+  const doc: Doc = { ...base, draft: null };
+  return { key, doc, audit: { action: 'qualification.discard', entityType: 'settings', entityId: key, before: args.before, after: doc, reason: reasonOf(data) } };
+}
+
+// ── Objectifs et alertes KPI (§22.8) ─────────────────────────────────────────
+
+/** Objectifs par mois et périmètre, seuils d'alerte avec volume minimum : un seul document `cl_settings/reports`. */
+export function planReportsSave(args: { input: unknown; before: Doc | null; actorId: string; nowMs: number }): { doc: Doc; audit: AuditDraft } {
+  const s = coerceReportInput(args.input);
+  const errors = validateReportSettings(s);
+  if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
+  const doc: Doc = { ...toStoredReports(s), updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
+  return { doc, audit: { action: args.before ? 'settings.reports.update' : 'settings.reports.create', entityType: 'settings', entityId: 'reports', before: args.before, after: doc, reason: reasonOf(asRecord(args.input)) } };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAlerts, buildDirectionReport, countPeriod, directionRows, previousRange, scopeLeads, stageHits, stagePopulation, type ReportCampaign, type ReportFilters, type ReportSpend } from './direction';
+import { buildDirectionReport, countPeriod, directionRows, previousRange, scopeLeads, stageHits, stagePopulation, type ReportCampaign, type ReportFilters, type ReportSpend } from './direction';
 import type { LeadListItem } from '../leads/leadList';
 
 const DAY = 86_400_000;
@@ -144,33 +144,6 @@ describe('série hebdomadaire', () => {
     expect(r.weeks.length).toBeGreaterThanOrEqual(4);
     expect(r.weeks.reduce((s, w) => s + w.spendCents, 0)).toBe(12_000);
     expect(r.weeks.reduce((s, w) => s + w.sales, 0)).toBe(1);
-  });
-});
-
-describe('alertes (seuil ET volume minimum, §22.8)', () => {
-  const k = (cps: number | null, cpl: number | null = null, contact: number | null = null) => ({ costPerSaleCents: { value: 1, previous: 1, delta: cps, deltaUnit: '%' as const }, costPerLeadCents: { value: 1, previous: 1, delta: cpl, deltaUnit: '%' as const }, contactRate: { value: 1, previous: 1, delta: contact, deltaUnit: 'pts' as const } }) as never;
-  const counts = (valid: number, sales: number, extra: Record<string, number> = {}) => ({ counts: { received: valid, valid, contacted: valid, interested: 0, docsRequested: 0, docsComplete: 0, mounted: 0, sales, ...extra }, cancelled: 0, installed: 0, invoiced: 0, spendCents: 1 }) as never;
-  it('coût par vente en hausse de 20 % ou plus avec assez de ventes : critique', () => {
-    const a = buildAlerts(counts(50, 5), counts(50, 5), k(32));
-    expect(a[0]).toMatchObject({ id: 'cost-per-sale', level: 'critical', title: 'Coût par vente +32 %' });
-  });
-  it('trop peu de ventes : pas d’alerte, même au-delà du seuil', () => {
-    expect(buildAlerts(counts(50, 2), counts(50, 2), k(80)).map((x) => x.id)).toEqual(['ok']);
-  });
-  it('coût par lead et taux de contact : volume minimum de leads valides', () => {
-    expect(buildAlerts(counts(20, 0), counts(20, 0), k(null, 40, -15)).map((x) => x.id)).toEqual(['cpl', 'contact']);
-    expect(buildAlerts(counts(5, 0), counts(20, 0), k(null, 40, -15)).map((x) => x.id)).toEqual(['ok']);
-  });
-  it('documents demandés → complets en baisse', () => {
-    const a = buildAlerts(counts(20, 0, { docsRequested: 20, docsComplete: 5 }), counts(20, 0, { docsRequested: 20, docsComplete: 15 }), k(null));
-    expect(a.map((x) => x.id)).toEqual(['docs']);
-  });
-  it('ventes annulées élevées', () => {
-    const cur = { ...(counts(20, 4) as object), cancelled: 2 } as never;
-    expect(buildAlerts(cur, counts(20, 4), k(null)).map((x) => x.id)).toEqual(['cancelled']);
-  });
-  it('rien à signaler : une ligne verte', () => {
-    expect(buildAlerts(counts(20, 5), counts(20, 5), k(0, 0, 0))[0]).toMatchObject({ id: 'ok', level: 'ok' });
   });
 });
 

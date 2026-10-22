@@ -199,18 +199,10 @@ export interface WeekPoint {
   sales: number;
 }
 
-export interface ReportAlert {
-  id: string;
-  level: 'critical' | 'warning' | 'ok';
-  title: string;
-  detail: string;
-}
-
 export interface DirectionReport {
   kpis: DirectionKpis;
   funnel: FunnelStep[];
   weeks: WeekPoint[];
-  alerts: ReportAlert[];
   projection: { salesSoFar: number; projected: number; elapsedDays: number; totalDays: number } | null;
   current: PeriodCounts;
   previous: PeriodCounts;
@@ -221,7 +213,6 @@ export interface DirectionReport {
 }
 
 export const MIN_ALERT_VOLUME = 10;
-export const MIN_ALERT_SALES = 3;
 
 export function previousRange(f: Pick<ReportFilters, 'fromMs' | 'toMs'>): { fromMs: number; toMs: number } {
   const len = f.toMs - f.fromMs;
@@ -266,39 +257,12 @@ export function buildDirectionReport(args: { leads: readonly LeadListItem[]; spe
     w = next.getTime();
   }
 
-  const alerts = buildAlerts(cur, prev, kpis);
-
   const covers = nowMs >= f.fromMs && nowMs < f.toMs;
   const elapsedDays = Math.max(1, Math.ceil((Math.min(nowMs, f.toMs) - f.fromMs) / DAY));
   const totalDays = Math.max(1, Math.round((f.toMs - f.fromMs) / DAY));
   const projection = covers ? { salesSoFar: cur.counts.sales, projected: Math.round((cur.counts.sales / elapsedDays) * totalDays), elapsedDays, totalDays } : null;
 
-  return { kpis, funnel, weeks, alerts, projection, current: cur, previous: prev, previousRange: prevR, minVolume: MIN_ALERT_VOLUME };
-}
-
-/** Alertes statistiques : seuil ET volume minimum, pour ne pas crier au loup sur trois leads (§22.8). */
-export function buildAlerts(cur: PeriodCounts, prev: PeriodCounts, k: DirectionKpis): ReportAlert[] {
-  const out: ReportAlert[] = [];
-  const enough = cur.counts.valid >= MIN_ALERT_VOLUME && prev.counts.valid >= MIN_ALERT_VOLUME;
-
-  const cps = k.costPerSaleCents;
-  if (cps.delta !== null && cps.delta >= 20 && cur.counts.sales >= MIN_ALERT_SALES && prev.counts.sales >= MIN_ALERT_SALES) {
-    out.push({ id: 'cost-per-sale', level: 'critical', title: `Coût par vente +${String(cps.delta).replace('.', ',')} %`, detail: `Sur ${cur.counts.sales} ventes, contre ${prev.counts.sales} la période précédente.` });
-  }
-  const cpl = k.costPerLeadCents;
-  if (cpl.delta !== null && cpl.delta >= 25 && enough) out.push({ id: 'cpl', level: 'warning', title: `Coût par lead valide +${String(cpl.delta).replace('.', ',')} %`, detail: `Sur ${cur.counts.valid} leads valides.` });
-  const cr = k.contactRate;
-  if (cr.delta !== null && cr.delta <= -10 && enough) out.push({ id: 'contact', level: 'warning', title: `Taux de contact ${String(cr.delta).replace('.', ',')} pts`, detail: `${cur.counts.contacted} contactés sur ${cur.counts.valid} leads valides.` });
-  const reqNow = ratePct(cur.counts.docsComplete, cur.counts.docsRequested);
-  const reqPrev = ratePct(prev.counts.docsComplete, prev.counts.docsRequested);
-  if (reqNow !== null && reqPrev !== null && reqNow - reqPrev <= -10 && cur.counts.docsRequested >= MIN_ALERT_VOLUME && prev.counts.docsRequested >= MIN_ALERT_VOLUME) {
-    out.push({ id: 'docs', level: 'warning', title: 'Documents demandés → complets en baisse', detail: `${String(reqNow).replace('.', ',')} % contre ${String(reqPrev).replace('.', ',')} % (${cur.counts.docsComplete} sur ${cur.counts.docsRequested}).` });
-  }
-  const sold = cur.counts.sales + cur.cancelled;
-  if (sold >= 5 && cur.cancelled / sold >= 0.2) out.push({ id: 'cancelled', level: 'critical', title: 'Ventes annulées élevées', detail: `${cur.cancelled} annulée${cur.cancelled > 1 ? 's' : ''} sur ${sold} ventes créées.` });
-
-  if (out.length === 0) out.push({ id: 'ok', level: 'ok', title: 'Aucune alerte', detail: `Volume minimal : ${MIN_ALERT_VOLUME} leads valides sur chaque période comparée.` });
-  return out;
+  return { kpis, funnel, weeks, projection, current: cur, previous: prev, previousRange: prevR, minVolume: MIN_ALERT_VOLUME };
 }
 
 /** CSV du rapport : cartes et entonnoir, dans le mode affiché. */

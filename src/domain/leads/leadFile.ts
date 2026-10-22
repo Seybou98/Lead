@@ -218,6 +218,8 @@ export function eventToTimeline(e: EventInput, users: ReadonlyMap<string, string
       return { ...base, kind: 'alert', title: 'Alerte', detail: e.note ?? reasonText };
     case 'field_corrected':
       return { ...base, kind: 'other', title: 'Donnée corrigée', detail: e.reason ? `Motif : ${e.reason}` : null };
+    case 'qualification':
+      return { ...base, kind: 'other', title: 'Qualification', detail: e.note ?? null };
     case 'conversion':
       return { ...base, kind: 'other', title: 'Conversion', detail: e.note ?? null };
     case 'exception':

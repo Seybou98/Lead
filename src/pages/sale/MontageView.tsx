@@ -11,6 +11,7 @@ import { EuroField, Field, inputCls, LevelIcon, SaleCard } from './saleUi';
 import { useArticles, type SaleData, type SaleLead } from './useSaleData';
 import { useParcelAuto } from './useParcelAuto';
 import { useSettings } from '../settings/useSettings';
+import { useQualificationGaps } from '../qualification/useQualificationGaps';
 import { formatParcelCadastrale } from '../../domain/conversion/parcel';
 
 const HOUSING = ['Maison individuelle', 'Appartement', 'Autre'];
@@ -35,6 +36,7 @@ export function MontageView({ leadId, lead, data, canAct }: { leadId: string; le
   const [message, setMessage] = useState('');
   const [confirming, setConfirming] = useState(false);
   const { conversion: rules } = useSettings();
+  const qualificationMissing = useQualificationGaps(lead.productCode, lead.qualificationAnswers);
   const { articles, loading: articlesLoading } = useArticles(lead.productCode);
   const parcel = useParcelAuto({ street: draft.identity.addressLine, postalCode: draft.identity.postalCode, city: draft.identity.city });
 
@@ -51,7 +53,7 @@ export function MontageView({ leadId, lead, data, canAct }: { leadId: string; le
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [parcel.parcelId, canAct]);
 
-  const report = useMemo(() => evaluateControls({ lead: { consent: lead.consent, productCode: lead.productCode }, draft, docs: lead.docs, qualificationMissing: [], rules: rules }), [draft, lead, rules]);
+  const report = useMemo(() => evaluateControls({ lead: { consent: lead.consent, productCode: lead.productCode }, draft, docs: lead.docs, qualificationMissing: qualificationMissing, rules: rules }), [draft, lead, rules, qualificationMissing]);
   const validation = data.validation;
   const lock = lockReason(report, validation);
   const creatable = canCreateSale(report, validation) && !dirty;

@@ -5,11 +5,12 @@ import { cn } from '../../lib/utils';
 import { Modal } from '../../components/ui/Modal';
 import { MODULE_LABELS, versionsOf, type VersionEntry, type VersionModule } from '../../domain/settings/versions';
 import { checklistKey } from '../../domain/documents/checklist';
-import { errorMessage, saveChecklist, saveConversion, saveReasons, saveRules, saveSla } from '../../lib/adminApi';
+import { errorMessage, publishQualification, saveChecklist, saveConversion, saveReasons, saveReportsConfig, saveRules, saveSla } from '../../lib/adminApi';
+import { qualificationKey } from '../../domain/admin/plans';
 import { sinceLabel } from '../../domain/cockpit/cockpit';
 import { useConfigData } from './useConfigData';
 
-const MODULES: VersionModule[] = ['sla', 'rules', 'conversion', 'reasons', 'checklist'];
+const MODULES: VersionModule[] = ['sla', 'rules', 'conversion', 'reasons', 'checklist', 'qualification', 'reports'];
 
 /**
  * Versions & publication (§21.9, fig. 25) : l'historique de chaque réglage et le retour arrière. Un retour arrière ne
@@ -26,7 +27,7 @@ export function VersionsPage() {
 
   const families = useMemo(() => [...new Set([...data.coverage.map((c) => checklistKey(c.product)), 'default', ...data.audit.filter((a) => a.entityType === 'checklist').map((a) => a.entityId)])], [data.coverage, data.audit]);
   const labelOf = (key: string) => (key === 'default' ? 'Par défaut' : (data.coverage.find((c) => checklistKey(c.product) === key)?.product ?? key));
-  const versions = useMemo(() => versionsOf(data.audit, module, module === 'checklist' ? (subject || undefined) : undefined), [data.audit, module, subject]);
+  const versions = useMemo(() => versionsOf(data.audit, module, module === 'checklist' || module === 'qualification' ? (subject || undefined) : undefined), [data.audit, module, subject]);
   const nameOf = (uid: string) => data.userNames.get(uid) ?? (uid === 'engine' ? 'Moteur' : 'Administrateur');
   const now = Date.now();
 
@@ -40,6 +41,8 @@ export function VersionsPage() {
       else if (target.module === 'rules') await saveRules(input);
       else if (target.module === 'conversion') await saveConversion(input);
       else if (target.module === 'reasons') await saveReasons(input);
+      else if (target.module === 'reports') await saveReportsConfig(input);
+      else if (target.module === 'qualification') await publishQualification(input);
       else await saveChecklist(input as never);
       setNotice({ kind: 'ok', text: `Version v${target.number} rétablie : elle devient une nouvelle version, l'historique est conservé.` });
       setTarget(null);
@@ -62,12 +65,12 @@ export function VersionsPage() {
 
       <div className="mt-5 flex flex-wrap items-center gap-2" role="tablist" aria-label="Modules">
         {MODULES.map((m) => (
-          <button key={m} type="button" role="tab" aria-selected={module === m} onClick={() => { setModule(m); setNotice(null); }} className={cn('rounded-full border px-4 py-1.5 text-sm font-medium', module === m ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>{MODULE_LABELS[m]}</button>
+          <button key={m} type="button" role="tab" aria-selected={module === m} onClick={() => { setModule(m); setSubject(''); setNotice(null); }} className={cn('rounded-full border px-4 py-1.5 text-sm font-medium', module === m ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50')}>{MODULE_LABELS[m]}</button>
         ))}
-        {module === 'checklist' && (
+        {(module === 'checklist' || module === 'qualification') && (
           <select aria-label="Famille de produit" value={subject} onChange={(e) => setSubject(e.target.value)} className="ml-2 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm">
             <option value="">Toutes les familles</option>
-            {families.map((k) => <option key={k} value={k}>{labelOf(k)}</option>)}
+            {families.map((k) => <option key={k} value={module === 'qualification' ? qualificationKey(k === 'default' ? null : k) : k}>{labelOf(k)}</option>)}
           </select>
         )}
       </div>
@@ -87,7 +90,7 @@ export function VersionsPage() {
               <li key={v.id} className="flex flex-wrap items-start justify-between gap-4 px-5 py-4">
                 <div className="min-w-0 flex-1">
                   <p className="flex flex-wrap items-center gap-2 text-sm">
-                    <span className="font-semibold text-slate-900">v{v.number}{module === 'checklist' ? ` — ${labelOf(v.subject)}` : ''}</span>
+                    <span className="font-semibold text-slate-900">v{v.number}{module === 'checklist' ? ` — ${labelOf(v.subject)}` : module === 'qualification' ? ` — ${labelOf(v.subject.replace(/^qualification_/, ''))}` : ''}</span>
                     {v.current && <span className="rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">En vigueur</span>}
                     {v.deleted && <span className="rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">Suppression</span>}
                     <span className="text-slate-500">{new Date(v.atMs).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })} · {nameOf(v.actorId)} · il y a {sinceLabel(v.atMs, now)}</span>

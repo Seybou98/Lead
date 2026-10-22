@@ -1,5 +1,5 @@
 CRM LEADS — LABEL ÉNERGIE
-Plan d'exécution et état d'avancement (mis à jour le 8 octobre 2026, fin de journée)
+Plan d'exécution et état d'avancement (mis à jour le 22 octobre 2026)
 
 Source : « Cahier des charges CRM Leads Label Énergie V1 » (82 pages, §1 à §25) et ses maquettes
 (Lead/maquette/*.pdf, Lead/figure*.png). Ce document suit l'avancement par rapport au cahier.
@@ -33,11 +33,11 @@ Ce qui fonctionne aujourd'hui, de bout en bout, sur la base de DEV (crm-pose-dev
   - le manager pilote : cockpit, équipe, réattribution, absences, transfert de portefeuille ; un planificateur
     serveur (toutes les 5 minutes) escalade, recycle, attribue la file tampon et reprend les transmissions en échec.
 
-Ce qui reste : les autres rapports (exports programmés, objectifs, rentabilité),
-le constructeur de qualification, les communications (SMS, email, WhatsApp), la partie de la vente à distance qui dépend de prestataires (contrat PDF, signature électronique,
+Ce qui reste : les rapports de rentabilité et les exports programmés (planification et diffusion),
+les communications (SMS, email, WhatsApp), la partie de la vente à distance qui dépend de prestataires (contrat PDF, signature électronique,
 financement), le hub d'intégrations, les règles Storage, la mise en production, puis le Lot 6 (hors V1).
 
-Qualité : 1623 tests unitaires (79 fichiers) ; typecheck de l'application, des fonctions Netlify et des
+Qualité : 1774 tests unitaires (85 fichiers) ; typecheck de l'application, des fonctions Netlify et des
 fonctions Firebase ; build de production OK ; Lead compile, se construit et se teste seul, copié hors du projet.
 Recettes réelles sur la base de DEV : 28/28 (fonctions serveur), 34/34 (montage et vente), 29/29 (transmission
 avec Storage et IGN réels), 31/31 (données transmises et suivi de la vente), 16/16 (retour des statuts), 4/4 (verrous de conversion réglés), 13/13 (file tampon et réattribution
@@ -79,6 +79,7 @@ d'intégrations, règles UX) sont reprises dans les phases ci-dessous.
       /api/reassign-lead      réattribution manuelle
       /api/portfolio          absences et transferts de portefeuille
       /api/lead-conversion    montage, validation manager, vente, transmission, suivi de la vente
+      /api/lead-qualification réponses au formulaire de qualification d'un lead
       /api/scheduler-run      passage manuel du planificateur (le planificateur tourne aussi seul, toutes les 5 min)
   - Développement local : `npm run dev` suffit (un plugin de dev sert /api/* avec les mêmes fonctions).
   - Le CRM Leads se déploie SEUL : tout ce qui est repris du CRM principal est copié dans Lead/ (jamais importé).
@@ -183,7 +184,25 @@ PHASE 1 — Lot 1, socle                                                        
   [FAIT]  Versions & publication : historique de chaque réglage (SLA et horaires, cycles NR, checklists) avec
           numéro de version, auteur, date, motif et ce qui a changé ; retour arrière qui crée une NOUVELLE
           version équivalente (rien n'est détruit), avec rappel du périmètre touché.
-  [À FAIRE] Constructeur de qualification conditionnelle (fig. 27), éligibilité et aides par produit, offres
+  [FAIT]  Constructeur de qualification conditionnelle (§21.3, fig. 27), Paramètres → Qualification : un formulaire par
+          famille de produit (plus un formulaire par défaut). 11 types de champ (texte, nombre, montant, date/heure,
+          oui/non, liste, choix multiple, adresse, surface, document, confirmation) ; libellé, aide, ordre, valeur par
+          défaut, produits concernés, obligatoire, bloquant, bornes, réponse attendue. Conditions SI (tous / au moins un
+          critère) ALORS afficher, masquer, rendre obligatoire, calculer (somme, différence, produit, quotient), alerter ou
+          changer l'éligibilité. Cycle Brouillon → Prévisualiser / Tester (données fictives, avec les conditions
+          déclenchées) → Impact (écart avec la version publiée, champs devenus obligatoires) → Publier. La publication
+          est refusée pour : champ obligatoire jamais affichable, référence circulaire, condition qui ne peut jamais être
+          vraie, variable ou cible inconnue, choix en double, calcul non numérique. Chaque publication crée une version ;
+          l'historique et le retour arrière (nouvelle version équivalente) sont dans Versions & publication.
+          Remplissage : onglet « Qualification » de la fiche lead, contrôlé par le serveur contre le formulaire publié
+          (/api/lead-qualification) ; réponses, version du formulaire, statut (complète / incomplète / bloquée),
+          éligibilité et alertes conservés sur le lead. Le verrou de conversion « Projet & logement » exige les champs
+          obligatoires et bloquants du formulaire publié (serveur et aperçu des contrôles, même calcul).
+  [PARTIEL] Qualification : sans formulaire publié pour un produit, rien n'est exigé. Un lead déjà qualifié avec une
+          ancienne version est évalué contre la version en vigueur (la stratégie « conserver, migrer ou choisir » par lead
+          n'existe pas). Pas de glisser-déposer (ajout par clic, ordre par flèches), pas de test d'impact sur les leads
+          actifs (comptage), pas d'offres combinées avec fusion, pas de modèle de formulaire par campagne.
+  [À FAIRE] Éligibilité et aides par produit, offres
           combinées avec fusion et contradictions (fig. 28, partie fusion), workflows et statuts éditables,
           règles de conversion avec test et impact (fig. 29, avec le lot
           Conversion), communications versionnées.
@@ -194,6 +213,17 @@ PHASE 1 — Lot 1, socle                                                        
           dans les historiques et rapports) ; les valeurs d'origine ne disparaissent jamais et gardent leur code.
           Le navigateur et les fonctions serveur lisent les mêmes listes ; versions et retour arrière comme les
           autres réglages. Non vérifié en navigateur avec une vraie connexion.
+  [FAIT]  Objectifs et alertes KPI (§22.8, fig. 34), Paramètres → Objectifs & alertes KPI (cl_settings/reports) :
+          - Alertes : indicateur (coût par vente, coût par lead valide, taux de contact, leads exclus, SLA respecté,
+            documents → complet, ventes annulées, dossiers bloqués), seuil sur la VALEUR ou sur la VARIATION par rapport à
+            la période précédente (en % pour un coût, en points pour un taux), sens (>, ≥, <, ≤), VOLUME MINIMUM sous lequel
+            elle ne se déclenche jamais (et, en variation, sur les deux périodes), gravité, activation. Les cinq alertes
+            qu'appliquait le rapport Direction sont les valeurs d'origine ; l'administrateur peut les modifier, les
+            retirer ou en ajouter (ex. « coût par vente > 500 € ET au moins 10 ventes »).
+          - Objectifs : par mois, pour tous les leads, une campagne, un télépro ou un produit ; contacts, documents
+            demandés, dossiers complets, ventes (à atteindre) et coût par vente (à ne pas dépasser). Pas de coût par télépro
+            (une dépense ne s'y rattache pas). Pas d'objectif d'équipe, de valeur ni de marge (aucune donnée).
+          - Versions et retour arrière comme les autres réglages (module « Objectifs et alertes KPI »).
   [PARTIEL] Pas de cycle Brouillon → Test → Impact → Publication : un réglage enregistré est appliqué
           immédiatement aux prochains leads, appels et relances ; l'historique et le retour arrière sont là,
           pas la mise en brouillon ni la simulation sur un lead fictif. Les 300 derniers enregistrements du
@@ -425,19 +455,22 @@ PHASE 5 — Lot 5, pilotage et reporting                                        
             ventes, coût par vente, chacun avec sa variation vs la période précédente (même durée, juste avant) et sa
             définition en infobulle ; entonnoir reçus > valides > contactés > intéressés > documents demandés >
             documents complets > dossiers montés > ventes, chaque segment ouvrant la liste exacte (même total) ;
-            dépenses et ventes par semaine ; points d'attention (coût par vente, coût par lead, taux de contact,
-            documents, ventes annulées) avec seuil ET volume minimum (10 leads valides, 3 ventes) ; projection
-            mensuelle au rythme observé, signalée comme estimation ; export CSV.
+            dépenses et ventes par semaine ; points d'attention issus des alertes réglables (voir Paramètres →
+            Objectifs & alertes KPI), avec la valeur mesurée, le seuil, le volume et, quand c'est possible, un bouton
+            « Ouvrir » vers la liste des leads ou des dossiers concernés ; « Objectifs du mois » (jauges : réalisé, cible,
+            part du mois écoulée, estimation de fin de mois) quand la période est un mois civil ; projection mensuelle au
+            rythme observé, signalée comme estimation ; export CSV.
           - Modes « date d'événement » et « cohorte d'acquisition » (§22.2), toujours affichés ; en événement les
             taux de passage ne sont pas montrés (ils dépasseraient 100 %).
           - Performance des campagnes (fig. 31) : données corrigées ou brutes (§22.5), cartes, tableau (leads bruts et
             valides, CPL, contact, documents, ventes, installées, coût par vente), coût par vente par campagne,
-            panneau de la campagne (budget et dépenses, qualité des données, parcours) ; export CSV.
+            colonne « Objectif ventes » (réalisé / cible du mois), panneau de la campagne (budget et dépenses, qualité
+            des données, parcours) ; export CSV.
           - Comparaison des télépros (fig. 32) : leads valides attribués, SLA respecté (hors horaires non compté si le
             réglage le demande), contact, documents demandés / complets, ventes, lead → vente ; ratios du §22.6 avec
             leur volume, « volume faible » sous 10 leads valides, nuage taux / volume, fiche du télépro (entonnoir et
-            taux de passage), chaque nombre ouvrant la liste exacte ; export CSV. Non couvert : jours travaillés,
-            absences individuelles, objectifs (aucune donnée).
+            taux de passage), colonne « Objectif » (ventes du mois, réalisé / cible) quand un objectif est fixé, chaque
+            nombre ouvrant la liste exacte ; export CSV. Non couvert : jours travaillés, absences individuelles.
           - Performance documentaire et délais (fig. 33) : dossiers demandés, pièce reçue, complets, montés avec taux de
             passage, délai médian de complétude, relances moyennes, abandon documentaire, délais par étape (médiane
             et nombre de dossiers), goulots (en attente de pièces au-delà de 3, 5, 7 ou 14 jours ; complets en attente
@@ -452,16 +485,48 @@ PHASE 5 — Lot 5, pilotage et reporting                                        
             lead, opposition) est désormais recopié sur le lead à la qualification (champ closure) : les leads clos
             avant cette version apparaissent avec « Motif non renseigné ». Pas de code propre pour « non-propriétaire »
             et « mauvais produit ».
+          - Exports à la demande (§22.10, fig. 34, onglet « Exports ») : un rapport (Direction, Campagnes, Télépros,
+            Documents, Qualité, Liste des leads), un format (CSV qui s'ouvre dans Excel, PDF par l'impression du
+            navigateur), données corrigées ou brutes, détail des leads facultatif avec choix des colonnes. Le fichier
+            restitue en tête le rapport, la période, le mode de date, les filtres et la lecture ; les chiffres sont ceux
+            des écrans (mêmes fonctions). Données personnelles : détail anonymisé par défaut (pseudonyme stable,
+            ni téléphone, ni email, ni adresse) ; nom, coordonnées et adresse réels = permission distincte, réservée à
+            l'administrateur, et l'export n'est livré que si sa trace est écrite dans le journal d'audit (action
+            report.export_identifying : rapport, filtres, colonnes, nombre de lignes). Un manager est toujours anonymisé.
+            « Exports récents » : liste des 10 derniers exports de CE navigateur (aucun fichier stocké côté serveur).
           - Filtres période (mois, mois précédent, 30 jours, trimestre), source, produit, télépro.
   [PARTIEL] Rapports : « intéressés » se déduit du statut actuel (plancher, aucun historique des statuts) ; les dates
           d'étape sont celles que porte le lead (dernière demande de pièces, dossier complet, dernière mise à jour du
           dossier) ; la date de réception sert de repli, jamais une date plus favorable. Coût rattaché à une campagne :
           filtre télépro = coût « — » (une dépense ne se rattache pas à un télépro).
+  [PARTIEL] Objectifs et alertes : un objectif se lit sur un mois civil (la période « 30 jours » ou « trimestre » n'a
+          pas d'objectif) et sur le périmètre exact des filtres (pas de combinaison de filtres, pas de filtre source) ;
+          pas d'alerte en dehors des rapports (le cockpit et les notifications ne les reprennent pas) ; pas d'objectif
+          d'équipe ; l'alerte SLA ne retire pas les absences validées (seulement les horaires fermés).
+  [PARTIEL] Exports : pas de planification, pas de diffusion (email, lien, API), pas d'export Excel natif ni de PDF
+          généré par le serveur (impression du navigateur), pas d'historique partagé, pas de conservation du fichier.
+          Ils supposent un canal d'envoi et un stockage de fichiers, absents en V1 (§1.2, §24).
   [À FAIRE] Rapports : filtres équipe, publicité, formulaire, zone, offre, comparaison avec l'année précédente,
-          granularité jour / mois, filtres partageables par URL ; objectifs et écart à l'objectif (§22.8, aucun
-          objectif n'existe en base, donc ni jauge ni « écart objectif » du tableau des campagnes) ; marge, valeur et
-          rentabilité (pas de chiffre d'affaires ni de coût d'achat en base) ; exports programmés, Excel, PDF et
-          API (fig. 34) ; correction ou exclusion d'un lead avec motif (§22.5) ; coûts importés (CSV, Meta, Google).
+          granularité jour / mois, filtres partageables par URL ; marge, valeur et
+          rentabilité (pas de chiffre d'affaires ni de coût d'achat en base) ; exports programmés (planification, diffusion) ; correction ou exclusion d'un lead avec motif (§22.5) ; coûts importés (CSV, Meta, Google).
+
+  [À FAIRE — PROPOSÉ, NON DÉMARRÉ] Exports programmés (§22.10, fig. 34, onglets « Rapports programmés » et « Historique »),
+          avec dépôt des fichiers dans Firebase Storage et envoi par EmailJS. Pistes retenues, à confirmer avant de commencer :
+          - Génération : par le planificateur Netlify (passage toutes les 5 minutes), avec les mêmes fonctions de calcul
+            que les écrans et les exports à la demande ; fichier déposé dans le bucket Storage, dossier réservé
+            (cl_exports/), par le compte de service.
+          - Téléchargement : par une fonction Netlify qui vérifie le jeton de l'utilisateur (comme la réattribution), sans
+            règles Storage ni liens signés (les règles Storage restent bloquées par le rôle « multiservices »).
+          - Envoi : EmailJS depuis le serveur, ce qui exige d'activer l'appel hors navigateur dans le compte EmailJS et
+            une clé privée en variable Netlify. Recommandé : envoyer un LIEN vers le CRM (connexion et droits vérifiés)
+            plutôt qu'une pièce jointe ; quota mensuel et taille de pièce jointe à vérifier dans le plan EmailJS.
+          - Règles : exports programmés toujours anonymisés (aucune donnée identifiante par email) ; destinataires =
+            utilisateurs du CRM (manager, administrateur), adresses libres seulement si décidé ; chaque exécution tracée
+            (date, statut, erreur, relances) pour l'historique ; configuration conservant la version des filtres.
+          - Configuration d'un rapport programmé : rapport, fréquence, jour, heure, fuseau, période glissante, date de
+            fin, format, destinataires, activation ; suspension et modification.
+          - Prérequis : nouvelle collection d'historique avec règles Firestore à publier ; compte EmailJS (plan, appel
+            serveur, quota) ; décisions : lien ou pièce jointe, destinataires libres ou non.
 
 PHASE 6 — Sections 23 et 24                                                                 [À FAIRE]
   [À FAIRE] Hub d'intégrations (fig. 40-44) : journal de synchronisation, erreurs et nouvelles tentatives,
@@ -549,9 +614,9 @@ principal…) restent à confirmer par écrit.
   2. (fait) Conversion : montage, verrous, validation manager, vente, transmission, espace Ventes et suivi manuel.
   3. (fait) Retour des statuts du CRM principal (§24.8), installations et facturations dans les tableaux de campagne
      et de télépro, verrous de conversion réglables, rapports Direction et Campagnes.
-  4. (fait) Motifs et listes administrables (§21.6). Paramétrage restant : qualification conditionnelle (figs. 25-29).
-  5. Rapports restants : objectifs, exports programmés (fig. 34) (télépros, documents et qualité faits),
-     puis communications (SMS, email, WhatsApp).
+  4. (fait) Motifs et listes administrables (§21.6) ; constructeur de qualification conditionnelle (fig. 27).
+  5. Rapports restants : exports programmés (planification, dépôt dans Storage, envoi EmailJS : proposition détaillée en
+     phase 5, à confirmer), rentabilité ; les exports à la demande sont faits. Puis communications (SMS, email, WhatsApp).
   6. Partie de la vente à distance qui dépend de prestataires : contrat PDF versionné, signature électronique,
      financement. À lancer quand les modèles juridiques et les prestataires sont choisis.
   7. Recette avec de vrais leads (en dernier, avec l'équipe) : brancher Pabbly (2e étape d'envoi), vérifier la file
@@ -571,7 +636,7 @@ recette sur la base de DEV.
 
   cd Lead
   npm run dev                       application + fonctions sur http://localhost:5180
-  npm test                          les 1623 tests
+  npm test                          les 1774 tests
   node scripts/send-test-leads.mjs --url http://localhost:5180 --secret <CRM_SHARED_SECRET> --count 5
                                     envoie de faux leads (option --scenario mix pour les cas limites)
   node scripts/test-file-tampon.mjs [--keep]

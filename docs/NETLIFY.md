@@ -123,6 +123,18 @@ Cinquième fonction du site : `netlify/functions/reassign-lead.ts`, adresse `/ap
   écrit l'historique (`reassigned`), prévient les deux télépros et trace l'opération dans `cl_audit`. Idempotente.
 - Codes : 200 · 400 · 401 · 403 · 404 · 409 (lead clôturé) · 422 (motif, cible) · 500.
 
+## Qualification d'un lead (formulaire conditionnel)
+Fonction `netlify/functions/lead-qualification.ts`, adresse `/api/lead-qualification` (jeton Firebase, même clé).
+- Corps : `{ leadId, requestId, answers }`. Droit : propriétaire du lead, manager du lead (`managerIds`) ou administrateur.
+- Les réponses sont contrôlées contre le formulaire PUBLIÉ du produit : `cl_settings/qualification_<famille>`, sinon
+  `cl_settings/qualification_default`. Champs masqués et inconnus écartés, formats vérifiés. Écrit `qualificationForm`
+  (réponses, version du formulaire, statut, éligibilité, alertes) sur le lead et un événement `qualification`.
+- Le même formulaire alimente le verrou de conversion « Projet & logement » (champs obligatoires ou bloquants manquants)
+  dans `lead-conversion`.
+- Le constructeur (Paramètres → Qualification) écrit le brouillon et la version publiée dans `cl_settings/qualification_*`
+  depuis le navigateur (règle `cl_settings` existante : écriture administrateur).
+- Codes : 200 · 400 · 401 · 403 · 404 · 409 (lead clôturé, aucun formulaire publié) · 422 (réponse refusée) · 500.
+
 ## Planificateur (traitements automatiques)
 Deux fonctions : `netlify/functions/scheduler.ts` (PLANIFIÉE, toutes les 5 minutes, déclarée dans `netlify.toml`,
 section `[functions."scheduler"]`) et `netlify/functions/scheduler-run.ts` (`/api/scheduler-run`, jeton Firebase d'un

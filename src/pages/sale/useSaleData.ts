@@ -20,6 +20,8 @@ export interface SaleLead {
   consent: boolean | null;
   productCode: string | null;
   qualification: Record<string, unknown>;
+  /** Réponses enregistrées au formulaire de qualification (Paramètres → Qualification) ; vide tant que rien n'est saisi. */
+  qualificationAnswers: Record<string, unknown>;
   docs: { mandatory: number; mandatoryConform: number; withReserve: number };
   /** Axes commercial et financier de la vente (§23.9) et son suivi ; états de départ tant qu'aucune étape n'est enregistrée. */
   commercialState: string;
@@ -110,6 +112,7 @@ export function useSaleData(leadId: string): SaleData {
               consent: typeof d.consent === 'boolean' ? d.consent : null,
               productCode: typeof d.productCode === 'string' ? d.productCode : null,
               qualification: d.qualification && typeof d.qualification === 'object' ? (d.qualification as Record<string, unknown>) : {},
+              qualificationAnswers: d.qualificationForm?.answers && typeof d.qualificationForm.answers === 'object' ? (d.qualificationForm.answers as Record<string, unknown>) : {},
               docs: { mandatory: Number(docs.mandatory ?? 0), mandatoryConform: Number(docs.mandatoryConform ?? 0), withReserve: 0 },
               commercialState: str(d.commercialState) || 'none',
               financialState: str(d.financialState) || 'none',

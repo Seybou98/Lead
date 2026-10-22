@@ -36,6 +36,8 @@ export interface LeadListItem {
   excluded: boolean;
   /** Motif d'exclusion (faux lead, mauvais numéro) porté par `quality.excludedReason` ; absent si le lead n'est pas exclu. */
   excludedReason?: string;
+  /** Réponses au formulaire de qualification et son résumé (version du formulaire, statut, éligibilité) ; absent tant que rien n'est enregistré. */
+  qualificationForm?: { key: string; version: number; status: string; eligibility: string; answers: Record<string, unknown>; alerts: string[]; savedAtMs: number | null };
   /** Motif de la clôture, recopié à la qualification (§22.5) ; absent sur les leads clos avant sa mise en place. */
   closure?: { kind: string; code: string; label: string; category?: string; opposition?: boolean };
   /** Cycle NR en cours (§8.1) ; absent = aucun NR enregistré. */

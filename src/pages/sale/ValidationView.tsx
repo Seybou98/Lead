@@ -8,6 +8,7 @@ import { Feedback } from '../settings/settingsUi';
 import { useSettings } from '../settings/useSettings';
 import { inputCls, LevelIcon, ownerLabel, SaleCard, SEVERITY_LABEL, whenLabel } from './saleUi';
 import type { SaleData, SaleLead } from './useSaleData';
+import { useQualificationGaps } from '../qualification/useQualificationGaps';
 
 const MAX_COMMENT = 500;
 
@@ -27,6 +28,7 @@ function Kpi({ label, value, hint }: { label: string; value: string; hint?: stri
  */
 export function ValidationView({ leadId, lead, data, names, userId, canDecide, campaignName }: { leadId: string; lead: SaleLead; data: SaleData; names: ReadonlyMap<string, string>; userId: string; canDecide: boolean; campaignName: string | null }) {
   const { conversion: rules } = useSettings();
+  const qualificationMissing = useQualificationGaps(lead.productCode, lead.qualificationAnswers);
   const v = data.validation;
   const draft = data.draft;
   const [comment, setComment] = useState('');
@@ -34,7 +36,7 @@ export function ValidationView({ leadId, lead, data, names, userId, canDecide, c
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
 
-  const report = useMemo(() => (draft ? evaluateControls({ lead: { consent: lead.consent, productCode: lead.productCode }, draft, docs: lead.docs, qualificationMissing: [], rules: rules }) : null), [draft, lead, rules]);
+  const report = useMemo(() => (draft ? evaluateControls({ lead: { consent: lead.consent, productCode: lead.productCode }, draft, docs: lead.docs, qualificationMissing: qualificationMissing, rules: rules }) : null), [qualificationMissing, draft, lead, rules]);
   if (!draft || !report) return <p className="text-sm text-slate-500">Dossier introuvable.</p>;
   const recap = report.recap;
   const isRequester = v.requestedBy === userId;

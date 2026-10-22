@@ -35,7 +35,12 @@ import {
   planCampaignSave,
   planChecklistSave,
   planConversionSave,
+  planQualificationDiscard,
+  planQualificationDraftSave,
+  planQualificationPublish,
   planReasonsSave,
+  planReportsSave,
+  qualificationKey,
   planRulesSave,
   planSlaOverrideSave,
   planSlaSave,
@@ -226,6 +231,73 @@ export async function saveRulesDirect(input: unknown): Promise<DirectResult> {
     tx.set(ref, plan.doc);
     writeAudit(tx, actor, plan.audit);
     return { ok: true as const, id: 'rules', warnings: [] };
+  });
+}
+
+const qualificationRef = (input: unknown) => {
+  const code = input && typeof input === 'object' ? (input as { productCode?: unknown }).productCode : null;
+  return doc(db, COL.settings, qualificationKey(typeof code === 'string' && code.trim() ? code.trim().slice(0, 80) : null));
+};
+
+/** Enregistre le brouillon du formulaire de qualification d'une famille de produit. */
+export async function saveQualificationDraftDirect(input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  const ref = qualificationRef(input);
+  return runTransaction(db, async (tx) => {
+    const plan = planQualificationDraftSave({ input, before: data(await tx.get(ref)), actorId: actor, nowMs });
+    tx.set(ref, plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: plan.key, warnings: [] };
+  });
+}
+
+/** Publie le brouillon (ou le formulaire fourni) : nouvelle version, l'ancienne reste dans le journal. */
+export async function publishQualificationDirect(input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  const ref = qualificationRef(input);
+  return runTransaction(db, async (tx) => {
+    const plan = planQualificationPublish({ input, before: data(await tx.get(ref)), actorId: actor, nowMs });
+    tx.set(ref, plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: plan.key, warnings: plan.warnings };
+  });
+}
+
+export async function discardQualificationDraftDirect(input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  const ref = qualificationRef(input);
+  return runTransaction(db, async (tx) => {
+    const plan = planQualificationDiscard({ input, before: data(await tx.get(ref)), actorId: actor, nowMs });
+    tx.set(ref, plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: plan.key, warnings: [] };
+  });
+}
+
+export async function saveReportsConfigDirect(input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  const ref = doc(db, COL.settings, 'reports');
+  return runTransaction(db, async (tx) => {
+    const plan = planReportsSave({ input, before: data(await tx.get(ref)), actorId: actor, nowMs });
+    tx.set(ref, plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: 'reports', warnings: [] };
+  });
+}
+
+/**
+ * Trace d'un export de données personnelles (administrateur) : qui, quel rapport, quels filtres et combien de lignes.
+ * Un export identifiant n'est livré que si cette trace est écrite (§22.10, §22.12).
+ */
+export async function logReportExportDirect(entry: { kind: string; format: string; rows: number; detailCount: number; columns: string[]; filters: { label: string; value: string }[] }): Promise<DirectResult> {
+  const actor = actorId();
+  return runTransaction(db, async (tx) => {
+    writeAudit(tx, actor, { action: 'report.export_identifying', entityType: 'report', entityId: String(entry.kind).slice(0, 40), before: null, after: { format: entry.format, rows: entry.rows, detailCount: entry.detailCount, columns: entry.columns, filters: entry.filters }, reason: null });
+    return { ok: true as const, id: entry.kind, warnings: [] };
   });
 }
 

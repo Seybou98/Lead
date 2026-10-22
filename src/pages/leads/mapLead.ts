@@ -85,6 +85,9 @@ export function toListItem(id: string, d: DocumentData): LeadListItem | null {
     ...(d.montage && typeof d.montage === 'object'
       ? { montage: { validationState: str(d.montage.validationState, 'none'), blocking: num(d.montage.blocking), toConfirm: num(d.montage.toConfirm), totalTtcCents: num(d.montage.totalTtcCents), remainderCents: num(d.montage.remainderCents), updatedAtMs: ms(d.montage.updatedAt), financingMode: typeof d.montage.financingMode === 'string' ? d.montage.financingMode : null, validated: typeof d.montage.validated === 'number' ? d.montage.validated : null, total: typeof d.montage.total === 'number' ? d.montage.total : null } }
       : {}),
+    ...(d.qualificationForm && typeof d.qualificationForm === 'object'
+      ? { qualificationForm: { key: str(d.qualificationForm.key), version: num(d.qualificationForm.version), status: str(d.qualificationForm.status, 'incomplete'), eligibility: str(d.qualificationForm.eligibility, 'ok'), answers: d.qualificationForm.answers && typeof d.qualificationForm.answers === 'object' ? (d.qualificationForm.answers as Record<string, unknown>) : {}, alerts: Array.isArray(d.qualificationForm.alerts) ? (d.qualificationForm.alerts as unknown[]).filter((x): x is string => typeof x === 'string') : [], savedAtMs: ms(d.qualificationForm.savedAt) } }
+      : {}),
     ...(d.mainStatus && typeof d.mainStatus.stage === 'string' ? { mainStatus: { stage: d.mainStatus.stage, label: str(d.mainStatus.label), changedAtMs: ms(d.mainStatus.changedAt) } } : {}),
     ...(d.saleId
       ? {

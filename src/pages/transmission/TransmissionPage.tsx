@@ -15,6 +15,9 @@ import { LEAD_LIST_LIMIT, useLeadsList, useNow, type LeadsListData } from '../le
 import { LevelIcon, whenLabel } from '../sale/saleUi';
 import { useSaleData } from '../sale/useSaleData';
 import { useSettings } from '../settings/useSettings';
+import { useQualificationGaps } from '../qualification/useQualificationGaps';
+
+const EMPTY_ANSWERS: Record<string, unknown> = {};
 
 const MAIN_CRM_URL = (import.meta.env.VITE_MAIN_CRM_URL as string | undefined)?.replace(/\/$/, '') ?? '';
 const initials = (n: string) => n.split(/\s+/).filter(Boolean).map((p) => p[0]).join('').toUpperCase().slice(0, 2) || '?';
@@ -243,7 +246,8 @@ function DetailPanel({ row, canRetry, now, onOpen }: { row: LeadRow; canRetry: b
   const conv = sale.conversion;
   const lead = sale.lead;
   const draft = sale.draft;
-  const report = useMemo(() => (draft && lead ? evaluateControls({ lead: { consent: lead.consent, productCode: lead.productCode }, draft, docs: lead.docs, qualificationMissing: [], rules: rules }) : null), [draft, lead, rules]);
+  const qualificationMissing = useQualificationGaps(lead?.productCode ?? null, lead?.qualificationAnswers ?? EMPTY_ANSWERS);
+  const report = useMemo(() => (draft && lead ? evaluateControls({ lead: { consent: lead.consent, productCode: lead.productCode }, draft, docs: lead.docs, qualificationMissing: qualificationMissing, rules: rules }) : null), [draft, lead, rules, qualificationMissing]);
   const duplicate = conv?.state === 'failed' && conv.lastError?.code === 'duplicate_dossier';
   const failed = row.status === 'transmission_error' || conv?.state === 'failed';
 

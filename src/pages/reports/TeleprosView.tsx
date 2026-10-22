@@ -7,6 +7,9 @@ import { getSlaMs, slaElapsedMs } from '../../domain/leads/leadList';
 import { DATE_MODE_LABELS, STAGE_DEFINITIONS, STAGE_LABELS, STAGES, type ReportFilters, type Stage } from '../../domain/reports/direction';
 import { buildTeleproReport, RATIO_DEFINITIONS, SLA_DEFINITION, teleproPopulation, teleproRows, type TeleproRow } from '../../domain/reports/telepros';
 import type { ReportsData } from './useReportsData';
+import { objectiveProgress, singleMonthOf } from '../../domain/reports/targets';
+import { useSettings } from '../settings/useSettings';
+import { ObjectiveCell } from './ObjectiveParts';
 import { fmtInt, fmtPct, PopulationDrawer } from './ReportParts';
 
 /** Comparaison des télépros (§22.6, fig. 32) : tableau classé, nuage conversion / volume, fiche du télépro choisi. */
@@ -15,6 +18,15 @@ export function TeleprosView({ data, filters, now }: { data: ReportsData; filter
   const [open, setOpen] = useState<{ ownerId: string; stage: Stage } | null>(null);
   const report = useMemo(() => buildTeleproReport({ leads: data.leads, campaigns: data.reportCampaigns, filters, nowMs: now, slaMs: getSlaMs(), elapsed: slaElapsedMs }), [data.leads, data.reportCampaigns, filters, now]);
   const nameOf = (id: string) => data.names.users.get(id) ?? id;
+  // Objectif de ventes par télépro (Paramètres → Objectifs et alertes), lisible quand la période est un mois civil.
+  const { reports } = useSettings();
+  const month = singleMonthOf(filters);
+  const goals = useMemo(() => {
+    const out = new Map<string, ReturnType<typeof objectiveProgress>>();
+    if (!month) return out;
+    for (const o of reports.objectives) if (o.active && o.month === month && o.scope === 'owner' && o.metric === 'sales') out.set(o.scopeId, objectiveProgress(o, { leads: data.leads, spends: data.spends, campaigns: data.reportCampaigns, nowMs: now }));
+    return out;
+  }, [month, reports.objectives, data.leads, data.spends, data.reportCampaigns, now]);
   const t = report.total;
   const current = report.rows.find((r) => r.ownerId === selected) ?? null;
   const exportCsv = () => downloadText(`rapport-telepros-${new Date(now).toISOString().slice(0, 10)}.csv`, toCsv(['Comparaison des télépros'], teleproRows(report, nameOf, DATE_MODE_LABELS[filters.mode])));
@@ -57,10 +69,11 @@ export function TeleprosView({ data, filters, now }: { data: ReportsData; filter
                   <th className="px-3 py-2.5 text-right font-medium">Docs complets</th>
                   <th className="px-3 py-2.5 text-right font-medium">Ventes</th>
                   <th className="px-3 py-2.5 text-right font-medium" title={RATIO_DEFINITIONS.leadToSale.formula}>Lead → vente</th>
+                  <th className="px-3 py-2.5 text-right font-medium" title="Objectif de ventes du télépro pour le mois (réalisé / cible). Visible quand la période est un mois civil.">Objectif</th>
                 </tr>
               </thead>
               <tbody>
-                {report.rows.length === 0 && <tr><td colSpan={9} className="px-3 py-8 text-center text-slate-500">Aucune activité de télépro sur cette période et ce périmètre.</td></tr>}
+                {report.rows.length === 0 && <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-500">Aucune activité de télépro sur cette période et ce périmètre.</td></tr>}
                 {report.rows.map((r, i) => (
                   <tr key={r.ownerId} onClick={() => setSelected(r.ownerId === selected ? null : r.ownerId)} className={cn('cursor-pointer border-b border-slate-100 hover:bg-slate-50', selected === r.ownerId && 'bg-blue-50/60')}>
                     <td className="px-3 py-2.5 text-slate-500">{i + 1}</td>
@@ -72,6 +85,7 @@ export function TeleprosView({ data, filters, now }: { data: ReportsData; filter
                     <Count v={r.counts.docsComplete} onOpen={() => setOpen({ ownerId: r.ownerId, stage: 'docsComplete' })} />
                     <Count v={r.counts.sales} onOpen={() => setOpen({ ownerId: r.ownerId, stage: 'sales' })} />
                     <td className="px-3 py-2.5 text-right font-medium tabular-nums" title={`${r.counts.sales} ventes sur ${r.counts.valid} leads valides`}>{fmtPct(r.ratios.leadToSale)}</td>
+                    <td className="px-3 py-2.5 text-right"><ObjectiveCell p={goals.get(r.ownerId) ?? null} /></td>
                   </tr>
                 ))}
               </tbody>

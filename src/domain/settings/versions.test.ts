@@ -85,3 +85,57 @@ describe('versionsOf', () => {
   });
   it('aucun enregistrement : liste vide', () => expect(versionsOf([], 'rules')).toEqual([]));
 });
+
+describe('formulaires de qualification', () => {
+  const field = (id: string, label: string, required = false) => ({ id, type: 'text', label, help: '', required, blocking: false, options: [], defaultValue: null, min: null, max: null, expected: null, products: [] });
+  const form = (...f: ReturnType<typeof field>[]) => ({ fields: f, rules: [] });
+  const row = (id: string, atMs: number, action: string, before: unknown, after: unknown, entityId = 'qualification_pac'): AuditRow => ({ id, atMs, actorId: 'adm', action, entityType: 'settings', entityId, before, after, reason: null });
+  const v1 = row('a1', 1, 'qualification.publish', null, { productCode: 'PAC', published: form(field('q_a', 'Nom')), version: 1 });
+  const v2 = row('a2', 2, 'qualification.publish', { published: form(field('q_a', 'Nom')) }, { productCode: 'PAC', published: form(field('q_a', 'Nom'), field('q_b', 'Âge', true)), version: 2 });
+  const draft = row('a3', 3, 'qualification.draft', null, { productCode: 'PAC', draft: form(field('q_a', 'Nom')) });
+
+  it('seules les publications sont des versions : un brouillon n’en est pas une', () => {
+    expect(moduleOf(draft)).toBeNull();
+    expect(moduleOf(v1)).toBe('qualification');
+    expect(versionsOf([v1, v2, draft], 'qualification')).toHaveLength(2);
+  });
+  it('décrit ce qui change entre deux publications', () => {
+    const [latest, first] = versionsOf([v1, v2], 'qualification');
+    expect(first.changes).toEqual(['Champ ajouté : Nom']);
+    expect(latest.changes).toEqual(['Champ ajouté : Âge (obligatoire)']);
+    expect(latest.current).toBe(true);
+  });
+  it('le retour arrière rejoue le formulaire publié de cette version', () => {
+    const [, first] = versionsOf([v1, v2], 'qualification');
+    expect(first.payload).toMatchObject({ productCode: 'PAC', form: { fields: [{ id: 'q_a' }] } });
+  });
+  it('filtre par famille', () => {
+    const other = row('b1', 5, 'qualification.publish', null, { productCode: null, published: form(field('q_z', 'Autre')) }, 'qualification_default');
+    expect(versionsOf([v1, v2, other], 'qualification', 'qualification_default')).toHaveLength(1);
+  });
+});
+
+describe('objectifs et alertes KPI', () => {
+  const alert = (over: Record<string, unknown> = {}) => ({ id: 'a_1', metric: 'costPerSale', mode: 'value', op: 'gt', threshold: 500, minVolume: 10, days: 7, level: 'warning', active: true, ...over });
+  const objective = (over: Record<string, unknown> = {}) => ({ id: 'o_1', month: '2026-10', scope: 'global', scopeId: '', metric: 'sales', target: 40, active: true, ...over });
+  const row = (id: string, atMs: number, before: unknown, after: unknown): AuditRow => ({ id, atMs, actorId: 'adm', action: 'settings.reports.update', entityType: 'settings', entityId: 'reports', before, after, reason: null });
+  const v1 = row('r1', 1, null, { alerts: [alert()], objectives: [objective()] });
+  const v2 = row('r2', 2, { alerts: [alert()], objectives: [objective()] }, { alerts: [alert({ threshold: 450, active: false })], objectives: [objective({ target: 50 }), objective({ id: 'o_2', scope: 'campaign', scopeId: 'c1', target: 12 })] });
+
+  it('module reconnu', () => expect(moduleOf(v1)).toBe('reports'));
+  it('première version : alertes et objectifs ajoutés', () => {
+    const first = versionsOf([v1, v2], 'reports')[1];
+    expect(first.changes.some((c) => c.startsWith('Alerte ajoutée'))).toBe(true);
+    expect(first.changes.some((c) => c.startsWith('Objectif ajouté'))).toBe(true);
+  });
+  it('décrit les modifications, activations et ajouts', () => {
+    const latest = versionsOf([v1, v2], 'reports')[0];
+    expect(latest.changes.join(' | ')).toMatch(/Alerte modifiée \(Coût par vente\).*450.*désactivée/);
+    expect(latest.changes.join(' | ')).toMatch(/Objectif modifié : Ventes 2026-10 \(Tous les leads\) : 50/);
+    expect(latest.changes.join(' | ')).toMatch(/Objectif ajouté : Ventes 2026-10 \(Campagne c1\) : 12/);
+    expect(latest.current).toBe(true);
+  });
+  it('payload de retour arrière : alertes et objectifs de la version', () => {
+    expect(versionsOf([v1, v2], 'reports')[1].payload).toMatchObject({ alerts: [{ id: 'a_1' }], objectives: [{ id: 'o_1' }] });
+  });
+});

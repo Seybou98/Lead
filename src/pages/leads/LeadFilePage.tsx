@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, ArrowLeft, BarChart3, Bell, Check, Clock, FileText, Flame, House, MapPin, MessageSquare, Phone, Send, StickyNote, UserCheck, UserRound, Workflow } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BarChart3, Bell, Check, ClipboardList, Clock, FileText, Flame, House, MapPin, MessageSquare, Phone, Send, StickyNote, UserCheck, UserRound, Workflow } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../auth/AuthProvider';
 import { ASSIGNMENT_STATE_LABELS, DOCUMENT_STATE_LABELS, LEAD_STATUS_LABELS, TEMPERATURE_LABELS } from '../../domain/labels';
@@ -20,10 +20,12 @@ import { sendStatus } from '../../lib/statusApi';
 import { documentLabel } from '../../domain/documents/plan';
 import { LeadDocumentsPanel } from '../documents/LeadDocumentsPanel';
 import { SalePanel } from '../sale/SalePanel';
+import { LeadQualificationCard } from '../qualification/LeadQualificationCard';
 
-type Tab = 'summary' | 'exchanges' | 'documents' | 'sale';
+type Tab = 'summary' | 'qualification' | 'exchanges' | 'documents' | 'sale';
 const TABS: { key: Tab; label: string }[] = [
   { key: 'summary', label: 'Résumé' },
+  { key: 'qualification', label: 'Qualification' },
   { key: 'exchanges', label: 'Échanges' },
   { key: 'documents', label: 'Documents' },
   { key: 'sale', label: 'Vente' },
@@ -395,6 +397,15 @@ export function LeadFileView({ state, listPath, canSeePriority, nowOverride, onC
         </div>
         <aside className="space-y-6">{progressionCard}</aside>
       </div>
+      )}
+
+      {tab === 'qualification' && (
+        <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+          <Card title="Qualification" icon={<ClipboardList className="h-[18px] w-[18px] text-blue-600" />}>
+            <LeadQualificationCard lead={lead} canEdit={canActOnDocs} />
+          </Card>
+          <aside className="space-y-6">{progressionCard}</aside>
+        </div>
       )}
 
       {tab === 'documents' && (

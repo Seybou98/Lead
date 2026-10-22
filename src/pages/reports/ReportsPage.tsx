@@ -11,17 +11,25 @@ import { buildDirectionReport, DATE_MODE_LABELS, directionRows, stagePopulation,
 import { PERIOD_LABELS, PERIODS, periodRange, type PeriodKey } from '../../domain/reports/periods';
 import { inputCls } from '../settings/settingsUi';
 import { useNow } from '../leads/useLeadsData';
+import { getSlaMs, slaElapsedMs } from '../../domain/leads/leadList';
+import { alertInputs, evaluateAlerts, objectiveProgress, objectivesFor, singleMonthOf, type AlertMetric } from '../../domain/reports/targets';
+import { waitingDossiers } from '../../domain/reports/documents';
+import { useSettings } from '../settings/useSettings';
+import { ObjectiveCell, ObjectiveGauges } from './ObjectiveParts';
+import { PopulationDrawer } from './ReportParts';
 import { useReportsData, type ReportsData } from './useReportsData';
 import { TeleprosView } from './TeleprosView';
 import { DocumentsView } from './DocumentsView';
 import { QualityView } from './QualityView';
+import { ExportsView } from './ExportsView';
 
-type View = 'direction' | 'campaigns' | 'telepros' | 'documents' | 'quality';
+type View = 'direction' | 'campaigns' | 'telepros' | 'documents' | 'quality' | 'exports';
 const VIEW_TEXT: Record<View, { title: string; subtitle: string }> = {
   direction: { title: 'Rapport Direction', subtitle: 'Vue consolidée de l’acquisition à la vente.' },
   campaigns: { title: 'Performance des campagnes', subtitle: 'Rentabilité et qualité des campagnes sur la période.' },
   telepros: { title: 'Performance des télépros', subtitle: 'Comparez les résultats à périmètre équivalent.' },
   documents: { title: 'Performance documentaire & délais', subtitle: 'Pipeline des pièces, délais par étape et goulots d’étranglement.' },
+  exports: { title: 'Exports', subtitle: 'Générez un fichier à partir des filtres affichés : les mêmes chiffres que les écrans.' },
   quality: { title: 'Qualité des leads', subtitle: 'Doublons, faux leads, coordonnées invalides, inéligibilité : par source, campagne, produit, zone et télépro.' },
 };
 
@@ -58,7 +66,7 @@ export function ReportsView({ data, nowOverride, initialView = 'direction' }: { 
           <p className="mt-1 text-slate-500">{VIEW_TEXT[view].subtitle}</p>
         </div>
         <div role="tablist" aria-label="Rapports" className="flex rounded-lg border border-slate-200 bg-white p-1 text-sm">
-          {([['direction', 'Direction'], ['campaigns', 'Campagnes'], ['telepros', 'Télépros'], ['documents', 'Documents'], ['quality', 'Qualité']] as const).map(([k, label]) => (
+          {([['direction', 'Direction'], ['campaigns', 'Campagnes'], ['telepros', 'Télépros'], ['documents', 'Documents'], ['quality', 'Qualité'], ['exports', 'Exports']] as const).map(([k, label]) => (
             <button key={k} role="tab" aria-selected={view === k} type="button" onClick={() => setView(k)} className={cn('rounded-md px-4 py-1.5 font-medium', view === k ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50')}>{label}</button>
           ))}
         </div>
@@ -69,7 +77,7 @@ export function ReportsView({ data, nowOverride, initialView = 'direction' }: { 
         <select aria-label="Source" value={sourceId} onChange={(e) => setSourceId(e.target.value)} className={inputCls}><option value="">Toutes les sources</option>{data.sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
         <select aria-label="Produit" value={product} onChange={(e) => setProduct(e.target.value)} className={inputCls}><option value="">Tous les produits</option>{products.map((p) => <option key={p}>{p}</option>)}</select>
         <select aria-label="Télépro" value={owner} onChange={(e) => setOwner(e.target.value)} className={inputCls}><option value="">Tous les télépros</option>{owners.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</select>
-        {view === 'direction' || view === 'telepros' || view === 'documents' ? (
+        {view === 'direction' || view === 'telepros' || view === 'documents' || view === 'exports' ? (
           <div role="radiogroup" aria-label="Mode de date" className="ml-auto flex rounded-lg border border-slate-200 bg-white p-0.5">
             {(Object.keys(DATE_MODE_LABELS) as DateMode[]).map((m) => (
               <button key={m} role="radio" aria-checked={mode === m} type="button" onClick={() => setMode(m)} title={m === 'event' ? 'Chaque étape est comptée à sa date réelle.' : 'Toutes les étapes sont rattachées à la date de réception du lead.'} className={cn('rounded-md px-3 py-1.5 text-xs font-medium', mode === m ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' : 'text-slate-500 hover:text-slate-800')}>{DATE_MODE_LABELS[m]}</button>
@@ -93,6 +101,7 @@ export function ReportsView({ data, nowOverride, initialView = 'direction' }: { 
       {view === 'telepros' && <TeleprosView data={data} filters={filters} now={now} />}
       {view === 'documents' && <DocumentsView data={data} filters={filters} now={now} />}
       {view === 'quality' && <QualityView data={data} filters={filters} now={now} />}
+      {view === 'exports' && <ExportsView data={data} filters={filters} now={now} />}
     </div>
   );
 }
@@ -127,8 +136,21 @@ function KpiCard({ icon, tone, label, value, kpi, invert, hint }: { icon: React.
 
 function DirectionView({ data, filters, now }: { data: ReportsData; filters: ReportFilters; now: number }) {
   const [open, setOpen] = useState<Stage | null>(null);
+  const [blockedOpen, setBlockedOpen] = useState<{ days: number } | null>(null);
+  const { reports } = useSettings();
   const report = useMemo(() => buildDirectionReport({ leads: data.leads, spends: data.spends, campaigns: data.reportCampaigns, filters, nowMs: now }), [data.leads, data.spends, data.reportCampaigns, filters, now]);
   const k = report.kpis;
+  // Alertes réglables (Paramètres → Objectifs et alertes) : seuil ET volume minimum, évaluées sur le périmètre affiché.
+  const alerts = useMemo(
+    () => evaluateAlerts(reports.alerts, alertInputs({ current: report.current, previous: report.previous, leads: data.leads, campaigns: data.reportCampaigns, filters, nowMs: now, slaMs: getSlaMs(), elapsed: slaElapsedMs })),
+    [reports.alerts, report, data.leads, data.reportCampaigns, filters, now]
+  );
+  const month = singleMonthOf(filters);
+  const objectives = useMemo(() => (month ? objectivesFor(reports.objectives, month, filters) : []), [reports.objectives, month, filters]);
+  const gauges = useMemo(() => objectives.map((o) => objectiveProgress(o, { leads: data.leads, spends: data.spends, campaigns: data.reportCampaigns, nowMs: now })), [objectives, data.leads, data.spends, data.reportCampaigns, now]);
+  const scopeName = (scope: string, id: string) => (scope === 'campaign' ? data.names.campaigns.get(id) : scope === 'owner' ? data.names.users.get(id) : id) ?? id;
+  const alertStage: Partial<Record<AlertMetric, Stage>> = { costPerSale: 'sales', costPerLead: 'valid', contactRate: 'contacted', docsConversion: 'docsRequested' };
+  const blockedLeads = blockedOpen ? waitingDossiers(data.leads.filter((l) => !l.duplicate && !l.excluded && l.status !== 'fake_lead'), now, blockedOpen.days) : [];
   const euro = (c: number | null) => formatEuros(c, 0);
   const maxSpend = Math.max(1, ...report.weeks.map((w) => w.spendCents));
   const maxSales = Math.max(1, ...report.weeks.map((w) => w.sales));
@@ -179,15 +201,19 @@ function DirectionView({ data, filters, now }: { data: ReportsData; filters: Rep
         <section className="rounded-xl border border-slate-200 bg-white p-5">
           <h2 className="text-sm font-semibold text-slate-900">Points d’attention</h2>
           <ul className="mt-3 space-y-2">
-            {report.alerts.map((a) => (
+            {alerts.map((a) => (
               <li key={a.id} className={cn('flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm', a.level === 'critical' ? 'border-red-200 bg-red-50 text-red-800' : a.level === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-800' : 'border-emerald-200 bg-emerald-50 text-emerald-800')}>
                 {a.level === 'ok' ? <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />}
-                <span><span className="block font-medium">{a.title}</span><span className="block text-xs opacity-80">{a.detail}</span></span>
+                <span className="flex-1"><span className="block font-medium">{a.title}</span><span className="block text-xs opacity-80">{a.detail}</span></span>
+                {a.metric === 'blockedDossiers' && <button type="button" onClick={() => setBlockedOpen({ days: a.days ?? 7 })} className="flex-shrink-0 rounded-lg bg-white/70 px-3 py-1 text-xs font-semibold hover:bg-white">Ouvrir</button>}
+                {a.metric && alertStage[a.metric] && <button type="button" onClick={() => setOpen(alertStage[a.metric as AlertMetric] as Stage)} className="flex-shrink-0 rounded-lg bg-white/70 px-3 py-1 text-xs font-semibold hover:bg-white">Ouvrir</button>}
               </li>
             ))}
           </ul>
         </section>
       </div>
+
+      <div className="mt-5"><ObjectiveGauges items={gauges} month={month} scopeName={scopeName} /></div>
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
         <section className="rounded-xl border border-slate-200 bg-white p-5">
@@ -210,6 +236,8 @@ function DirectionView({ data, filters, now }: { data: ReportsData; filters: Rep
       </div>
 
       <p className="mt-4 text-xs text-slate-400">Dernière actualisation : {new Date(now).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })} · données en temps réel, lecture seule.</p>
+
+      {blockedOpen && <PopulationDrawer title={`Dossiers en attente depuis plus de ${blockedOpen.days} jours`} definition="Dossiers en attente de pièces ou d’informations dont la dernière demande date de plus de cette durée. Photographie actuelle, hors période." leads={blockedLeads} onClose={() => setBlockedOpen(null)} />}
 
       {open && (
         <div className="fixed inset-0 z-40 flex justify-end bg-black/30" onMouseDown={(e) => e.target === e.currentTarget && setOpen(null)}>
@@ -282,6 +310,15 @@ function CampaignsView({ data, filters, raw, now }: { data: ReportsData; filters
   const budget = campaigns.reduce((s, c) => s + (c.budgetCents ?? 0), 0);
   const sorted = useMemo(() => [...rows].sort((a, b) => (b.spendCents ?? -1) - (a.spendCents ?? -1) || a.campaign.name.localeCompare(b.campaign.name, 'fr')), [rows]);
   const selected = sorted.find((r) => r.campaign.id === selectedId) ?? sorted[0] ?? null;
+  // Objectif de ventes par campagne (Paramètres → Objectifs et alertes), lisible quand le rapport couvre un mois civil.
+  const { reports } = useSettings();
+  const month = singleMonthOf(filters);
+  const campaignGoals = useMemo(() => {
+    const out = new Map<string, ReturnType<typeof objectiveProgress>>();
+    if (!month) return out;
+    for (const o of reports.objectives) if (o.active && o.month === month && o.scope === 'campaign' && o.metric === 'sales') out.set(o.scopeId, objectiveProgress(o, { leads: data.leads, spends: data.spends, campaigns: data.reportCampaigns, nowMs: now }));
+    return out;
+  }, [month, reports.objectives, data.leads, data.spends, data.reportCampaigns, now]);
   const sourceName = (id: string) => data.sources.find((s) => s.id === id)?.name ?? id;
   const maxCps = Math.max(1, ...rows.map((r) => r.costPerSaleCents ?? 0));
 
@@ -315,10 +352,10 @@ function CampaignsView({ data, filters, raw, now }: { data: ReportsData; filters
             <div className="overflow-x-auto">
               <table className="w-full min-w-[860px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs font-medium text-slate-500">
-                  <tr>{['Campagne', 'Dépenses', 'Leads bruts', raw ? 'Leads' : 'Leads valides', 'CPL', 'Contact', 'Docs complets', 'Ventes', 'Installées', 'Coût/vente'].map((h) => <th key={h} className="px-3 py-2.5">{h}</th>)}</tr>
+                  <tr>{['Campagne', 'Dépenses', 'Leads bruts', raw ? 'Leads' : 'Leads valides', 'CPL', 'Contact', 'Docs complets', 'Ventes', 'Installées', 'Coût/vente', 'Objectif ventes'].map((h) => <th key={h} className="px-3 py-2.5" title={h === 'Objectif ventes' ? 'Objectif de ventes de la campagne pour le mois (réalisé / cible). Visible quand la période est un mois civil.' : undefined}>{h}</th>)}</tr>
                 </thead>
                 <tbody>
-                  {sorted.length === 0 && <tr><td colSpan={10} className="px-3 py-8 text-center text-slate-500">{data.loading ? 'Chargement…' : 'Aucune campagne pour ces filtres.'}</td></tr>}
+                  {sorted.length === 0 && <tr><td colSpan={11} className="px-3 py-8 text-center text-slate-500">{data.loading ? 'Chargement…' : 'Aucune campagne pour ces filtres.'}</td></tr>}
                   {sorted.map((r) => (
                     <tr key={r.campaign.id} onClick={() => setSelectedId(r.campaign.id)} className={cn('cursor-pointer border-t border-slate-100 hover:bg-slate-50', selected?.campaign.id === r.campaign.id && 'bg-blue-50/60')}>
                       <td className="px-3 py-3 font-medium text-blue-700">{r.campaign.name}</td>
@@ -331,6 +368,7 @@ function CampaignsView({ data, filters, raw, now }: { data: ReportsData; filters
                       <td className="px-3 py-3 tabular-nums">{r.sales}{r.cancelled > 0 && <span className="ml-1 text-xs text-red-500" title="Ventes annulées, retirées">(−{r.cancelled})</span>}</td>
                       <td className="px-3 py-3 tabular-nums">{r.installed}</td>
                       <td className="px-3 py-3 font-medium tabular-nums">{formatEuros(r.costPerSaleCents)}</td>
+                      <td className="px-3 py-3"><ObjectiveCell p={campaignGoals.get(r.campaign.id) ?? null} /></td>
                     </tr>
                   ))}
                 </tbody>
