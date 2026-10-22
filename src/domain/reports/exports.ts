@@ -14,10 +14,11 @@ import type { Role } from '../enums';
 import type { LeadListItem } from '../leads/leadList';
 import { buildDirectionReport, DATE_MODE_LABELS, directionRows, scopeLeads, type ReportCampaign, type ReportFilters, type ReportSpend } from './direction';
 import { buildDocumentsReport, documentsRows } from './documents';
+import { buildProfitReport, PROFIT_DIMS, profitabilityRows } from './profitability';
 import { buildQualityReport, QUALITY_DIMS, QUALITY_DIM_LABELS, qualityRows, type QualityDim } from './quality';
 import { buildTeleproReport, teleproRows } from './telepros';
 
-export const EXPORT_KINDS = ['direction', 'campaigns', 'telepros', 'documents', 'quality', 'leads'] as const;
+export const EXPORT_KINDS = ['direction', 'campaigns', 'telepros', 'documents', 'quality', 'profitability', 'leads'] as const;
 export type ExportKind = (typeof EXPORT_KINDS)[number];
 export const EXPORT_KIND_LABELS: Record<ExportKind, string> = {
   direction: 'Rapport Direction',
@@ -25,6 +26,7 @@ export const EXPORT_KIND_LABELS: Record<ExportKind, string> = {
   telepros: 'Comparaison des télépros',
   documents: 'Performance documentaire',
   quality: 'Qualité des leads',
+  profitability: 'Rentabilité (retour sur dépenses)',
   leads: 'Liste des leads',
 };
 
@@ -221,6 +223,15 @@ export function buildExport(input: ExportInput, o: ExportOptions): BuiltExport {
         const r = buildQualityReport({ leads: input.leads, campaigns: input.reportCampaigns, filters: f, dim });
         const nameOf = (key: string) => (key === '—' ? 'Non renseigné' : dim === 'source' ? (input.names.sources.get(key) ?? key) : dim === 'campaign' ? (input.names.campaigns.get(key) ?? key) : dim === 'owner' ? (input.names.users.get(key) ?? key) : key);
         return [[`Analyse par ${QUALITY_DIM_LABELS[dim].toLowerCase()}`], ...qualityRows(r, nameOf).slice(2)];
+      });
+      body = parts.flatMap((p, i) => (i === 0 ? p : [[], ...p]));
+      break;
+    }
+    case 'profitability': {
+      // Les quatre découpages à la suite, comme la qualité : un export ne dépend pas de l'onglet ouvert.
+      const parts = PROFIT_DIMS.map((dim) => {
+        const nameOf = (key: string) => (key === '—' ? 'Non renseigné' : dim === 'source' ? (input.names.sources.get(key) ?? key) : dim === 'campaign' ? (input.names.campaigns.get(key) ?? key) : dim === 'owner' ? (input.names.users.get(key) ?? key) : key);
+        return profitabilityRows(buildProfitReport({ leads: input.leads, spends: input.spends, campaigns: input.reportCampaigns, filters: f, dim }), nameOf);
       });
       body = parts.flatMap((p, i) => (i === 0 ? p : [[], ...p]));
       break;

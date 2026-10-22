@@ -33,11 +33,11 @@ Ce qui fonctionne aujourd'hui, de bout en bout, sur la base de DEV (crm-pose-dev
   - le manager pilote : cockpit, équipe, réattribution, absences, transfert de portefeuille ; un planificateur
     serveur (toutes les 5 minutes) escalade, recycle, attribue la file tampon et reprend les transmissions en échec.
 
-Ce qui reste : les rapports de rentabilité,
+Ce qui reste : la marge brute (coût d'achat), 
 les communications (SMS, email, WhatsApp), la partie de la vente à distance qui dépend de prestataires (contrat PDF, signature électronique,
 financement), les règles Storage, la mise en production, puis le Lot 6 (hors V1).
 
-Qualité : 1966 tests unitaires (97 fichiers) ; typecheck de l'application, des fonctions Netlify et des
+Qualité : 2076 tests unitaires (107 fichiers) ; typecheck de l'application, des fonctions Netlify et des
 fonctions Firebase ; build de production OK ; Lead compile, se construit et se teste seul, copié hors du projet.
 Recettes réelles sur la base de DEV : 28/28 (fonctions serveur), 34/34 (montage et vente), 29/29 (transmission
 avec Storage et IGN réels), 31/31 (données transmises et suivi de la vente), 16/16 (retour des statuts), 4/4 (verrous de conversion réglés), 13/13 (file tampon et réattribution
@@ -268,7 +268,23 @@ PHASE 1 — Lot 1, socle                                                        
   [FAIT]  Fiche lead (fig. 45) : Résumé (prochaine action, informations essentielles, progression, dernière
           note, historique récent) ; onglet Échanges = chronologie des événements.
   [FAIT]  Onglets Documents et Vente de la fiche (la vente s'ouvre aussi par le menu « Dossiers »).
-  [À FAIRE] Onglet Messages (§24.5).
+  [FAIT]  Onglet Messages et modèles de message (§24.5, §25.2), sans envoi automatique :
+          - Paramètres → Communications (administrateur) : un modèle par DÉCLENCHEUR (passage en attente de documents,
+            dossier partiel, offre envoyée, financement incomplet), CANAL (email, SMS, WhatsApp) et PRODUIT (un modèle
+            propre à un produit remplace le modèle général). 12 modèles d'origine tant que rien n'est enregistré.
+            Variables : prénom, nom, produit, télépro, société, pièces, signature (une variable inconnue est refusée,
+            un message documentaire doit citer {{pieces}}) ; longueur limitée par canal (SMS 480). Aperçu avec un client
+            fictif, arrêt automatique de chaque déclencheur rappelé. Enregistrement VERSIONNÉ dans le journal d'audit
+            (Versions & publication : changements lisibles, retour arrière).
+          - Menu Messages (télépro) : pour chaque lead dont l'étape déclenche un message, le texte rendu avec son
+            identité commerciale (nom, signature) et la liste EXACTE des pièces manquantes ou rejetées (avec le motif),
+            canal au choix, Copier, ou ouvrir sa messagerie (mailto), ses SMS (sms:) ou WhatsApp (wa.me). Filtre par
+            déclencheur avec compteurs.
+          - Limites : le CRM n'ENVOIE rien (pas de canal d'envoi en V1) et ne garde pas trace d'un message envoyé (la
+            relance documentaire se trace par « J'ai relancé » dans Documents) ; pas de lien sécurisé de dépôt, pas de
+            réponses entrantes rattachées au lead, pas de consentement / désinscription, pas d'arrêt automatique
+            (l'arrêt est rappelé, il joue seulement quand le lead change d'étape). Ces points relèvent du Lot 6.
+          32 tests. NON vérifié dans le navigateur.
 
 PHASE 2 — Lot 2, exécution                                                                  [PARTIEL]
   Écran de travail
@@ -475,9 +491,36 @@ PHASE 5 — Lot 5, pilotage et reporting                                        
           l'état des leads : elles disparaissent quand la situation est corrigée, jamais par simple consultation.
   [FAIT]  Écran Équipe (§12.7) : état, action actuelle, charge, rappels / intéressés / documents en main,
           distribution ; suspension / réactivation réservées à l'administrateur.
-  [PARTIEL] Cockpit : filtres globaux équipe / produit / campagne / zone, pipeline cliquable, cockpit documentaire
-          détaillé, actions de masse, clôture d'une alerte avec motif, report d'action, sons et notifications du
-          manager, actualisation par intervalles (§12.5) : non faits. « Résultat du jour » (ventes par télépro) :
+  [FAIT]  Cockpit manager, lot A (§12.4, §12.5, §12.9) : filtres globaux ÉQUIPE / PRODUIT / CAMPAGNE / ZONE appliqués à
+          tout l'écran (cartes, décisions, équipe, flux, file tampon, pipeline, documents), retirables un par un ou
+          réinitialisables, conservés dans l'adresse de la page (période comprise) donc retrouvés au retour d'une fiche.
+          Équipe = leads des membres de l'équipe : la file tampon n'a pas d'équipe, elle disparaît avec ce filtre (dit à
+          l'écran). Zone = département du code postal. PIPELINE en 8 étapes cliquables (Nouveaux, Prise de contact,
+          Intéressés, Documents, Prêts à monter, Montage et validation, Transmission, Vendus) : volume, bloqués (déjà
+          signalés au cockpit), âge moyen depuis la réception, taux de passage vers l'étape suivante. COCKPIT
+          DOCUMENTAIRE en 6 vues cliquables (demandés, partiels, promesses échues, à contrôler, non conformes, prêts à
+          monter), chacune avec la liste exacte des dossiers et le détail minimum de §12.9. Limites : le CRM ne garde pas
+          la date d'entrée dans un statut, donc ni « entrées / sorties du jour » ni durée dans l'étape ; le taux de
+          passage est un plancher déduit du statut actuel. 22 tests. NON vérifié dans le navigateur.
+  [FAIT]  Cockpit manager, lot B (§12.6, §12.8, §12.9) : décision sur une alerte depuis le panneau latéral : CLÔTURER
+          avec un motif obligatoire (liste administrable « Clôture d'une alerte » : traité hors CRM, fausse alerte,
+          client déjà recontacté, décision du manager, autre = commentaire obligatoire) ou REPORTER (30 min, 2 h, 1 jour)
+          quand la règle l'autorise : un lead neuf hors SLA ne se reporte pas. La décision est portée par le lead (champ
+          cockpitAlerts), écrite par la fonction /api/cockpit-alert (manager du lead ou administrateur, idempotente) et
+          tracée dans l'audit. Elle ne vaut que pour la situation décidée : une situation plus récente est une nouvelle
+          alerte, et un report revient seul à l'échéance. Une consultation ne retire rien. ACTIONS DE MASSE sur les
+          listes du cockpit (cases à cocher, « Tout sélectionner ») : attribuer (télépro + motif), reporter, exporter la
+          sélection en CSV sans coordonnées ; confirmation demandée, une trace par lead, compte rendu des refus.
+          Non faits dans ce lot : « envoyer un modèle de message » et « programmer une relance » en masse (pas de canal
+          d'envoi), « marquer à contrôler », rétablir une alerte depuis l'écran (la fonction le permet), instruction au
+          télépro. 34 tests. NON vérifié dans le navigateur.
+  [FAIT]  Alertes KPI dans le cockpit (§12.6, §22.8) : les règles de Paramètres → Objectifs et alertes sont évaluées avec les
+          mêmes fonctions que le rapport Direction, sur le périmètre filtré du cockpit, et s'affichent en carte (critiques
+          d'abord, détail de la règle, lien vers le rapport). Fenêtre : 7 jours glissants (30 jours si la période du
+          cockpit est « 30 derniers jours »), car un taux n'a pas de sens sur une journée. Seuil ET volume minimum
+          respectés. Avec un filtre d'équipe ou de zone, les dépenses ne sont pas attribuables : les règles de coût ne
+          sont pas évaluées (dit à l'écran). 9 tests. Non fait : alerte critique envoyée par email ou notification.
+  [PARTIEL] Cockpit : sons et notifications du manager, actualisation par intervalles (§12.5) : non faits. « Résultat du jour » (ventes par télépro) :
           colonne « Résultat » rattachée aux ventes ; durée dans le statut : pas de donnée en base.
   [FAIT]  Installations et facturations dans les tableaux (§24.12) : une seule définition de l'issue d'une vente
           (src/domain/sales/outcome.ts) pour les campagnes, les télépros, le cockpit et les rapports. « Ventes » =
@@ -536,14 +579,24 @@ PHASE 5 — Lot 5, pilotage et reporting                                        
           filtre télépro = coût « — » (une dépense ne se rattache pas à un télépro).
   [PARTIEL] Objectifs et alertes : un objectif se lit sur un mois civil (la période « 30 jours » ou « trimestre » n'a
           pas d'objectif) et sur le périmètre exact des filtres (pas de combinaison de filtres, pas de filtre source) ;
-          pas d'alerte en dehors des rapports (le cockpit et les notifications ne les reprennent pas) ; pas d'objectif
+          pas d'alerte par email ni notification (le cockpit les reprend, voir plus bas) ; pas d'objectif
           d'équipe ; l'alerte SLA ne retire pas les absences validées (seulement les horaires fermés).
+  [FAIT]  Rentabilité (§22, onglet Rapports > Rentabilité) : retour sur dépenses publicitaires, choix du propriétaire (le
+          cahier ne définit pas la marge). Chiffre d'affaires = montant TTC du montage des ventes nettes (annulées retirées) ;
+          marge d'acquisition = CA − dépenses de la période ; retour = CA / dépenses ; coût d'acquisition = dépenses / CA ;
+          panier moyen, coût par vente, CA sécurisé (signé ET payé / financé), CA des ventes annulées. Par campagne, source,
+          produit ou télépro (par télépro : pas de dépenses, une dépense se rattache à une campagne ; le total les garde).
+          Mêmes règles que le rapport Direction : mode événement / cohorte, filtres, hors doublons / faux leads / exclus.
+          Sans dépense : tirets (jamais 0 €). Vente sans montant de montage : comptée vente, signalée, listée, hors CA.
+          Nombre de ventes et d'annulées cliquables ; export CSV ; type d'export « Rentabilité » (à la demande et programmé).
+          21 tests. NON vérifié sur le site ni sur données réelles de DEV. Limites : ce n'est PAS une marge brute (coût
+          d'achat et pose inconnus) ; le montant est celui du montage Leads, pas celui du CRM principal.
   [PARTIEL] Exports : pas d'export Excel natif, pas d'API, pas de PDF généré par le serveur (page imprimable à
           enregistrer en PDF avec l'impression du navigateur). La planification, l'envoi par lien et l'historique
           partagé sont faits (voir plus bas).
   [À FAIRE] Rapports : filtres équipe, publicité, formulaire, zone, offre, comparaison avec l'année précédente,
-          granularité jour / mois, filtres partageables par URL ; marge, valeur et
-          rentabilité (pas de chiffre d'affaires ni de coût d'achat en base) ; correction ou exclusion d'un lead avec motif (§22.5) ; coûts importés (CSV, Meta, Google).
+          granularité jour / mois, filtres partageables par URL ; marge BRUTE
+          (pas de coût d'achat en base) ; correction ou exclusion d'un lead avec motif (§22.5) ; coûts importés (CSV, Meta, Google).
 
   [FAIT]  Exports programmés (§22.10, fig. 34), onglet Exports > « Rapports programmés » (administrateur) et
           « Historique » (administrateur : tout ; manager : ses fichiers). Livré en local, non encore déployé :
@@ -584,7 +637,7 @@ PHASE 5 — Lot 5, pilotage et reporting                                        
             existant n'est pas connu, plusieurs alias sont envoyés (to_email / email / user_email, message / body...).
           - Limites : lecture de 5 000 leads au plus par exécution (signalé dans l'historique) ; fichier renvoyé à
             l'écran par la fonction (limite de réponse Netlify d'environ 6 Mo) ; quota mensuel EmailJS selon le plan.
-            Pas d'adresse email libre : destinataires = utilisateurs du CRM. Pas de pièce jointe (décision : lien).
+            Pas d'adresse email libre : destinataires = utilisateurs du CRM. Pièce jointe : option par rapport « Joindre aussi le CSV à l'email » (désactivée par défaut), en plus du lien, CSV de 1 Mo au plus ; sinon le lien seul part. Le modèle EmailJS doit déclarer une pièce jointe variable nommée attachment_csv (Attachments > Variable Attachment ; nom de fichier : attachment_name).
 
 PHASE 6 — Sections 23 et 24                                                                 [PARTIEL]
   [FAIT]  Hub d'intégrations (§24.10, figs. 40 à 42), menu Intégrations (administrateur), cinq onglets :
@@ -701,8 +754,8 @@ principal…) restent à confirmer par écrit.
   3. (fait) Retour des statuts du CRM principal (§24.8), installations et facturations dans les tableaux de campagne
      et de télépro, verrous de conversion réglables, rapports Direction et Campagnes.
   4. (fait) Motifs et listes administrables (§21.6) ; constructeur de qualification conditionnelle (fig. 27).
-  5. Rapports restants : rentabilité ; les exports à la demande et programmés sont faits (reste à renseigner les
-     variables EmailJS dans Netlify et à tester un envoi réel). Puis communications (SMS, email, WhatsApp).
+  5. Rapports restants : marge brute (si un coût d'achat par produit est décidé) ; la rentabilité, les exports à la demande et programmés sont faits (reste à renseigner les
+     variables EmailJS dans Netlify, déclarer la pièce jointe « attachment_csv » dans le modèle EmailJS, redéployer, puis tester un envoi réel). Puis communications (SMS, email, WhatsApp).
   6. Partie de la vente à distance qui dépend de prestataires : contrat PDF versionné, signature électronique,
      financement. À lancer quand les modèles juridiques et les prestataires sont choisis.
   7. Recette avec de vrais leads (en dernier, avec l'équipe) : brancher Pabbly (2e étape d'envoi), vérifier la file
@@ -722,7 +775,7 @@ recette sur la base de DEV.
 
   cd Lead
   npm run dev                       application + fonctions sur http://localhost:5180
-  npm test                          les 1966 tests
+  npm test                          les 2076 tests
   node scripts/send-test-leads.mjs --url http://localhost:5180 --secret <CRM_SHARED_SECRET> --count 5
                                     envoie de faux leads (option --scenario mix pour les cas limites)
   node scripts/test-file-tampon.mjs [--keep]

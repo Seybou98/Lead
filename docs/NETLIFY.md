@@ -154,6 +154,15 @@ Fonction `netlify/functions/integrations-hub.ts`, adresse `/api/integrations-hub
   (`cl_idempotency/replay_<id>`), marquée `replayedAt/replayedBy/replayLeadId`, tracée dans l'audit.
 - Codes : 200 · 400 · 401 · 403 · 404 · 405 · 409 (déjà reprise ou en cours) · 422 (toujours refusée) · 500.
 
+## Alertes du cockpit (clôture, report)
+Fonction `netlify/functions/cockpit-alert.ts`, adresse `/api/cockpit-alert` (jeton Firebase). Logique : `functions/src/cockpitAlert.ts`,
+`cockpitAlertHttp.ts` ; règles : `src/domain/cockpit/alertStates.ts`. Droit : administrateur, ou manager dont l'uid figure dans `managerIds` du lead.
+- Corps : `{ leadId, alertKey (sla|callback|docs|sale), sinceMs, requestId, action }` avec `action: 'close'` + `reasonCode` (+ `comment`),
+  `'postpone'` + `choice` (`30m`, `2h`, `1d`), ou `'reopen'`. Le report est refusé pour `sla`. Le motif doit être actif dans la liste « Clôture
+  d'une alerte » (`cl_settings/reasons`) ; « Autre » exige un commentaire.
+- Écrit `cockpitAlerts.<alerte>` sur le lead, une trace `cl_audit` (`cockpit.alert_close`, `alert_postpone`, `alert_reopen`) et l'idempotence
+  `cl_idempotency/cockpit_<requête>`. Codes : 200 · 400 · 401 · 403 · 404 · 405 · 422 · 500.
+
 ## Rapports programmés (exports par email)
 Deux fonctions : `netlify/functions/exports-runner.ts` (PLANIFIÉE, toutes les 5 minutes, `[functions."exports-runner"]` dans
 `netlify.toml`) et `netlify/functions/exports-hub.ts` (`/api/exports-hub`, jeton Firebase). Logique : `functions/src/exportRunner.ts`,
@@ -171,7 +180,7 @@ Deux fonctions : `netlify/functions/exports-runner.ts` (PLANIFIÉE, toutes les 5
   - `SITE_URL` (adresse du CRM dans le lien ; défaut : `URL`, fournie par Netlify).
   Dans le compte EmailJS : activer « Autoriser l'API pour les applications non navigateur » ; champ « To Email » du modèle =
   `{{to_email}}`. Paramètres envoyés au modèle : `to_email`, `email`, `user_email`, `to_name`, `subject`, `message`, `link`,
-  `download_url`, `report_name`, `report_type`, `period`, `rows`, `format`, `generated_at`, `expires_in_days`…
+  `download_url`, `attachment_csv` (data URI, seulement si l'option « Joindre le CSV » est cochée et le CSV ≤ 1 Mo), `attachment_name`, `report_name`, `report_type`, `period`, `rows`, `format`, `generated_at`, `expires_in_days`…
 - **Actions** de `exports-hub` : `{ action: 'runs' }` (administrateur et managers), `{ action: 'download', runId, file }`
   (`file` = `all` ou l'identifiant du manager ; administrateur, ou manager destinataire de ce fichier), `{ action: 'run', scheduleId }`
   et `{ action: 'resend', runId }` (administrateur). Codes : 200 · 400 · 401 · 403 · 404 · 405 · 409 · 410 (fichier supprimé) · 422 · 500.

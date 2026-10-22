@@ -12,6 +12,7 @@ const MODULE_OF: Record<string, { label: string; href: string }> = {
   'settings:conversion': { label: 'Verrous de conversion', href: '/parametres/conversion' },
   'settings:reasons': { label: 'Motifs et listes', href: '/parametres/motifs' },
   'settings:reports': { label: 'Objectifs et alertes', href: '/parametres/objectifs' },
+  'settings:messages': { label: 'Modèles de message', href: '/parametres/messages' },
   checklist: { label: 'Documents', href: '/parametres/documents' },
   campaign: { label: 'Campagnes', href: '/campagnes' },
   team: { label: 'Équipes', href: '/utilisateurs' },
@@ -23,7 +24,7 @@ const MODULE_OF: Record<string, { label: string; href: string }> = {
 const initials = (n: string) => n.split(/\s+/).filter(Boolean).map((p) => p[0]).join('').toUpperCase().slice(0, 2) || '?';
 
 function moduleKey(entityType: string, entityId: string): string | null {
-  if (entityType === 'settings') return entityId === 'rules' ? 'settings:rules' : entityId === 'conversion' ? 'settings:conversion' : entityId === 'reasons' ? 'settings:reasons' : entityId === 'reports' ? 'settings:reports' : entityId.startsWith('sla') ? 'settings:sla' : null;
+  if (entityType === 'settings') return entityId === 'rules' ? 'settings:rules' : entityId === 'conversion' ? 'settings:conversion' : entityId === 'reasons' ? 'settings:reasons' : entityId === 'reports' ? 'settings:reports' : entityId === 'messages' ? 'settings:messages' : entityId.startsWith('sla') ? 'settings:sla' : null;
   return entityType in MODULE_OF ? entityType : null;
 }
 
@@ -58,8 +59,8 @@ export function SettingsHome() {
     { title: 'Qualification', subtitle: 'Formulaire conditionnel par produit', icon: BookOpen, tone: 'bg-amber-100 text-amber-600', href: '/parametres/qualification', chip: { tone: 'blue', label: 'Constructeur' } },
     { title: 'Documents', subtitle: `${data.checklistCount} checklist${data.checklistCount > 1 ? 's' : ''} enregistrée${data.checklistCount > 1 ? 's' : ''}`, icon: FileText, tone: 'bg-red-100 text-red-500', href: '/parametres/documents', chip: checklistAlerts.length ? { tone: 'red', label: `${checklistAlerts.length} sans checklist` } : { tone: 'green', label: 'À jour' } },
     { title: 'Workflows & statuts', subtitle: 'Parcours du lead', icon: Workflow, tone: 'bg-emerald-100 text-emerald-600', chip: { tone: 'grey', label: 'À venir' } },
-    { title: 'Communications', subtitle: 'Aucun canal d’envoi en V1', icon: Mail, tone: 'bg-blue-100 text-blue-600', chip: { tone: 'grey', label: 'À venir' } },
-    { title: 'Versions & publication', subtitle: `${data.audit.filter((a) => moduleKey(a.entityType, a.entityId) && ['settings:sla', 'settings:rules', 'settings:conversion', 'settings:reasons', 'settings:reports', 'checklist'].includes(moduleKey(a.entityType, a.entityId) as string)).length} enregistrement(s) tracé(s)`, icon: Tag, tone: 'bg-indigo-100 text-indigo-600', href: '/parametres/versions', chip: { tone: 'blue', label: 'Historique' } },
+    { title: 'Communications', subtitle: 'Modèles de message par déclencheur, canal et produit', icon: Mail, tone: 'bg-blue-100 text-blue-600', href: '/parametres/messages', chip: data.settings.saved.messages ? { tone: 'green', label: 'Enregistré' } : { tone: 'blue', label: 'Modèles d’origine' } },
+    { title: 'Versions & publication', subtitle: `${data.audit.filter((a) => moduleKey(a.entityType, a.entityId) && ['settings:sla', 'settings:rules', 'settings:conversion', 'settings:reasons', 'settings:reports', 'settings:messages', 'checklist'].includes(moduleKey(a.entityType, a.entityId) as string)).length} enregistrement(s) tracé(s)`, icon: Tag, tone: 'bg-indigo-100 text-indigo-600', href: '/parametres/versions', chip: { tone: 'blue', label: 'Historique' } },
   ];
   const run: ModuleCard[] = [
     { title: "Règles d'attribution", subtitle: 'Critères, ordre de priorité, plafond, simulation', icon: RouteIcon, tone: 'bg-blue-100 text-blue-600', href: '/parametres/attribution', chip: { tone: 'blue', label: 'Par campagne' } },

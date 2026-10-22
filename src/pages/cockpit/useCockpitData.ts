@@ -6,6 +6,9 @@ import type { Role } from '../../domain/enums';
 import { buildUserRows, type MainUserView, type PresenceView, type ProfileView, type TeamView, type UserRow } from '../../domain/admin/userRows';
 import type { LeadListItem, LeadNames } from '../../domain/leads/leadList';
 import { ms, toTeam, toUser } from '../../lib/firestoreViews';
+import type { ReportCampaign, ReportSpend } from '../../domain/reports/direction';
+import type { AlertRule } from '../../domain/reports/targets';
+import { useSettings } from '../settings/useSettings';
 import { toProfile } from '../users/useUsersData';
 import { useLeadsList, useNow } from '../leads/useLeadsData';
 
@@ -18,6 +21,11 @@ export interface CockpitData {
   users: MainUserView[];
   names: LeadNames;
   nowMs: number;
+  /** Campagnes et dépenses, pour évaluer les alertes KPI (lecture secondaire : sans elles, les règles de coût sont muettes). */
+  reportCampaigns: ReportCampaign[];
+  spends: ReportSpend[];
+  /** Règles d'alerte réglées dans Paramètres → Objectifs et alertes. */
+  kpiRules: AlertRule[];
   /** Dernière donnée reçue en temps réel. */
   syncedAtMs: number | null;
   /** Le navigateur est hors ligne : les chiffres affichés ne sont plus à jour. */
@@ -40,6 +48,9 @@ export function useCockpitData(role: Role, uid: string): CockpitData {
   const [users, setUsers] = useState<MainUserView[]>([]);
   const [teams, setTeams] = useState<TeamView[]>([]);
   const [profiles, setProfiles] = useState<Map<string, ProfileView>>(new Map());
+  const [reportCampaigns, setReportCampaigns] = useState<ReportCampaign[]>([]);
+  const [spends, setSpends] = useState<ReportSpend[]>([]);
+  const { reports } = useSettings();
   const [presence, setPresence] = useState<Map<string, PresenceView>>(new Map());
   const [pending, setPending] = useState({ users: true, profiles: true, teams: true });
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +77,8 @@ export function useCockpitData(role: Role, uid: string): CockpitData {
     const done = (k: keyof typeof pending) => setPending((p) => ({ ...p, [k]: false }));
     const unsubs = [
       onSnapshot(profilesQuery(role, uid), (s) => { setProfiles(new Map(s.docs.map((d) => [d.id, toProfile(d.id, d.data())]))); setSyncedAtMs(Date.now()); done('profiles'); }, () => { fail(); done('profiles'); }),
+      onSnapshot(collection(db, COL.campaigns), (s) => setReportCampaigns(s.docs.map((d) => ({ id: d.id, name: String(d.get('name') ?? d.id), sourceId: String(d.get('sourceId') ?? ''), productCode: (d.get('productCode') as string | null) ?? null }))), () => undefined),
+      onSnapshot(collection(db, COL.adSpend), (s) => setSpends(s.docs.map((d) => ({ campaignId: String(d.get('campaignId') ?? ''), amountCents: Number(d.get('amountCents') ?? 0), atMs: ms(d.get('date')) ?? ms(d.get('at')) ?? 0 })).filter((x) => x.campaignId && Number.isFinite(x.amountCents))), () => undefined),
       onSnapshot(collection(db, COL.teams), (s) => { setTeams(s.docs.map((d) => toTeam(d.id, d.data()))); done('teams'); }, () => { fail(); done('teams'); }),
       onSnapshot(
         collection(db, COL.presence),
@@ -84,7 +97,7 @@ export function useCockpitData(role: Role, uid: string): CockpitData {
   const rows = useMemo(() => buildUserRows(users, profiles, teams, presence, nowMs), [users, profiles, teams, presence, nowMs]);
 
   return useMemo(
-    () => ({ loading: leads.loading || pending.users || pending.profiles || pending.teams, error: leads.error ?? error, items: leads.items, rows, users, names: leads.names, nowMs, syncedAtMs, offline }),
-    [leads.loading, leads.error, leads.items, leads.names, pending, error, rows, users, nowMs, syncedAtMs, offline]
+    () => ({ loading: leads.loading || pending.users || pending.profiles || pending.teams, error: leads.error ?? error, items: leads.items, rows, users, names: leads.names, nowMs, reportCampaigns, spends, kpiRules: reports.alerts, syncedAtMs, offline }),
+    [leads.loading, leads.error, leads.items, leads.names, pending, error, rows, users, nowMs, reportCampaigns, spends, reports.alerts, syncedAtMs, offline]
   );
 }

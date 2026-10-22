@@ -61,7 +61,7 @@ function memStorage(): ExportStorage & { files: Map<string, string> } {
 }
 
 const schedule = (over: Partial<ScheduledExport> = {}): ScheduledExport => ({
-  id: 's_1', name: 'Leads de la semaine', kind: 'leads', format: 'csv', frequency: 'weekly', weekday: 1, dayOfMonth: 1, time: '08:00', period: 'previous_week', mode: 'event', sourceId: '', product: '', corrected: true, detail: true,
+  id: 's_1', name: 'Leads de la semaine', kind: 'leads', format: 'csv', frequency: 'weekly', weekday: 1, dayOfMonth: 1, time: '08:00', period: 'previous_week', mode: 'event', sourceId: '', product: '', corrected: true, detail: true, attachCsv: false,
   recipients: ['adm', 'm1'], active: true, endDate: '', createdAtMs: paris(2026, 10, 1), ...over,
 });
 
@@ -180,6 +180,34 @@ describe('exports programmés : génération', () => {
     const [run] = runsOf(db);
     expect(run.files[0].filename.endsWith('.html')).toBe(true);
     expect([...storage.files.values()][0]).toContain('<!doctype html>');
+  });
+});
+
+describe('exports programmés : CSV joint', () => {
+  const decode = (uri: string) => Buffer.from(uri.split(',')[1], 'base64').toString('utf8');
+  it('option activée : le CSV part en pièce jointe (data URI) en plus du lien', async () => {
+    const db = world({ attachCsv: true });
+    const { d, send, storage } = deps();
+    await runDueExports(db as never, MONDAY, d);
+    const p = send.mock.calls.map((c) => c[0]).find((x) => x.to_email === 'adm@x.fr')!;
+    expect(p.attached).toBe('oui');
+    expect(p.attachment_csv).toMatch(/^data:text\/csv;base64,/);
+    expect(p.attachment_name).toMatch(/\.csv$/);
+    expect(p.link).toContain('/rapports/export/');
+    expect([...storage.files.values()]).toContain(decode(p.attachment_csv));
+    expect(decode(p.attachment_csv)).not.toContain('Jean Dupont');
+  });
+  it('option désactivée : lien seul, aucune pièce jointe', async () => {
+    const { d, send } = deps();
+    await runDueExports(world() as never, MONDAY, d);
+    const p = send.mock.calls[0][0];
+    expect(p.attached).toBe('non');
+    expect(p.attachment_csv).toBeUndefined();
+  });
+  it('fichier trop gros ou format imprimable : lien seul', async () => {
+    const { d, send } = deps();
+    await runDueExports(world({ attachCsv: true, format: 'pdf' }) as never, MONDAY, d);
+    expect(send.mock.calls[0][0].attached).toBe('non');
   });
 });
 

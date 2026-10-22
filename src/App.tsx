@@ -15,6 +15,8 @@ import { RulesPage } from './pages/settings/RulesPage';
 import { ConversionRulesPage } from './pages/settings/ConversionRulesPage';
 import { ReasonsPage } from './pages/settings/ReasonsPage';
 import { ObjectivesPage } from './pages/settings/ObjectivesPage';
+import { MessageTemplatesPage } from './pages/settings/MessageTemplatesPage';
+import { MessagesPage } from './pages/messages/MessagesPage';
 import { QualificationBuilderPage } from './pages/qualification/QualificationBuilderPage';
 import { CockpitPage } from './pages/cockpit/CockpitPage';
 import { TeamPage } from './pages/cockpit/TeamPage';
@@ -78,7 +80,7 @@ export default function App() {
         <Route path="/ma-journee" element={<MyDayPage />} />
         <Route path="/mes-leads" element={<LeadsListPage basePath="/mes-leads" />} />
         <Route path="/mes-leads/:leadId" element={<LeadFilePage listPath="/mes-leads" />} />
-        <Route path="/messages" element={page('Messages', 'Chronologie des échanges avec vos clients.', '§24.5', 'Phase 6')} />
+        <Route path="/messages" element={<MessagesPage />} />
 
         {/* Manager / admin */}
         <Route path="/cockpit" element={<CockpitPage />} />
@@ -120,6 +122,7 @@ export default function App() {
         <Route path="/parametres/conversion" element={<ConversionRulesPage />} />
         <Route path="/parametres/motifs" element={<ReasonsPage />} />
         <Route path="/parametres/objectifs" element={<ObjectivesPage />} />
+        <Route path="/parametres/messages" element={<MessageTemplatesPage />} />
         <Route path="/parametres/qualification" element={<QualificationBuilderPage />} />
         <Route path="/parametres/*" element={page('Paramètres', 'SLA, horaires, NR, checklists, motifs — versionnés.', '§14, §21', 'Phase 2 / 5')} />
         <Route path="/journal" element={<JournalPage />} />

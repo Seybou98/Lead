@@ -139,3 +139,21 @@ describe('objectifs et alertes KPI', () => {
     expect(versionsOf([v1, v2], 'reports')[1].payload).toMatchObject({ alerts: [{ id: 'a_1' }], objectives: [{ id: 'o_1' }] });
   });
 });
+
+describe('versions — modèles de message', () => {
+  const sms = { trigger: 'offer_sent', channel: 'sms', product: '', subject: '', body: 'Bonjour {{prenom}}', active: true };
+  const mail = { trigger: 'offer_sent', channel: 'email', product: '', subject: 'Offre', body: 'Bonjour', active: true };
+  const row = (id: string, atMs: number, before: unknown, after: unknown): AuditRow => ({ id, atMs, actorId: 'adm', action: 'settings.messages.update', entityType: 'settings', entityId: 'messages', before, after, reason: null });
+  it('module reconnu', () => expect(moduleOf({ entityType: 'settings', entityId: 'messages', action: '' })).toBe('messages'));
+  it('ajout, modification, désactivation et retrait de modèles', () => {
+    const c = describeChanges('messages', { templates: [sms, mail] }, { templates: [{ ...sms, body: 'Salut {{prenom}}', active: false }, { ...mail, channel: 'whatsapp', subject: '' }] });
+    expect(c).toContain('Modèle modifié : Offre envoyée · SMS — désactivé');
+    expect(c).toContain('Modèle ajouté : Offre envoyée · WhatsApp');
+    expect(c).toContain('Modèle retiré : Offre envoyée · Email');
+  });
+  it('un retour arrière rejoue la valeur enregistrée', () => {
+    const v = versionsOf([row('1', 1, null, { templates: [sms], updatedAt: 1, updatedBy: 'adm' }), row('2', 2, { templates: [sms] }, { templates: [sms, mail] })], 'messages');
+    expect(v[1].payload).toEqual({ templates: [sms] });
+  });
+});
+

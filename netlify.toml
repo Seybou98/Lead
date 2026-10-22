@@ -90,6 +90,13 @@
   status = 200
   force = true
 
+# Clôture ou report d'une alerte du cockpit manager : jeton Firebase.
+[[redirects]]
+  from = "/api/cockpit-alert"
+  to = "/.netlify/functions/cockpit-alert"
+  status = 200
+  force = true
+
 # Hub d'intégrations : journal des échanges et reprise d'un lead refusé (administrateur) : jeton Firebase.
 [[redirects]]
   from = "/api/integrations-hub"

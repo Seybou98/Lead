@@ -11,6 +11,7 @@ import { getSlaMs, slaAgeMs, slaLevel, type LeadListItem } from '../leads/leadLi
 import { buildDayQueue } from '../leads/myDay';
 import type { DistributionState, UserRow } from '../admin/userRows';
 import { OPERATIONAL_STATUS_LABELS } from '../labels';
+import { isAlertHidden, type AlertKey } from './alertStates';
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -29,6 +30,8 @@ export interface LeadIssue {
   sinceMs: number;
   severity: Severity;
   reason: string;
+  /** Nature de l'alerte, quand elle peut être clôturée ou reportée par un manager (absente pour la file tampon, etc.). */
+  key?: AlertKey;
 }
 
 export interface Decision {
@@ -84,6 +87,9 @@ const nameOf = (l: LeadListItem) => l.fullName || 'Contact sans nom';
 
 const isOpen = (l: LeadListItem) => !CLOSED_LEAD_STATUSES.includes(l.status) && !l.excluded;
 
+/** Alerte retirée de la file active par un manager (clôture avec motif, ou report encore en cours) pour CETTE situation. */
+const hidden = (l: LeadListItem, key: AlertKey, sinceMs: number, nowMs: number): boolean => isAlertHidden(l.alertStates?.[key], sinceMs, nowMs);
+
 export function periodStart(period: Period, nowMs: number): number {
   return period === 'today' ? startOfDay(nowMs) : period === 'week' ? nowMs - 7 * DAY : nowMs - 30 * DAY;
 }
@@ -97,6 +103,7 @@ function dangerIssues(items: readonly LeadListItem[], nowMs: number): LeadIssue[
     const level = slaLevel(age);
     if (level === 'ok') continue;
     const breached = level === 'breached';
+    if (hidden(l, 'sla', (l.slaStartedAtMs ?? nowMs) + getSlaMs(), nowMs)) continue;
     out.push({
       lead: l,
       sinceMs: (l.slaStartedAtMs ?? nowMs) + getSlaMs(),
@@ -113,6 +120,7 @@ function lateCallbackIssues(items: readonly LeadListItem[], nowMs: number): Lead
     if (!isOpen(l) || !isCallbackAction(l) || !l.nextAction) continue;
     const level = callbackLevel(l.nextAction.dueAtMs, nowMs);
     if (level !== 'orange' && level !== 'red') continue; // « en retard » = au moins 5 minutes après l'échéance
+    if (hidden(l, 'callback', l.nextAction.dueAtMs, nowMs)) continue;
     out.push({
       lead: l,
       sinceMs: l.nextAction.dueAtMs,
@@ -141,7 +149,7 @@ function blockedDocIssues(items: readonly LeadListItem[], nowMs: number): LeadIs
       out.push({ lead: l, sinceMs: a?.dueAtMs ?? d.lastRequestAtMs ?? l.receivedAtMs, severity: 'watch', reason: 'Documents toujours incomplets après plusieurs relances' });
     }
   }
-  return out.sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || a.sinceMs - b.sinceMs);
+  return out.filter((i) => !hidden(i.lead, 'docs', i.sinceMs, nowMs)).sort((a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || a.sinceMs - b.sinceMs);
 }
 
 /** Une vente est sécurisée après signature ET confirmation du paiement ou de l'acceptation du financement (§25.7, §23.11). */
@@ -149,12 +157,13 @@ export const isSaleSecured = (l: Pick<LeadListItem, 'commercialState' | 'financi
   l.commercialState === 'signed' && (l.financialState === 'payment_confirmed' || l.financialState === 'financing_accepted');
 
 /** Ventes à sécuriser : toute vente créée, ni sécurisée ni annulée ou rétractée. Un lead converti n'est donc pas « clos » ici. */
-function saleIssues(items: readonly LeadListItem[]): LeadIssue[] {
+function saleIssues(items: readonly LeadListItem[], nowMs: number): LeadIssue[] {
   const out: LeadIssue[] = [];
   for (const l of items) {
     if (l.excluded || !l.conversion) continue;
     if (l.commercialState === 'cancelled' || l.commercialState === 'retracted') continue;
     if (isSaleSecured(l)) continue;
+    if (hidden(l, 'sale', l.montage?.updatedAtMs ?? l.receivedAtMs, nowMs)) continue;
     out.push({
       lead: l,
       sinceMs: l.montage?.updatedAtMs ?? l.receivedAtMs,
@@ -179,10 +188,11 @@ function stateOf(row: UserRow): TeamRow['state'] {
 
 export function buildCockpit(args: { items: readonly LeadListItem[]; rows: readonly UserRow[]; nowMs: number; period: Period }): Cockpit {
   const { items, rows, nowMs, period } = args;
-  const danger = dangerIssues(items, nowMs);
-  const lateCallbacks = lateCallbackIssues(items, nowMs);
-  const blockedDocs = blockedDocIssues(items, nowMs);
-  const salesToSecure = saleIssues(items);
+  const tag = (list: LeadIssue[], key: AlertKey): LeadIssue[] => list.map((i) => ({ ...i, key }));
+  const danger = tag(dangerIssues(items, nowMs), 'sla');
+  const lateCallbacks = tag(lateCallbackIssues(items, nowMs), 'callback');
+  const blockedDocs = tag(blockedDocIssues(items, nowMs), 'docs');
+  const salesToSecure = tag(saleIssues(items, nowMs), 'sale');
 
   const bufferLeads = items.filter((l) => isOpen(l) && l.ownerId === null && (l.assignmentState === 'buffer' || l.assignmentState === 'to_assign'));
   const oldestMs = bufferLeads.length ? Math.min(...bufferLeads.map((l) => l.receivedAtMs)) : null;

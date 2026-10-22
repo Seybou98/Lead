@@ -26,7 +26,7 @@ import { useRecipients, useScheduledExports, type Recipient } from './useSchedul
 import type { ReportsData } from './useReportsData';
 
 const blank = (id: string): ScheduledExport => ({
-  id, name: '', kind: 'direction', format: 'csv', frequency: 'weekly', weekday: 1, dayOfMonth: 1, time: '08:00', period: 'previous_week', mode: 'event', sourceId: '', product: '', corrected: true, detail: false, recipients: [], active: true, endDate: '', createdAtMs: 0,
+  id, name: '', kind: 'direction', format: 'csv', frequency: 'weekly', weekday: 1, dayOfMonth: 1, time: '08:00', period: 'previous_week', mode: 'event', sourceId: '', product: '', corrected: true, detail: false, attachCsv: false, recipients: [], active: true, endDate: '', createdAtMs: 0,
 });
 
 const when = (ms: number | null): string => (ms ? new Date(ms).toLocaleString('fr-FR', { timeZone: SCHEDULE_TZ, weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
@@ -180,6 +180,7 @@ export function ScheduledView({ data, now }: { data: ReportsData; now: number })
             <div className="space-y-2.5 sm:col-span-2">
               <div className="flex items-start justify-between gap-3"><span><span className="block font-medium text-slate-700">Données corrigées</span><span className="block text-xs text-slate-500">Hors doublons, faux leads et leads exclus. Désactivé : données brutes.</span></span><Switch label="Données corrigées" checked={draft.corrected} onChange={(v) => set('corrected', v)} /></div>
               <div className="flex items-start justify-between gap-3"><span><span className="block font-medium text-slate-700">Inclure le détail des leads</span><span className="block text-xs text-slate-500">Une ligne par lead, avec un pseudonyme : jamais de nom, téléphone, email ni adresse.</span></span><Switch label="Inclure le détail des leads" checked={draft.detail || draft.kind === 'leads'} onChange={(v) => set('detail', v)} disabled={draft.kind === 'leads'} /></div>
+              <div className="flex items-start justify-between gap-3"><span><span className="block font-medium text-slate-700">Joindre aussi le CSV à l’email</span><span className="block text-xs text-slate-500">En plus du lien. Format CSV seulement, fichier de 1 Mo au plus (sinon le lien seul part). Le modèle EmailJS doit déclarer la pièce jointe variable « attachment_csv ».</span></span><Switch label="Joindre aussi le CSV à l’email" checked={draft.attachCsv && draft.format === 'csv'} onChange={(v) => set('attachCsv', v)} disabled={draft.format !== 'csv'} /></div>
             </div>
             <fieldset className="sm:col-span-2">
               <legend className="font-medium text-slate-700">Destinataires</legend>

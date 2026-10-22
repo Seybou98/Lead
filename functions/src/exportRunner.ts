@@ -25,6 +25,7 @@ import {
   emailParams,
   emailsSettled,
   manualRunId,
+  MAX_ATTACHMENT_BYTES,
   MAX_EMAIL_ATTEMPTS,
   parseSchedules,
   RETENTION_DAYS,
@@ -269,9 +270,16 @@ const canTry = (r: RunRecipient, nowMs: number): boolean =>
 
 export const downloadLink = (siteUrl: string, runId: string, scope: string): string => `${siteUrl.replace(/\/+$/, '')}/rapports/export/${encodeURIComponent(runId)}?f=${encodeURIComponent(scope)}`;
 
+/** Le rapport demande-t-il le CSV en pièce jointe ? Lu au moment de l'envoi (un rapport supprimé : lien seul). */
+async function attachCsvFlag(db: Firestore, scheduleId: string): Promise<boolean> {
+  const snap = await db.collection(COL.settings).doc(SETTINGS_ID).get();
+  return parseSchedules(snap.exists ? snap.data() : null).find((x) => x.id === scheduleId)?.attachCsv === true;
+}
+
 /** Envoie les messages en attente ou à retenter, puis enregistre l'état de chacun. */
 export async function sendRunEmails(db: Firestore, run: ExportRun, deps: RunnerDeps, nowMs: number): Promise<ExportRun> {
   if (run.status !== 'ready' || emailsSettled(run)) return run;
+  const attach = await attachCsvFlag(db, run.scheduleId);
   const names = new Map((await readStaff(db)).map((u) => [u.uid, u.name]));
   const files = run.files.map((f) => ({ ...f, recipients: f.recipients.map((r) => ({ ...r })) }));
   for (const f of files) {
@@ -289,7 +297,13 @@ export async function sendRunEmails(db: Firestore, run: ExportRun, deps: RunnerD
         r.error = 'Envoi impossible : adresse du CRM inconnue (variable SITE_URL).';
         continue;
       }
-      const res = await deps.send(emailParams({ run, file: f, recipient: { name: names.get(r.uid) ?? '', email: r.email }, link: downloadLink(deps.siteUrl, run.id, f.scope) }));
+      // CSV joint si demandé, si c'est bien un CSV et s'il reste assez petit ; sinon le lien seul part.
+      let attachment: { content: string } | undefined;
+      if (attach && f.filename.endsWith('.csv') && f.bytes <= MAX_ATTACHMENT_BYTES && deps.storage) {
+        const content = await deps.storage.get(f.path).catch(() => null);
+        if (content !== null) attachment = { content };
+      }
+      const res = await deps.send(emailParams({ run, file: f, recipient: { name: names.get(r.uid) ?? '', email: r.email }, link: downloadLink(deps.siteUrl, run.id, f.scope), attachment }));
       if (res.ok) {
         r.status = 'sent';
         r.error = null;

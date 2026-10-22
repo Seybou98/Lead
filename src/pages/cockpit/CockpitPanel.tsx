@@ -7,6 +7,8 @@ import { formatPhoneDisplay, type LeadListItem, type LeadNames } from '../../dom
 import { buildTimeline } from '../../domain/leads/leadFile';
 import { sinceLabel, targetChoices, type LeadIssue, type TeamRow, type Tone } from '../../domain/cockpit/cockpit';
 import { sendReassign } from '../../lib/reassignApi';
+import { AlertDecision } from './AlertDecision';
+import { BulkBar } from './BulkBar';
 import { useLeadFile } from '../leads/useLeadsData';
 import { useSettings } from '../settings/useSettings';
 
@@ -26,15 +28,27 @@ export const SEVERITY_STYLE = {
 } as const;
 
 /** Panneau de liste : la liste EXACTE des leads qui composent un chiffre du cockpit (§12.6). */
-export function ListPanel({ title, issues, nowMs, names, onPick, onClose }: { title: string; issues: LeadIssue[]; nowMs: number; names: LeadNames; onPick: (leadId: string) => void; onClose: () => void }) {
+export function ListPanel({ title, issues, nowMs, names, onPick, onClose, bulk }: { title: string; issues: LeadIssue[]; nowMs: number; names: LeadNames; onPick: (leadId: string) => void; onClose: () => void; bulk?: { team: TeamRow[]; canAct: boolean; onDone: (message: string) => void } }) {
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const chosen = issues.filter((i) => picked.has(i.lead.id));
+  const toggle = (id: string, on: boolean) => setPicked((cur) => { const n = new Set(cur); if (on) n.add(id); else n.delete(id); return n; });
   return (
     <Drawer title={`${title} (${issues.length})`} onClose={onClose}>
       {issues.length === 0 && <p className="text-sm text-slate-500">Aucun lead pour le moment.</p>}
+      {bulk && issues.length > 0 && (
+        <div className="-mx-5 -mt-4 mb-3">
+          <label className="flex items-center gap-2 border-b border-slate-100 px-5 py-2 text-xs text-slate-600">
+            <input type="checkbox" aria-label="Tout sélectionner" checked={chosen.length === issues.length} onChange={(e) => setPicked(e.target.checked ? new Set(issues.map((i) => i.lead.id)) : new Set())} /> Tout sélectionner
+          </label>
+          {chosen.length > 0 && <BulkBar issues={chosen} team={bulk.team} names={names} canAct={bulk.canAct} onDone={(m) => { setPicked(new Set()); bulk.onDone(m); }} />}
+        </div>
+      )}
       <ul className="space-y-2">
         {issues.map((i) => {
           const sev = SEVERITY_STYLE[i.severity];
           return (
-            <li key={i.lead.id}>
+            <li key={i.lead.id} className="flex items-start gap-2">
+              {bulk && <input type="checkbox" aria-label={`Sélectionner ${i.lead.fullName || i.lead.id}`} className="mt-4" checked={picked.has(i.lead.id)} onChange={(e) => toggle(i.lead.id, e.target.checked)} />}
               <button type="button" onClick={() => onPick(i.lead.id)} className="flex w-full items-start gap-3 rounded-lg border border-slate-200 px-3 py-2.5 text-left hover:bg-slate-50">
                 <span className={cn('mt-1.5 h-2.5 w-2.5 flex-shrink-0 rounded-full', sev.dot)} role="img" aria-label={sev.label} />
                 <span className="min-w-0 flex-1">
@@ -166,6 +180,8 @@ export function LeadPanel({
           <Link to={`${basePath}/${lead.id}`} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"><ExternalLink className="h-4 w-4" /> Ouvrir la fiche</Link>
           {lead.docs && <Link to={`${basePath}/${lead.id}?onglet=documents`} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"><FileText className="h-4 w-4" /> Documents</Link>}
         </div>
+
+        {canReassign && issue?.key && <AlertDecision leadId={lead.id} alertKey={issue.key} sinceMs={issue.sinceMs} onDone={onDone} />}
 
         {canReassign ? (
           <section className="rounded-xl border border-slate-200 p-4" aria-label="Réattribution">

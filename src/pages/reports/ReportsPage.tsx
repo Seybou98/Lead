@@ -21,14 +21,16 @@ import { useReportsData, type ReportsData } from './useReportsData';
 import { TeleprosView } from './TeleprosView';
 import { DocumentsView } from './DocumentsView';
 import { QualityView } from './QualityView';
+import { ProfitabilityView } from './ProfitabilityView';
 import { ExportsHub } from './ExportsHub';
 
-type View = 'direction' | 'campaigns' | 'telepros' | 'documents' | 'quality' | 'exports';
+type View = 'direction' | 'campaigns' | 'telepros' | 'documents' | 'quality' | 'profitability' | 'exports';
 const VIEW_TEXT: Record<View, { title: string; subtitle: string }> = {
   direction: { title: 'Rapport Direction', subtitle: 'Vue consolidée de l’acquisition à la vente.' },
   campaigns: { title: 'Performance des campagnes', subtitle: 'Rentabilité et qualité des campagnes sur la période.' },
   telepros: { title: 'Performance des télépros', subtitle: 'Comparez les résultats à périmètre équivalent.' },
   documents: { title: 'Performance documentaire & délais', subtitle: 'Pipeline des pièces, délais par étape et goulots d’étranglement.' },
+  profitability: { title: 'Rentabilité', subtitle: 'Retour sur dépenses publicitaires : chiffre d’affaires, dépenses, marge d’acquisition et retour, par campagne, source, produit ou télépro.' },
   exports: { title: 'Exports', subtitle: 'Générez un fichier à partir des filtres affichés : les mêmes chiffres que les écrans.' },
   quality: { title: 'Qualité des leads', subtitle: 'Doublons, faux leads, coordonnées invalides, inéligibilité : par source, campagne, produit, zone et télépro.' },
 };
@@ -66,7 +68,7 @@ export function ReportsView({ data, nowOverride, initialView = 'direction' }: { 
           <p className="mt-1 text-slate-500">{VIEW_TEXT[view].subtitle}</p>
         </div>
         <div role="tablist" aria-label="Rapports" className="flex rounded-lg border border-slate-200 bg-white p-1 text-sm">
-          {([['direction', 'Direction'], ['campaigns', 'Campagnes'], ['telepros', 'Télépros'], ['documents', 'Documents'], ['quality', 'Qualité'], ['exports', 'Exports']] as const).map(([k, label]) => (
+          {([['direction', 'Direction'], ['campaigns', 'Campagnes'], ['telepros', 'Télépros'], ['documents', 'Documents'], ['quality', 'Qualité'], ['profitability', 'Rentabilité'], ['exports', 'Exports']] as const).map(([k, label]) => (
             <button key={k} role="tab" aria-selected={view === k} type="button" onClick={() => setView(k)} className={cn('rounded-md px-4 py-1.5 font-medium', view === k ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50')}>{label}</button>
           ))}
         </div>
@@ -77,7 +79,7 @@ export function ReportsView({ data, nowOverride, initialView = 'direction' }: { 
         <select aria-label="Source" value={sourceId} onChange={(e) => setSourceId(e.target.value)} className={inputCls}><option value="">Toutes les sources</option>{data.sources.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>
         <select aria-label="Produit" value={product} onChange={(e) => setProduct(e.target.value)} className={inputCls}><option value="">Tous les produits</option>{products.map((p) => <option key={p}>{p}</option>)}</select>
         <select aria-label="Télépro" value={owner} onChange={(e) => setOwner(e.target.value)} className={inputCls}><option value="">Tous les télépros</option>{owners.map(([id, n]) => <option key={id} value={id}>{n}</option>)}</select>
-        {view === 'direction' || view === 'telepros' || view === 'documents' || view === 'exports' ? (
+        {view === 'direction' || view === 'telepros' || view === 'documents' || view === 'profitability' || view === 'exports' ? (
           <div role="radiogroup" aria-label="Mode de date" className="ml-auto flex rounded-lg border border-slate-200 bg-white p-0.5">
             {(Object.keys(DATE_MODE_LABELS) as DateMode[]).map((m) => (
               <button key={m} role="radio" aria-checked={mode === m} type="button" onClick={() => setMode(m)} title={m === 'event' ? 'Chaque étape est comptée à sa date réelle.' : 'Toutes les étapes sont rattachées à la date de réception du lead.'} className={cn('rounded-md px-3 py-1.5 text-xs font-medium', mode === m ? 'bg-blue-50 text-blue-700 ring-1 ring-blue-200' : 'text-slate-500 hover:text-slate-800')}>{DATE_MODE_LABELS[m]}</button>
@@ -101,6 +103,7 @@ export function ReportsView({ data, nowOverride, initialView = 'direction' }: { 
       {view === 'telepros' && <TeleprosView data={data} filters={filters} now={now} />}
       {view === 'documents' && <DocumentsView data={data} filters={filters} now={now} />}
       {view === 'quality' && <QualityView data={data} filters={filters} now={now} />}
+      {view === 'profitability' && <ProfitabilityView data={data} filters={filters} now={now} />}
       {view === 'exports' && <ExportsHub data={data} filters={filters} now={now} />}
     </div>
   );

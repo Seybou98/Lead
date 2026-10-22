@@ -132,6 +132,8 @@ export interface ScheduledExport {
   corrected: boolean;
   /** Joint le détail des leads (anonymisé). */
   detail: boolean;
+  /** Joint aussi le CSV à l'email (en plus du lien) ; sans effet pour le format imprimable ou un fichier trop gros. */
+  attachCsv: boolean;
   /** Utilisateurs du CRM (administrateur ou manager) qui reçoivent le lien. */
   recipients: string[];
   active: boolean;
@@ -139,6 +141,9 @@ export interface ScheduledExport {
   endDate: string;
   createdAtMs: number;
 }
+
+/** Au-delà, le CSV n'est pas joint (le lien seul part) : limites de taille des pièces jointes des fournisseurs d'email. */
+export const MAX_ATTACHMENT_BYTES = 1_000_000;
 
 export const SCHEDULE_ID = /^s_[a-z0-9_]{1,40}$/;
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -176,6 +181,7 @@ function scheduleFrom(raw: unknown): ScheduledExport | null {
     product: str(x.product, 80),
     corrected: x.corrected !== false,
     detail: x.detail === true,
+    attachCsv: x.attachCsv === true,
     recipients,
     active: x.active !== false,
     endDate: typeof x.endDate === 'string' && DATE.test(x.endDate) ? x.endDate : '',
@@ -220,6 +226,7 @@ export function coerceSchedulesInput(raw: unknown): ScheduledExport[] {
       product: str(x.product, 80),
       corrected: x.corrected === true,
       detail: x.detail === true,
+      attachCsv: x.attachCsv === true,
       recipients: Array.isArray(x.recipients) ? x.recipients.filter((v): v is string => typeof v === 'string').map((v) => v.trim()) : [],
       active: x.active === true,
       endDate: str(x.endDate, 10),
@@ -394,7 +401,7 @@ export function runLabel(run: Pick<ExportRun, 'fromMs' | 'toMs'>): string {
  * Paramètres transmis au modèle EmailJS. Les noms sont volontairement redondants (to_email / email / user_email, message /
  * body…) : le modèle de l'entreprise n'est pas connu d'avance, il suffit qu'il en utilise un.
  */
-export function emailParams(args: { run: ExportRun; file: RunFile; recipient: { name: string; email: string }; link: string }): Record<string, string> {
+export function emailParams(args: { run: ExportRun; file: RunFile; recipient: { name: string; email: string }; link: string; attachment?: { content: string } }): Record<string, string> {
   const { run, file, recipient, link } = args;
   const title = `${run.scheduleName} — ${EXPORT_KIND_LABELS[run.kind]}`;
   const period = runLabel(run);
@@ -424,5 +431,8 @@ export function emailParams(args: { run: ExportRun; file: RunFile; recipient: { 
     generated_at: new Date(run.atMs).toLocaleString('fr-FR', { timeZone: SCHEDULE_TZ }),
     time: new Date(run.atMs).toLocaleString('fr-FR', { timeZone: SCHEDULE_TZ }),
     expires_in_days: String(RETENTION_DAYS),
+    attached: args.attachment ? 'oui' : 'non',
+    // Pièce jointe « variable » du modèle EmailJS : une adresse de données (data URI) en base64 ; le nom du fichier se règle dans le modèle.
+    ...(args.attachment ? { attachment_csv: `data:text/csv;base64,${Buffer.from(args.attachment.content, 'utf8').toString('base64')}`, attachment_name: file.filename } : {}),
   };
 }

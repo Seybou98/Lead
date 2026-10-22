@@ -1,11 +1,15 @@
 import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { AlertTriangle, ArrowRight, BarChart3, CheckCircle2, Clock, Euro, FileText, Inbox, RefreshCw, Users, WifiOff, Zap } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { AlertTriangle, ArrowRight, BarChart3, CheckCircle2, Clock, Euro, FileText, Inbox, RefreshCw, Users, WifiOff, X, Zap } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../auth/AuthProvider';
 import type { Role } from '../../domain/enums';
 import { buildCockpit, PERIOD_LABELS, sinceLabel, type Cockpit, type LeadIssue, type Period } from '../../domain/cockpit/cockpit';
-import { bufferReasonText } from '../../domain/labels';
+import { activeFilterCount, applyLeadFilters, applyRowFilters, COCKPIT_FILTER_KEYS, COCKPIT_FILTER_LABELS, filterOptions, filtersFromParams, paramsWithFilters, type CockpitFilterKey } from '../../domain/cockpit/filters';
+import { cockpitKpiAlerts } from '../../domain/cockpit/kpiAlerts';
+import { getSlaMs, slaElapsedMs } from '../../domain/leads/leadList';
+import { buildDocViews, buildPipeline, DOC_VIEW_DEFINITIONS, DOC_VIEW_LABELS, DOC_VIEWS, type DocView, type PipelineKey } from '../../domain/cockpit/pipeline';
+import { bufferReasonText, LEAD_STATUS_LABELS } from '../../domain/labels';
 import type { LeadListItem } from '../../domain/leads/leadList';
 import { useCockpitData, type CockpitData } from './useCockpitData';
 import { ManagerNotifications } from './ManagerNotifications';
@@ -13,8 +17,10 @@ import { LeadPanel, ListPanel, SEVERITY_STYLE, TONE_PILL } from './CockpitPanel'
 import { sendConversionAction } from '../../lib/conversionApi';
 
 type Kpi = 'danger' | 'callbacks' | 'docs' | 'sales';
-type Panel = { kind: 'list'; kpi: Kpi } | { kind: 'buffer' } | { kind: 'lead'; leadId: string };
+type Panel = { kind: 'list'; kpi: Kpi } | { kind: 'buffer' } | { kind: 'lead'; leadId: string } | { kind: 'stage'; key: PipelineKey } | { kind: 'doc'; view: DocView };
+const PERIOD_PARAM = 'periode';
 
+const selectCls = 'rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
 const hm = (ms: number) => new Date(ms).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
 function KpiCard({ tone, icon, value, label, sub, onOpen }: { tone: 'red' | 'orange' | 'blue' | 'green'; icon: React.ReactNode; value: string; label: string; sub?: string; onOpen?: () => void }) {
@@ -60,14 +66,34 @@ export function CockpitPage() {
 
 export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
   const navigate = useNavigate();
-  const [period, setPeriod] = useState<Period>('today');
+  // Période et filtres vivent dans l'adresse : un retour depuis une fiche retrouve la même sélection (§12.5).
+  const [params, setParams] = useSearchParams();
+  const periodParam = params.get(PERIOD_PARAM);
+  const period: Period = periodParam && periodParam in PERIOD_LABELS ? (periodParam as Period) : 'today';
+  const filters = useMemo(() => filtersFromParams(params), [params]);
+  const setPeriod = (p: Period) => setParams((cur) => { const n = new URLSearchParams(cur); n.set(PERIOD_PARAM, p); return n; }, { replace: true });
+  const setFilter = (k: CockpitFilterKey, v: string) => setParams((cur) => paramsWithFilters(cur, { ...filtersFromParams(cur), [k]: v }), { replace: true });
+  const resetFilters = () => setParams((cur) => paramsWithFilters(cur, { team: '', product: '', campaign: '', zone: '' }), { replace: true });
   const [panel, setPanel] = useState<Panel | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
 
-  const cockpit: Cockpit = useMemo(() => buildCockpit({ items: data.items, rows: data.rows, nowMs: data.nowMs, period }), [data.items, data.rows, data.nowMs, period]);
-  const byId = useMemo(() => new Map(data.items.map((l) => [l.id, l])), [data.items]);
+  const options = useMemo(() => filterOptions(data.items, data.rows, data.names.campaigns), [data.items, data.rows, data.names.campaigns]);
+  // Un filtre s'applique à TOUT ce que montre l'écran : on filtre les données avant de construire le cockpit.
+  const items = useMemo(() => applyLeadFilters(data.items, data.rows, filters), [data.items, data.rows, filters]);
+  const rows = useMemo(() => applyRowFilters(data.rows, filters), [data.rows, filters]);
+  const cockpit: Cockpit = useMemo(() => buildCockpit({ items, rows, nowMs: data.nowMs, period }), [items, rows, data.nowMs, period]);
+  const flagged = useMemo(() => new Set([...cockpit.danger, ...cockpit.lateCallbacks, ...cockpit.blockedDocs].map((i) => i.lead.id)), [cockpit]);
+  const pipeline = useMemo(() => buildPipeline(items, flagged, data.nowMs), [items, flagged, data.nowMs]);
+  const docViews = useMemo(() => buildDocViews(items, data.nowMs), [items, data.nowMs]);
+  const byId = useMemo(() => new Map(items.map((l) => [l.id, l])), [items]);
+  const kpi = useMemo(
+    () => cockpitKpiAlerts({ rules: data.kpiRules, leads: items, spends: data.spends, campaigns: data.reportCampaigns, filters, period, nowMs: data.nowMs, slaMs: getSlaMs(), elapsed: slaElapsedMs }),
+    [data.kpiRules, items, data.spends, data.reportCampaigns, filters, period, data.nowMs]
+  );
+  const filterLabel = (k: CockpitFilterKey, v: string): string =>
+    k === 'team' ? (options.teams.find((t) => t.id === v)?.name ?? v) : k === 'campaign' ? (options.campaigns.find((c) => c.id === v)?.name ?? v) : k === 'zone' ? `Département ${v}` : v;
   const issueOf = (id: string): LeadIssue | null => [...cockpit.danger, ...cockpit.lateCallbacks, ...cockpit.blockedDocs].find((i) => i.lead.id === id) ?? null;
   const basePath = '/leads';
   const openLead = (id: string) => byId.has(id) && setPanel({ kind: 'lead', leadId: id });
@@ -96,6 +122,7 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
     severity: data.nowMs - l.receivedAtMs > 15 * 60_000 ? 'critical' : 'high',
     reason: l.bufferReason ? `En attente d'attribution (${bufferReasonText(l.bufferReason)})` : "En attente d'attribution",
   }));
+  const bulk = { team: cockpit.team, canAct: role === 'admin' || role === 'manager', onDone: (m: string) => { setPanel(null); setNotice(m); } };
   const panelLead: LeadListItem | null = panel?.kind === 'lead' ? (byId.get(panel.leadId) ?? null) : null;
 
   return (
@@ -116,6 +143,18 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
             {data.syncedAtMs ? `Mis à jour à ${hm(data.syncedAtMs)}` : 'Synchronisation…'}
           </span>
         </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm" role="group" aria-label="Filtres globaux">
+        <select aria-label="Équipe" value={filters.team} onChange={(e) => setFilter('team', e.target.value)} className={selectCls}><option value="">Toutes les équipes</option>{options.teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}</select>
+        <select aria-label="Produit" value={filters.product} onChange={(e) => setFilter('product', e.target.value)} className={selectCls}><option value="">Tous les produits</option>{options.products.map((p) => <option key={p} value={p}>{p}</option>)}</select>
+        <select aria-label="Campagne" value={filters.campaign} onChange={(e) => setFilter('campaign', e.target.value)} className={selectCls}><option value="">Toutes les campagnes</option>{options.campaigns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select>
+        <select aria-label="Zone" value={filters.zone} onChange={(e) => setFilter('zone', e.target.value)} className={selectCls}><option value="">Toutes les zones</option>{options.zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}</select>
+        {COCKPIT_FILTER_KEYS.filter((k) => filters[k]).map((k) => (
+          <button key={k} type="button" onClick={() => setFilter(k, '')} aria-label={`Retirer le filtre ${COCKPIT_FILTER_LABELS[k]}`} className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100">{COCKPIT_FILTER_LABELS[k]} : {filterLabel(k, filters[k])} <X className="h-3 w-3" /></button>
+        ))}
+        {activeFilterCount(filters) > 0 && <button type="button" onClick={resetFilters} className="text-xs font-medium text-blue-700 hover:underline">Réinitialiser les filtres ({activeFilterCount(filters)})</button>}
+        {filters.team && <span className="text-xs text-slate-500">La file tampon n’appartient à aucune équipe : elle n’apparaît pas avec ce filtre.</span>}
       </div>
 
       {data.offline && (
@@ -250,13 +289,70 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
         </Card>
       </div>
 
+      {kpi.alerts.length > 0 && (
+        <section className="mt-5 rounded-xl border border-slate-200 bg-white p-5" aria-label="Alertes KPI">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="flex items-center gap-2.5 text-base font-semibold text-slate-900"><span className="text-blue-600"><BarChart3 className="h-[18px] w-[18px]" /></span>Alertes KPI</h2>
+            <span className="text-xs text-slate-500">Évaluées sur les {kpi.windowDays} derniers jours · règles de Paramètres → Objectifs et alertes</span>
+          </div>
+          <ul className="mt-3 space-y-2">
+            {kpi.alerts.map((a) => (
+              <li key={a.id} className={cn('flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-sm', a.level === 'critical' ? 'border-red-200 bg-red-50 text-red-800' : 'border-amber-200 bg-amber-50 text-amber-800')}>
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span className="flex-1"><span className="block font-medium">{a.level === 'critical' ? 'Critique · ' : ''}{a.title}</span><span className="block text-xs opacity-80">{a.detail}</span></span>
+                <Link to="/rapports" className="flex-shrink-0 rounded-lg bg-white/70 px-3 py-1 text-xs font-semibold hover:bg-white">Voir le rapport</Link>
+              </li>
+            ))}
+          </ul>
+          {kpi.spendUnavailable && <p className="mt-2 text-xs text-slate-500">Avec un filtre d’équipe ou de zone, les dépenses ne sont pas attribuables : les règles de coût ne sont pas évaluées.</p>}
+        </section>
+      )}
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+        <Card title="Pipeline" icon={<BarChart3 className="h-[18px] w-[18px]" />}>
+          <ol className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {pipeline.map((s, i) => (
+              <li key={s.key}>
+                <button type="button" onClick={() => setPanel({ kind: 'stage', key: s.key })} className="w-full rounded-lg border border-slate-200 p-3 text-left hover:bg-slate-50" title="Ancienneté moyenne depuis la réception du lead. Le taux de passage est un plancher déduit du statut actuel.">
+                  <span className="block text-xs text-slate-500">{i + 1}. {s.label}</span>
+                  <span className="block text-2xl font-bold tabular-nums text-slate-900">{s.count}</span>
+                  <span className="block text-[11px] text-slate-500">{s.avgAgeMs === null ? 'Aucun lead' : `âge moyen ${sinceLabel(data.nowMs - s.avgAgeMs, data.nowMs)}`}</span>
+                  <span className="mt-1 flex items-center justify-between text-[11px]">
+                    <span className={cn(s.blocked > 0 ? 'font-medium text-red-600' : 'text-slate-300')}>{s.blocked > 0 ? `${s.blocked} bloqué${s.blocked > 1 ? 's' : ''}` : '0 bloqué'}</span>
+                    <span className="text-slate-400">{s.passage === null ? '' : `→ ${s.passage.toLocaleString('fr-FR')} %`}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ol>
+        </Card>
+        <Card title="Cockpit documentaire" icon={<FileText className="h-[18px] w-[18px]" />}>
+          <ul className="divide-y divide-slate-100">
+            {DOC_VIEWS.map((v) => (
+              <li key={v}>
+                <button type="button" onClick={() => setPanel({ kind: 'doc', view: v })} className="flex w-full items-center justify-between gap-3 py-2.5 text-left hover:bg-slate-50" title={DOC_VIEW_DEFINITIONS[v]}>
+                  <span className="text-sm text-slate-800">{DOC_VIEW_LABELS[v]}</span>
+                  <span className={cn('rounded-full px-2.5 py-0.5 text-sm font-semibold tabular-nums', docViews[v].length === 0 ? 'bg-slate-100 text-slate-400' : docViews[v].some((i) => i.severity === 'high') ? 'bg-red-50 text-red-700' : 'bg-blue-50 text-blue-700')}>{docViews[v].length}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      </div>
+
       <ManagerNotifications nowMs={data.nowMs} onOpenLead={openLead} />
 
       {panel?.kind === 'list' && (
-        <ListPanel title={lists[panel.kpi].title} issues={lists[panel.kpi].issues} nowMs={data.nowMs} names={data.names} onPick={panel.kpi === 'sales' ? (id) => navigate(`/dossiers/${id}`) : openLead} onClose={() => setPanel(null)} />
+        <ListPanel title={lists[panel.kpi].title} issues={lists[panel.kpi].issues} nowMs={data.nowMs} names={data.names} bulk={bulk} onPick={panel.kpi === 'sales' ? (id) => navigate(`/dossiers/${id}`) : openLead} onClose={() => setPanel(null)} />
       )}
+      {panel?.kind === 'stage' && (() => {
+        const step = pipeline.find((x) => x.key === panel.key);
+        const issues: LeadIssue[] = (step?.leads ?? []).map((l) => ({ lead: l, sinceMs: l.receivedAtMs, severity: flagged.has(l.id) ? 'high' : 'info', reason: `${LEAD_STATUS_LABELS[l.status]}${flagged.has(l.id) ? ' · signalé au cockpit' : ''}` }));
+        return <ListPanel title={`Pipeline — ${step?.label ?? ''}`} issues={issues} nowMs={data.nowMs} names={data.names} bulk={bulk} onPick={openLead} onClose={() => setPanel(null)} />;
+      })()}
+      {panel?.kind === 'doc' && <ListPanel title={DOC_VIEW_LABELS[panel.view]} issues={docViews[panel.view]} nowMs={data.nowMs} names={data.names} bulk={bulk} onPick={(id) => navigate(`${basePath}/${id}?onglet=documents`)} onClose={() => setPanel(null)} />}
       {panel?.kind === 'buffer' && (
-        <ListPanel title="File tampon" issues={bufferIssues} nowMs={data.nowMs} names={data.names} onPick={openLead} onClose={() => setPanel(null)} />
+        <ListPanel title="File tampon" issues={bufferIssues} nowMs={data.nowMs} names={data.names} bulk={bulk} onPick={openLead} onClose={() => setPanel(null)} />
       )}
       {panel?.kind === 'lead' && panelLead && (
         <LeadPanel

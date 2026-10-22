@@ -8,6 +8,7 @@
 // les dates sont des `Date` (les deux SDK les convertissent en Timestamp à l'écriture).
 
 import { coerceReasonInput, toStored, validateReasonSettings } from '../settings/reasons';
+import { coerceMessagesInput, toStoredMessages, validateMessages } from '../messages/templates';
 import { coerceReportInput, toStoredReports, validateReportSettings } from '../reports/targets';
 import { coerceSchedulesInput, parseSchedules, validateSchedules, type ScheduledExport } from '../reports/schedule';
 import { errorsOf, normalizeForm, validateForm, type QualificationForm } from '../qualification/form';
@@ -508,6 +509,15 @@ export function planReasonsSave(args: { input: unknown; before: Doc | null; acto
   if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
   const doc: Doc = { ...toStored(s), updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
   return { doc, audit: { action: args.before ? 'settings.reasons.update' : 'settings.reasons.create', entityType: 'settings', entityId: 'reasons', before: args.before, after: doc, reason: reasonOf(asRecord(args.input)) } };
+}
+
+/** Modèles de message (§24.5) : un seul document `cl_settings/messages`, versionné par le journal d'audit. */
+export function planMessagesSave(args: { input: unknown; before: Doc | null; actorId: string; nowMs: number }): { doc: Doc; audit: AuditDraft } {
+  const list = coerceMessagesInput(args.input);
+  const errors = validateMessages(list);
+  if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
+  const doc: Doc = { ...toStoredMessages(list), updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
+  return { doc, audit: { action: args.before ? 'settings.messages.update' : 'settings.messages.create', entityType: 'settings', entityId: 'messages', before: args.before, after: doc, reason: reasonOf(asRecord(args.input)) } };
 }
 
 // ── Constructeur de qualification (§21.3, §21.9) ─────────────────────────────

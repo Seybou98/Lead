@@ -4,14 +4,15 @@
 // version (équivalente à l'ancienne), elle-même tracée. Fonctions pures.
 
 import { REASON_LIST_LABELS, type ReasonList } from './reasons';
+import { CHANNEL_LABELS, parseMessageTemplates, TRIGGER_INFO } from '../messages/templates';
 import { diffForms, normalizeForm } from '../qualification/form';
 import { ALERT_METRIC_DEFS, OBJECTIVE_METRIC_LABELS, OBJECTIVE_SCOPE_LABELS, parseReportSettings, ruleText, type AlertMetric } from '../reports/targets';
 import { formatWeeklySchedule } from '../admin/scheduleFormat';
 import { formatDelay, OUTSIDE_HOURS_LABELS, type OutsideHours } from './settings';
 
-export type VersionModule = 'sla' | 'rules' | 'conversion' | 'reasons' | 'checklist' | 'qualification' | 'reports';
+export type VersionModule = 'sla' | 'rules' | 'conversion' | 'reasons' | 'checklist' | 'qualification' | 'reports' | 'messages';
 
-export const MODULE_LABELS: Record<VersionModule, string> = { sla: 'SLA et horaires', rules: 'Cycles NR, rappels et documents', conversion: 'Verrous de conversion', reasons: 'Motifs et listes', checklist: 'Checklists documentaires', qualification: 'Formulaires de qualification', reports: 'Objectifs et alertes KPI' };
+export const MODULE_LABELS: Record<VersionModule, string> = { sla: 'SLA et horaires', rules: 'Cycles NR, rappels et documents', conversion: 'Verrous de conversion', reasons: 'Motifs et listes', checklist: 'Checklists documentaires', qualification: 'Formulaires de qualification', reports: 'Objectifs et alertes KPI', messages: 'Modèles de message' };
 
 /** Une ligne du journal d'audit (cl_audit), telle que lue. */
 export interface AuditRow {
@@ -55,6 +56,7 @@ export function moduleOf(row: Pick<AuditRow, 'entityType' | 'entityId' | 'action
   if (row.entityType === 'settings' && row.entityId === 'conversion') return 'conversion';
   if (row.entityType === 'settings' && row.entityId === 'reasons') return 'reasons';
   if (row.entityType === 'settings' && row.entityId === 'reports') return 'reports';
+  if (row.entityType === 'settings' && row.entityId === 'messages') return 'messages';
   // Seules les publications sont des versions : un brouillon n'affecte aucun lead.
   if (row.entityType === 'settings' && row.entityId.startsWith('qualification_') && row.action === 'qualification.publish') return 'qualification';
   if (row.entityType === 'checklist') return 'checklist';
@@ -145,6 +147,19 @@ export function describeChanges(module: VersionModule, beforeRaw: unknown, after
     }
     for (const o of b.objectives) if (!aObj.has(o.id)) out.push(`Objectif retiré : ${objText(o)}`);
     if (first && out.length === 0) out.push('Objectifs et alertes enregistrés');
+  } else if (module === 'messages') {
+    const b = parseMessageTemplates(before.templates === undefined ? undefined : before);
+    const a = parseMessageTemplates(after);
+    const bm = new Map(b.map((t) => [t.id, t]));
+    const am = new Map(a.map((t) => [t.id, t]));
+    const name = (t: (typeof a)[number]) => `${TRIGGER_INFO[t.trigger].label} · ${CHANNEL_LABELS[t.channel]}${t.product ? ` · ${t.product}` : ''}`;
+    for (const t of a) {
+      const o = bm.get(t.id);
+      if (!o) out.push(`Modèle ajouté : ${name(t)}`);
+      else if (!same(o, t)) out.push(`Modèle modifié : ${name(t)}${o.active !== t.active ? (t.active ? ' — activé' : ' — désactivé') : ''}`);
+    }
+    for (const t of b) if (!am.has(t.id)) out.push(`Modèle retiré : ${name(t)}`);
+    if (first && out.length === 0) out.push('Modèles de message enregistrés');
   } else if (module === 'qualification') {
     const prev = before.published ? normalizeForm(before.published) : null;
     const d = diffForms(prev, normalizeForm(after.published));

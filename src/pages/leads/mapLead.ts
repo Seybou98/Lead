@@ -4,6 +4,7 @@ import type { AssignmentState, DocumentState, LeadStatus, PriorityClass, Tempera
 import type { LeadListItem } from '../../domain/leads/leadList';
 import type { LeadDocsInfo } from '../../domain/documents/board';
 import { buildActivity } from '../../domain/leads/activity';
+import { parseAlertStates } from '../../domain/cockpit/alertStates';
 import type { EventInput, LeadFileData } from '../../domain/leads/leadFile';
 import { ms } from '../../lib/firestoreViews';
 
@@ -82,6 +83,7 @@ export function toListItem(id: string, d: DocumentData): LeadListItem | null {
     ...(typeof d.quality?.excludedReason === 'string' ? { excludedReason: d.quality.excludedReason } : {}),
     ...(d.closure && typeof d.closure.kind === 'string' && typeof d.closure.code === 'string' ? { closure: { kind: d.closure.kind, code: d.closure.code, label: str(d.closure.label, d.closure.code), ...(typeof d.closure.category === 'string' ? { category: d.closure.category } : {}), ...(typeof d.closure.opposition === 'boolean' ? { opposition: d.closure.opposition } : {}) } } : {}),
     nr: { attempt: Number(d.nr?.attempt ?? 0) || 0, cycle: Number(d.nr?.cycle ?? 1) || 1 },
+    ...(d.cockpitAlerts && typeof d.cockpitAlerts === 'object' && Object.keys(parseAlertStates(d.cockpitAlerts)).length > 0 ? { alertStates: parseAlertStates(d.cockpitAlerts) } : {}),
     ...(d.montage && typeof d.montage === 'object'
       ? { montage: { validationState: str(d.montage.validationState, 'none'), blocking: num(d.montage.blocking), toConfirm: num(d.montage.toConfirm), totalTtcCents: num(d.montage.totalTtcCents), remainderCents: num(d.montage.remainderCents), updatedAtMs: ms(d.montage.updatedAt), financingMode: typeof d.montage.financingMode === 'string' ? d.montage.financingMode : null, validated: typeof d.montage.validated === 'number' ? d.montage.validated : null, total: typeof d.montage.total === 'number' ? d.montage.total : null } }
       : {}),

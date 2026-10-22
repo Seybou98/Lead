@@ -26,7 +26,7 @@ import {
 const paris = (y: number, m: number, d: number, h = 0, mi = 0) => zonedToMs(y, m, d, h, mi);
 const base = (over: Partial<ScheduledExport> = {}): ScheduledExport => ({
   id: 's_1', name: 'Direction du lundi', kind: 'direction', format: 'csv', frequency: 'weekly', weekday: 1, dayOfMonth: 1, time: '08:00', period: 'previous_week',
-  mode: 'event', sourceId: '', product: '', corrected: true, detail: false, recipients: ['u1'], active: true, endDate: '', createdAtMs: paris(2026, 10, 1), ...over,
+  mode: 'event', sourceId: '', product: '', corrected: true, detail: false, attachCsv: false, recipients: ['u1'], active: true, endDate: '', createdAtMs: paris(2026, 10, 1), ...over,
 });
 
 describe('fuseau Europe/Paris', () => {

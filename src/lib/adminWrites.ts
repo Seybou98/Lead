@@ -41,6 +41,7 @@ import {
   planReasonsSave,
   planReportsSave,
   planExportsSave,
+  planMessagesSave,
   qualificationKey,
   planRulesSave,
   planSlaOverrideSave,
@@ -311,6 +312,18 @@ export async function logReportExportDirect(entry: { kind: string; format: strin
   return runTransaction(db, async (tx) => {
     writeAudit(tx, actor, { action: 'report.export_identifying', entityType: 'report', entityId: String(entry.kind).slice(0, 40), before: null, after: { format: entry.format, rows: entry.rows, detailCount: entry.detailCount, columns: entry.columns, filters: entry.filters }, reason: null });
     return { ok: true as const, id: entry.kind, warnings: [] };
+  });
+}
+
+export async function saveMessagesDirect(input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  const ref = doc(db, COL.settings, 'messages');
+  return runTransaction(db, async (tx) => {
+    const plan = planMessagesSave({ input, before: data(await tx.get(ref)), actorId: actor, nowMs });
+    tx.set(ref, plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: 'messages', warnings: [] };
   });
 }
 

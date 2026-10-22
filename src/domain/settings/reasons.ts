@@ -13,7 +13,7 @@
 
 import { BAD_MOMENT_REASONS, CALLBACK_REASONS, FAKE_LEAD_MOTIVES, INELIGIBLE_MOTIVES, INTEREST_REASONS, REFUSAL_MOTIVES } from '../call/outcomes';
 
-export const REASON_LISTS = ['callback', 'bad_moment', 'interest', 'refusal', 'fake_lead', 'ineligible_technical', 'ineligible_administrative', 'ineligible_financial', 'ineligible_zone', 'document_ko', 'reassign', 'temperature'] as const;
+export const REASON_LISTS = ['callback', 'bad_moment', 'interest', 'refusal', 'fake_lead', 'ineligible_technical', 'ineligible_administrative', 'ineligible_financial', 'ineligible_zone', 'document_ko', 'reassign', 'alert_close', 'temperature'] as const;
 export type ReasonList = (typeof REASON_LISTS)[number];
 
 export const REASON_LIST_LABELS: Record<ReasonList, { title: string; hint: string }> = {
@@ -28,6 +28,7 @@ export const REASON_LIST_LABELS: Record<ReasonList, { title: string; hint: strin
   ineligible_zone: { title: 'Inéligibilité — zone', hint: 'Motifs de la catégorie « Zone non couverte ».' },
   document_ko: { title: 'Non-conformité d’une pièce', hint: 'Pourquoi une pièce est refusée au contrôle (§10.3).' },
   reassign: { title: 'Réattribution', hint: 'Pourquoi un lead change de télépro (cockpit, RG16).' },
+  alert_close: { title: 'Clôture d’une alerte', hint: 'Pourquoi un manager clôture une alerte du cockpit sans que la situation soit corrigée (§12.6).' },
   temperature: { title: 'Température', hint: 'Chaud, tiède, à travailler (§9.1). Les trois codes sont fixes : on règle leur libellé, leur ordre et leur disponibilité.' },
 };
 
@@ -41,6 +42,15 @@ export const REASSIGN_REASONS: Record<string, string> = {
   expertise: 'Compétence produit',
   client_request: 'Demande du client',
   rebalancing: 'Rééquilibrage de portefeuille',
+  other: 'Autre',
+};
+
+/** Motifs de clôture d'une alerte du cockpit (§12.6) : une alerte ne se clôt jamais sans motif. */
+export const ALERT_CLOSE_REASONS: Record<string, string> = {
+  handled_elsewhere: 'Traité hors du CRM',
+  false_positive: 'Fausse alerte',
+  already_contacted: 'Client déjà recontacté',
+  manager_decision: 'Décision du manager',
   other: 'Autre',
 };
 
@@ -67,6 +77,7 @@ export const BUILTIN_REASONS: Record<ReasonList, Record<string, string>> = {
   ineligible_zone: { ...INELIGIBLE_MOTIVES.zone },
   document_ko: { ...DOCUMENT_KO_LABELS },
   reassign: { ...REASSIGN_REASONS },
+  alert_close: { ...ALERT_CLOSE_REASONS },
   temperature: { hot: 'Chaud', warm: 'Tiède', to_work: 'À travailler' },
 };
 
@@ -77,7 +88,7 @@ export const BUILTIN_REASONS: Record<ReasonList, Record<string, string>> = {
 export const COMMENT_ALWAYS_REQUIRED: readonly ReasonList[] = ['callback', 'interest', 'refusal', 'fake_lead', 'ineligible_technical', 'ineligible_administrative', 'ineligible_financial', 'ineligible_zone', 'temperature'];
 
 /** Valeur qui exige un commentaire dès l'origine (« Autre » : à préciser). */
-const ORIGIN_COMMENT = (l: ReasonList, code: string): boolean => (l === 'document_ko' || l === 'reassign') && code === 'other';
+const ORIGIN_COMMENT = (l: ReasonList, code: string): boolean => (l === 'document_ko' || l === 'reassign' || l === 'alert_close') && code === 'other';
 
 /** Nombre maximal de valeurs par liste. */
 export const MAX_ITEMS = 40;

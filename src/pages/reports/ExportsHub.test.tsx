@@ -9,7 +9,7 @@ vi.mock('../../lib/exportsApi', () => ({ fetchRuns: async () => ({ ok: true, run
 vi.mock('./useScheduledExports', async () => {
   const { zonedToMs } = await import('../../domain/reports/schedule');
   return {
-    useScheduledExports: () => ({ loading: false, error: false, saved: true, schedules: [{ id: 's_1', name: 'Direction du lundi', kind: 'direction', format: 'csv', frequency: 'weekly', weekday: 1, dayOfMonth: 1, time: '08:00', period: 'previous_week', mode: 'event', sourceId: '', product: '', corrected: true, detail: false, recipients: ['u2'], active: true, endDate: '', createdAtMs: zonedToMs(2026, 9, 1, 0, 0) }] }),
+    useScheduledExports: () => ({ loading: false, error: false, saved: true, schedules: [{ id: 's_1', name: 'Direction du lundi', kind: 'direction', format: 'csv', frequency: 'weekly', weekday: 1, dayOfMonth: 1, time: '08:00', period: 'previous_week', mode: 'event', sourceId: '', product: '', corrected: true, detail: false, attachCsv: false, recipients: ['u2'], active: true, endDate: '', createdAtMs: zonedToMs(2026, 9, 1, 0, 0) }] }),
     useRecipients: () => ({ loading: false, recipients: [{ uid: 'u2', name: 'Marie Manager', email: 'marie@x.fr', role: 'manager' }, { uid: 'u3', name: 'Sans Email', email: '', role: 'manager' }] }),
   };
 });

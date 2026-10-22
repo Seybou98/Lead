@@ -120,6 +120,13 @@ describe('cohérence avec les écrans (§22.12)', () => {
     expect(t).toContain('Meta');
     expect(t).toContain('Sarah Cohen');
   });
+  it('Rentabilité : les quatre découpages, noms lisibles, dépenses en euros', () => {
+    const t = flat(buildExport(input(), opts({ kind: 'profitability' })).rows);
+    for (const dim of ['campagne', 'source', 'produit', 'télépro']) expect(t).toContain(`Rentabilité par ${dim}`);
+    expect(t).toContain('PAC IDF');
+    expect(t).toContain('Ensemble');
+    expect(t).toContain('1000');
+  });
   it('tous les types d’export se construisent', () => {
     for (const kind of EXPORT_KINDS) expect(() => buildExport(input(), opts({ kind }))).not.toThrow();
   });
