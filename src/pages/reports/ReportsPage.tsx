@@ -21,7 +21,7 @@ import { useReportsData, type ReportsData } from './useReportsData';
 import { TeleprosView } from './TeleprosView';
 import { DocumentsView } from './DocumentsView';
 import { QualityView } from './QualityView';
-import { ExportsView } from './ExportsView';
+import { ExportsHub } from './ExportsHub';
 
 type View = 'direction' | 'campaigns' | 'telepros' | 'documents' | 'quality' | 'exports';
 const VIEW_TEXT: Record<View, { title: string; subtitle: string }> = {
@@ -101,7 +101,7 @@ export function ReportsView({ data, nowOverride, initialView = 'direction' }: { 
       {view === 'telepros' && <TeleprosView data={data} filters={filters} now={now} />}
       {view === 'documents' && <DocumentsView data={data} filters={filters} now={now} />}
       {view === 'quality' && <QualityView data={data} filters={filters} now={now} />}
-      {view === 'exports' && <ExportsView data={data} filters={filters} now={now} />}
+      {view === 'exports' && <ExportsHub data={data} filters={filters} now={now} />}
     </div>
   );
 }

@@ -40,6 +40,7 @@ import {
   planQualificationPublish,
   planReasonsSave,
   planReportsSave,
+  planExportsSave,
   qualificationKey,
   planRulesSave,
   planSlaOverrideSave,
@@ -286,6 +287,18 @@ export async function saveReportsConfigDirect(input: unknown): Promise<DirectRes
     tx.set(ref, plan.doc);
     writeAudit(tx, actor, plan.audit);
     return { ok: true as const, id: 'reports', warnings: [] };
+  });
+}
+
+export async function saveExportsDirect(input: unknown): Promise<DirectResult> {
+  const actor = actorId();
+  const nowMs = Date.now();
+  const ref = doc(db, COL.settings, 'exports');
+  return runTransaction(db, async (tx) => {
+    const plan = planExportsSave({ input, before: data(await tx.get(ref)), actorId: actor, nowMs });
+    tx.set(ref, plan.doc);
+    writeAudit(tx, actor, plan.audit);
+    return { ok: true as const, id: 'exports', warnings: [] };
   });
 }
 

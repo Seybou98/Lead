@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rapport programmé</title>
+</head>
+<body style="margin:0;padding:0;background:#f0f4f8;">
+  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;background:#f0f4f8;">
+    <tr>
+      <td align="center" style="padding:28px 12px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="640" style="border-collapse:collapse;max-width:640px;width:100%;">
+
+          <!-- En-tête dégradé -->
+          <tr>
+            <td style="background:#1d4ed8;background:linear-gradient(90deg,#1e3a8a,#2563eb,#0ea5e9);padding:20px 24px;border-radius:16px 16px 0 0;">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;">
+                <tr>
+                  <td valign="middle">
+                    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#ffffff;">
+                      <div style="font-size:12px;opacity:.92;letter-spacing:.04em;text-transform:uppercase;font-weight:700;">CRM Leads · Rapports</div>
+                      <div style="font-size:22px;font-weight:800;line-height:1.2;margin-top:2px;">Label Énergie</div>
+                      <div style="margin-top:6px;font-size:14px;font-weight:600;opacity:.95;">Votre rapport programmé est disponible</div>
+                    </div>
+                  </td>
+                  <td valign="middle" align="right" style="width:72px;padding-right:14px;">
+                    <img
+                      src="https://labelenergie1.netlify.app/Logo_Label_Energie-removebg-preview.png"
+                      alt="Logo Label Énergie"
+                      width="64"
+                      style="display:block;max-width:64px;height:auto;border:0;"
+                    />
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Corps -->
+          <tr>
+            <td style="background:#ffffff;padding:24px 26px;border:1px solid #e2e8f0;border-top:none;">
+              <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111827;font-size:15px;line-height:1.6;">
+
+                <h2 style="margin:0 0 16px;font-size:20px;font-weight:800;color:#1d4ed8;text-align:center;">
+                  {{report_name}}
+                </h2>
+
+                <p style="margin:0 0 12px;">Bonjour <strong>{{to_name}}</strong>,</p>
+
+                <p style="margin:0 0 20px;color:#374151;">
+                  Votre rapport programmé a été généré. Voici son résumé&nbsp;:
+                </p>
+
+                <!-- Encadré résumé -->
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0 0 22px;">
+                  <tr>
+                    <td style="background:#eff6ff;border:1px solid #bfdbfe;border-left:4px solid #2563eb;border-radius:10px;padding:16px 18px;">
+                      <p style="margin:0 0 8px;font-size:14px;"><strong style="color:#1e40af;">Rapport :</strong> {{report_type}}</p>
+                      <p style="margin:0 0 8px;font-size:14px;"><strong style="color:#1e40af;">Période :</strong> {{period}}</p>
+                      <p style="margin:0 0 8px;font-size:14px;"><strong style="color:#1e40af;">Contenu :</strong> {{rows}} lignes · {{format}}</p>
+                      <p style="margin:0;font-size:14px;"><strong style="color:#1e40af;">Généré le :</strong> {{time}}</p>
+                    </td>
+                  </tr>
+                </table>
+
+                <!-- Bouton -->
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0 0 22px;">
+                  <tr>
+                    <td align="center">
+                      <a href="{{link}}" style="display:inline-block;background:#2563eb;color:#ffffff;padding:13px 28px;border-radius:10px;text-decoration:none;font-weight:700;font-size:15px;">
+                        Ouvrir le rapport
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0 0 20px;color:#6b7280;font-size:13px;text-align:center;">
+                  Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur&nbsp;:<br />
+                  <a href="{{link}}" style="color:#2563eb;word-break:break-all;">{{link}}</a>
+                </p>
+
+                <!-- Confidentialité -->
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="border-collapse:collapse;margin:0 0 20px;">
+                  <tr>
+                    <td style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:14px 18px;font-size:13px;color:#475569;line-height:1.5;">
+                      <strong style="color:#0f172a;">Accès protégé.</strong> Connexion au CRM requise ; le fichier est réservé à ses destinataires et disponible {{expires_in_days}} jours.
+                      Les données sont anonymisées : aucun nom, téléphone ni email de prospect.
+                    </td>
+                  </tr>
+                </table>
+
+                <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;line-height:1.45;">
+                  Ce message est généré automatiquement. Merci de ne pas y répondre directement.
+                </p>
+
+              </div>
+            </td>
+          </tr>
+
+          <!-- Pied de page -->
+          <tr>
+            <td style="padding:14px 10px 6px;">
+              <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#9ca3af;font-size:11px;line-height:1.45;text-align:center;">
+                © Label Énergie — CRM Leads
+              </div>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

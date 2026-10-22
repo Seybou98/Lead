@@ -77,7 +77,9 @@ export function ImportLeadsPage() {
     setResults(out.slice());
     setProgress({ done: 0, total: items.length });
     let done = 0;
-    for (const lot of lineBatches(items)) {
+    const queue = lineBatches(items);
+    while (queue.length > 0) {
+      const lot = queue.shift() as (typeof items)[number][];
       // Une coupure réseau ne perd rien : le lot est renvoyé avec le même identifiant, le serveur rend le même résultat.
       let res = await sendImportBatch({ channel: 'import', sourceId: sourceId || null, batchId, startRow: lot[0].line, rows: lot.map((x) => x.payload) });
       for (let attempt = 0; !res.ok && res.retryable && attempt < 2; attempt++) res = await sendImportBatch({ channel: 'import', sourceId: sourceId || null, batchId, startRow: lot[0].line, rows: lot.map((x) => x.payload) });
@@ -86,7 +88,9 @@ export function ImportLeadsPage() {
         break;
       }
       out.push(...res.results);
-      done += lot.length;
+      done += res.processed;
+      // Le serveur s'arrête avant le délai de la fonction : la suite du lot repart dans l'appel suivant.
+      if (res.processed < lot.length) queue.unshift(lot.slice(res.processed));
       setResults(out.slice());
       setProgress({ done, total: items.length });
     }

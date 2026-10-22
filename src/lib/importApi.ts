@@ -7,7 +7,7 @@ export type ImportRowResult =
   | { row: number; ok: true; kind: 'created' | 'attached' | 'replay'; leadId: string; assignmentState?: string; ownerId?: string | null; bufferReason?: string | null; outcome?: string }
   | { row: number; ok: false; code: string; reason: string };
 
-export type ImportResponse = { ok: true; replay: boolean; results: ImportRowResult[]; summary: { created: number; attached: number; rejected: number } } | { ok: false; message: string; retryable: boolean };
+export type ImportResponse = { ok: true; replay: boolean; results: ImportRowResult[]; processed: number; summary: { created: number; attached: number; rejected: number } } | { ok: false; message: string; retryable: boolean };
 
 const BASE = (import.meta.env.VITE_QUALIFY_URL as string | undefined)?.replace(/\/$/, '') ?? '';
 
@@ -32,13 +32,13 @@ export async function sendImportBatch(args: { channel: 'import' | 'manual'; sour
   } catch {
     return { ok: false, message: 'Le serveur est injoignable. Vérifiez votre connexion et réessayez.', retryable: true };
   }
-  let body: { ok?: boolean; message?: string; replay?: boolean; results?: ImportRowResult[]; summary?: { created: number; attached: number; rejected: number } } | null = null;
+  let body: { ok?: boolean; message?: string; replay?: boolean; results?: ImportRowResult[]; processed?: number; summary?: { created: number; attached: number; rejected: number } } | null = null;
   try {
     body = await res.json();
   } catch {
     body = null;
   }
-  if (res.ok && body?.ok && Array.isArray(body.results) && body.summary) return { ok: true, replay: body.replay === true, results: body.results, summary: body.summary };
+  if (res.ok && body?.ok && Array.isArray(body.results) && body.summary) return { ok: true, replay: body.replay === true, results: body.results, processed: typeof body.processed === 'number' ? body.processed : body.results.length, summary: body.summary };
   if (res.status === 404 && !body?.message) return { ok: false, message: "La fonction d'import est introuvable : redéployez le site ou relancez le serveur de développement.", retryable: true };
   if (res.status === 401) return { ok: false, message: 'Votre session a expiré. Reconnectez-vous.', retryable: false };
   if (res.status >= 500) return { ok: false, message: 'Le serveur a rencontré une erreur. Le lot peut être renvoyé sans risque de doublon.', retryable: true };

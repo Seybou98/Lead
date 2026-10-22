@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AdminRuleError, planChecklistSave, planQualificationDiscard, planQualificationDraftSave, planQualificationPublish, planReasonsSave, planReportsSave, planRulesSave, qualificationKey, planSlaOverrideSave, planSlaSave } from './plans';
+import { AdminRuleError, planChecklistSave, planQualificationDiscard, planQualificationDraftSave, planQualificationPublish, planReasonsSave, planReportsSave, planExportsSave, planRulesSave, qualificationKey, planSlaOverrideSave, planSlaSave } from './plans';
 import { versionsOf, type AuditRow } from '../settings/versions';
 import { blankField, type QualificationForm } from '../qualification/form';
 import { toStored, DEFAULT_REASON_SETTINGS } from '../settings/reasons';
@@ -211,5 +211,36 @@ describe('planReportsSave : objectifs et alertes KPI', () => {
     const v2 = save({ alerts: [alert({ threshold: 450 })], objectives: [] }, JSON.parse(JSON.stringify(v1.doc)));
     const back = save(JSON.parse(JSON.stringify(v1.doc)), JSON.parse(JSON.stringify(v2.doc)));
     expect(back.doc).toMatchObject({ alerts: [{ threshold: 500 }], objectives: [{ id: 'o_1' }] });
+  });
+});
+
+describe('planExportsSave : rapports programmés', () => {
+  const sched = (over: Record<string, unknown> = {}) => ({ id: 's_1', name: 'Direction du lundi', kind: 'direction', format: 'csv', frequency: 'weekly', weekday: 1, dayOfMonth: 1, time: '08:00', period: 'previous_week', mode: 'event', sourceId: '', product: '', corrected: true, detail: false, recipients: ['u1'], active: true, endDate: '', ...over });
+  const save = (input: unknown, before: Record<string, unknown> | null = null, nowMs = NOW) => planExportsSave({ input, before, actorId: 'adm', nowMs });
+  type Stored = { schedules: { id: string; createdAtMs: number }[] };
+
+  it('enregistre avec audit ; un rapport nouveau démarre de maintenant', () => {
+    const p = save({ schedules: [sched()] });
+    expect((p.doc as Stored).schedules[0]).toMatchObject({ id: 's_1', createdAtMs: NOW });
+    expect(p.audit).toMatchObject({ action: 'settings.exports.create', entityType: 'settings', entityId: 'exports' });
+    expect(save({ schedules: [] }, p.doc as Record<string, unknown>).audit.action).toBe('settings.exports.update');
+  });
+  it('rapport inchangé : sa date de création est conservée (aucune échéance perdue ni rejouée)', () => {
+    const first = save({ schedules: [sched()] }, null, NOW);
+    const again = save({ schedules: [sched()] }, first.doc as Record<string, unknown>, NOW + 86_400_000);
+    expect((again.doc as Stored).schedules[0].createdAtMs).toBe(NOW);
+  });
+  it('rapport modifié, suspendu ou réactivé : repart de maintenant, sans rattrapage', () => {
+    const first = save({ schedules: [sched()] }, null, NOW);
+    for (const change of [{ time: '09:00' }, { active: false }, { recipients: ['u1', 'u2'] }]) {
+      const next = save({ schedules: [sched(change)] }, first.doc as Record<string, unknown>, NOW + 5_000);
+      expect((next.doc as Stored).schedules[0].createdAtMs).toBe(NOW + 5_000);
+    }
+  });
+  it('refus : sans destinataire, heure fausse, doublon', () => {
+    for (const bad of [[sched({ recipients: [] })], [sched({ time: '8h' })], [sched(), sched()]]) expect(refusal(() => save({ schedules: bad })).code).toBe('invalid-argument');
+  });
+  it('liste vide acceptée : l’administrateur peut tout supprimer', () => {
+    expect((save({ schedules: [] }).doc as Stored).schedules).toEqual([]);
   });
 });

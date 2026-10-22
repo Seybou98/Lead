@@ -76,6 +76,42 @@ describe('importLeads : traitement', () => {
   });
 });
 
+describe('importLeads : temps imparti', () => {
+  it('s’arrête avant le délai de la fonction et rend ce qui est traité', async () => {
+    let t = 0;
+    const ingest = vi.fn(async (): Promise<IngestResult> => { t += 5_000; return created(); });
+    const r = await importLeads(new FakeDb() as never, args({ rows: [{ phone: '1' }, { phone: '2' }, { phone: '3' }, { phone: '4' }] }), { ingest: ingest as never, clock: () => t, budgetMs: 8_000 });
+    if (!r.ok) throw new Error();
+    expect(ingest).toHaveBeenCalledTimes(2);
+    expect(r.processed).toBe(2);
+    expect(r.results.map((x) => x.row)).toEqual([2, 3]);
+    expect(r.summary.created).toBe(2);
+  });
+  it('au moins une ligne par appel, même si le délai est déjà écoulé', async () => {
+    let t = 0;
+    const ingest = vi.fn(async (): Promise<IngestResult> => { t += 60_000; return created(); });
+    const r = await importLeads(new FakeDb() as never, args({ rows: [{ phone: '1' }, { phone: '2' }] }), { ingest: ingest as never, clock: () => t, budgetMs: 1 });
+    if (!r.ok) throw new Error();
+    expect(r.processed).toBe(1);
+  });
+  it('rejeu d’un lot partiel : mêmes résultats et même nombre de lignes traitées', async () => {
+    let t = 0;
+    const db = new FakeDb();
+    const ingest = vi.fn(async (): Promise<IngestResult> => { t += 5_000; return created(); });
+    const a = args({ rows: [{ phone: '1' }, { phone: '2' }, { phone: '3' }] });
+    const first = await importLeads(db as never, a, { ingest: ingest as never, clock: () => t, budgetMs: 6_000 });
+    const again = await importLeads(db as never, a, { ingest: ingest as never, clock: () => t, budgetMs: 6_000 });
+    if (!first.ok || !again.ok) throw new Error();
+    expect(again).toMatchObject({ replay: true, processed: first.processed });
+    expect(ingest).toHaveBeenCalledTimes(first.processed);
+  });
+  it('tout est traité quand le temps suffit', async () => {
+    const r = await importLeads(new FakeDb() as never, args({ rows: [{ phone: '1' }, { phone: '2' }] }), { ingest: vi.fn(async (): Promise<IngestResult> => created()) as never });
+    if (!r.ok) throw new Error();
+    expect(r.processed).toBe(2);
+  });
+});
+
 describe('importLeads : idempotence et audit', () => {
   it('rejeu du même lot : mêmes résultats, aucune ligne ré-importée', async () => {
     const db = new FakeDb();

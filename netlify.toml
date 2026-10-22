@@ -23,6 +23,10 @@
 [functions."scheduler"]
   schedule = "*/5 * * * *"
 
+# Rapports programmés : génération, envoi du lien par EmailJS, nouvelle tentative, purge à 30 jours. Toutes les 5 minutes.
+[functions."exports-runner"]
+  schedule = "*/5 * * * *"
+
 # Adresse publique de réception des leads (à donner à la source : Pabbly, Meta, agence…)
 [[redirects]]
   from = "/api/leads"
@@ -90,6 +94,13 @@
 [[redirects]]
   from = "/api/integrations-hub"
   to = "/.netlify/functions/integrations-hub"
+  status = 200
+  force = true
+
+# Rapports programmés : historique, exécution manuelle, renvoi, téléchargement (administrateur et managers) : jeton Firebase.
+[[redirects]]
+  from = "/api/exports-hub"
+  to = "/.netlify/functions/exports-hub"
   status = 200
   force = true
 

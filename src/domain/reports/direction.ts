@@ -253,7 +253,7 @@ export function buildDirectionReport(args: { leads: readonly LeadListItem[]; spe
     const from = Math.max(w, f.fromMs);
     const to = Math.min(next.getTime(), f.toMs);
     const part = countPeriod(leads, args.spends, args.campaigns, f, from, to);
-    weeks.push({ startMs: w, label: new Date(w).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' }), spendCents: part.spendCents ?? 0, sales: part.counts.sales });
+    weeks.push({ startMs: w, label: new Date(w).toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', timeZone: 'Europe/Paris' }), spendCents: part.spendCents ?? 0, sales: part.counts.sales });
     w = next.getTime();
   }
 

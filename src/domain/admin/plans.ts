@@ -9,6 +9,7 @@
 
 import { coerceReasonInput, toStored, validateReasonSettings } from '../settings/reasons';
 import { coerceReportInput, toStoredReports, validateReportSettings } from '../reports/targets';
+import { coerceSchedulesInput, parseSchedules, validateSchedules, type ScheduledExport } from '../reports/schedule';
 import { errorsOf, normalizeForm, validateForm, type QualificationForm } from '../qualification/form';
 import { coerceConversionInput, coerceRulesInput, coerceSlaInput, effectiveSla, parseSlaOverride, validateConversionSettings, validateRulesSettings, validateSlaSettings, type SlaSettings } from '../settings/settings';
 import { checklistKey, DEFAULT_CHECKLIST_KEY, slugCode, validateChecklist } from '../documents/checklist';
@@ -582,4 +583,25 @@ export function planReportsSave(args: { input: unknown; before: Doc | null; acto
   if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
   const doc: Doc = { ...toStoredReports(s), updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
   return { doc, audit: { action: args.before ? 'settings.reports.update' : 'settings.reports.create', entityType: 'settings', entityId: 'reports', before: args.before, after: doc, reason: reasonOf(asRecord(args.input)) } };
+}
+
+// ── Exports programmés (§22.10) ──────────────────────────────────────────────
+
+const sameDefinition = (a: ScheduledExport, b: ScheduledExport): boolean => JSON.stringify({ ...a, createdAtMs: 0 }) === JSON.stringify({ ...b, createdAtMs: 0 });
+
+/**
+ * Rapports programmés : un seul document `cl_settings/exports`. Un rapport nouveau, modifié ou réactivé repart de maintenant
+ * (`createdAtMs`) : il ne rattrape jamais une échéance antérieure à sa dernière modification.
+ */
+export function planExportsSave(args: { input: unknown; before: Doc | null; actorId: string; nowMs: number }): { doc: Doc; audit: AuditDraft } {
+  const list = coerceSchedulesInput(args.input);
+  const errors = validateSchedules(list);
+  if (errors.length > 0) throw new AdminRuleError('invalid-argument', errors[0]);
+  const previous = new Map(parseSchedules(args.before).map((s) => [s.id, s]));
+  const schedules = list.map((s) => {
+    const old = previous.get(s.id);
+    return { ...s, createdAtMs: old && sameDefinition(old, s) ? old.createdAtMs : args.nowMs };
+  });
+  const doc: Doc = { schedules, updatedAt: new Date(args.nowMs), updatedBy: args.actorId };
+  return { doc, audit: { action: args.before ? 'settings.exports.update' : 'settings.exports.create', entityType: 'settings', entityId: 'exports', before: args.before, after: doc, reason: reasonOf(asRecord(args.input)) } };
 }

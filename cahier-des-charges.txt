@@ -33,11 +33,11 @@ Ce qui fonctionne aujourd'hui, de bout en bout, sur la base de DEV (crm-pose-dev
   - le manager pilote : cockpit, équipe, réattribution, absences, transfert de portefeuille ; un planificateur
     serveur (toutes les 5 minutes) escalade, recycle, attribue la file tampon et reprend les transmissions en échec.
 
-Ce qui reste : les rapports de rentabilité et les exports programmés (planification et diffusion),
+Ce qui reste : les rapports de rentabilité,
 les communications (SMS, email, WhatsApp), la partie de la vente à distance qui dépend de prestataires (contrat PDF, signature électronique,
-financement), le hub d'intégrations, les règles Storage, la mise en production, puis le Lot 6 (hors V1).
+financement), les règles Storage, la mise en production, puis le Lot 6 (hors V1).
 
-Qualité : 1888 tests unitaires (92 fichiers) ; typecheck de l'application, des fonctions Netlify et des
+Qualité : 1966 tests unitaires (97 fichiers) ; typecheck de l'application, des fonctions Netlify et des
 fonctions Firebase ; build de production OK ; Lead compile, se construit et se teste seul, copié hors du projet.
 Recettes réelles sur la base de DEV : 28/28 (fonctions serveur), 34/34 (montage et vente), 29/29 (transmission
 avec Storage et IGN réels), 31/31 (données transmises et suivi de la vente), 16/16 (retour des statuts), 4/4 (verrous de conversion réglés), 13/13 (file tampon et réattribution
@@ -142,13 +142,15 @@ PHASE 1 — Lot 1, socle                                                        
           et déclenche son alerte), résultat ligne par ligne (créé, rattaché à un lead existant, refusé avec motif) et
           téléchargement des lignes refusées pour les corriger. Chaque ligne suit LA MÊME réception que Pabbly : donnée
           brute conservée (avec l'auteur, le lot et la ligne), doublons, attribution, file tampon, SLA ; un lot
-          est idempotent et tracé dans le journal d'audit. Vérifié sur la base de DEV par script (10/10 : création,
-          doublon rattaché, ligne sans contact refusée, rejeu du lot, droits, journal, reprise) ; écrans non vérifiés
-          sur le site déployé.
+          est idempotent et tracé dans le journal d'audit ; le serveur s'arrête avant le délai de la fonction (12 s) et rend
+          ce qui est traité, l'écran renvoie la suite. Vérifié sur la base de DEV par script (10/10) ET sur le site déployé
+          le 22 octobre (compte administrateur) : fichier de 3 lignes (1 créé, 1 rattaché au même téléphone, 1 refusé sans
+          contact), fichier de 10 lignes (10 créés en 16 s), saisie manuelle (créé, en file tampon) ; données de test
+          supprimées ensuite.
   [FAIT]  Saisie manuelle d'un lead, Leads > « Nouveau lead » (manager, administrateur) : même réception, même résultat
           (créé et attribué, ou en file tampon, ou rattaché à un contact existant, ou refusé avec le motif).
-  [À VALIDER] Import et saisie manuelle réservés aux managers et à l'administrateur ; le télépro ne crée pas de lead
-          (le cahier ne dit pas qui peut le faire). Pas de modèles de mapping enregistrés, pas d'import de dépenses ni
+  [DÉCIDÉ] Import et saisie manuelle réservés aux managers et à l'administrateur ; le télépro ne crée pas de lead
+          (décision du propriétaire, 22 octobre). Pas de modèles de mapping enregistrés, pas d'import de dépenses ni
           d'Excel natif.
   [À FAIRE] Connecteurs Meta / Google directs.
   [À FAIRE] Brancher Pabbly sur le nouveau site : action de l'entreprise externe ou de vous dans Pabbly (2e étape
@@ -536,30 +538,53 @@ PHASE 5 — Lot 5, pilotage et reporting                                        
           pas d'objectif) et sur le périmètre exact des filtres (pas de combinaison de filtres, pas de filtre source) ;
           pas d'alerte en dehors des rapports (le cockpit et les notifications ne les reprennent pas) ; pas d'objectif
           d'équipe ; l'alerte SLA ne retire pas les absences validées (seulement les horaires fermés).
-  [PARTIEL] Exports : pas de planification, pas de diffusion (email, lien, API), pas d'export Excel natif ni de PDF
-          généré par le serveur (impression du navigateur), pas d'historique partagé, pas de conservation du fichier.
-          Ils supposent un canal d'envoi et un stockage de fichiers, absents en V1 (§1.2, §24).
+  [PARTIEL] Exports : pas d'export Excel natif, pas d'API, pas de PDF généré par le serveur (page imprimable à
+          enregistrer en PDF avec l'impression du navigateur). La planification, l'envoi par lien et l'historique
+          partagé sont faits (voir plus bas).
   [À FAIRE] Rapports : filtres équipe, publicité, formulaire, zone, offre, comparaison avec l'année précédente,
           granularité jour / mois, filtres partageables par URL ; marge, valeur et
-          rentabilité (pas de chiffre d'affaires ni de coût d'achat en base) ; exports programmés (planification, diffusion) ; correction ou exclusion d'un lead avec motif (§22.5) ; coûts importés (CSV, Meta, Google).
+          rentabilité (pas de chiffre d'affaires ni de coût d'achat en base) ; correction ou exclusion d'un lead avec motif (§22.5) ; coûts importés (CSV, Meta, Google).
 
-  [À FAIRE — PROPOSÉ, NON DÉMARRÉ] Exports programmés (§22.10, fig. 34, onglets « Rapports programmés » et « Historique »),
-          avec dépôt des fichiers dans Firebase Storage et envoi par EmailJS. Pistes retenues, à confirmer avant de commencer :
-          - Génération : par le planificateur Netlify (passage toutes les 5 minutes), avec les mêmes fonctions de calcul
-            que les écrans et les exports à la demande ; fichier déposé dans le bucket Storage, dossier réservé
-            (cl_exports/), par le compte de service.
-          - Téléchargement : par une fonction Netlify qui vérifie le jeton de l'utilisateur (comme la réattribution), sans
-            règles Storage ni liens signés (les règles Storage restent bloquées par le rôle « multiservices »).
-          - Envoi : EmailJS depuis le serveur, ce qui exige d'activer l'appel hors navigateur dans le compte EmailJS et
-            une clé privée en variable Netlify. Recommandé : envoyer un LIEN vers le CRM (connexion et droits vérifiés)
-            plutôt qu'une pièce jointe ; quota mensuel et taille de pièce jointe à vérifier dans le plan EmailJS.
-          - Règles : exports programmés toujours anonymisés (aucune donnée identifiante par email) ; destinataires =
-            utilisateurs du CRM (manager, administrateur), adresses libres seulement si décidé ; chaque exécution tracée
-            (date, statut, erreur, relances) pour l'historique ; configuration conservant la version des filtres.
-          - Configuration d'un rapport programmé : rapport, fréquence, jour, heure, fuseau, période glissante, date de
-            fin, format, destinataires, activation ; suspension et modification.
-          - Prérequis : nouvelle collection d'historique avec règles Firestore à publier ; compte EmailJS (plan, appel
-            serveur, quota) ; décisions : lien ou pièce jointe, destinataires libres ou non.
+  [FAIT]  Exports programmés (§22.10, fig. 34), onglet Exports > « Rapports programmés » (administrateur) et
+          « Historique » (administrateur : tout ; manager : ses fichiers). Livré en local, non encore déployé :
+          - Réglage d'un rapport (cl_settings/exports, tracé et versionné dans le journal d'audit) : nom, rapport (les six
+            types d'export), format (CSV, ou page imprimable pour le PDF), fréquence (tous les jours, toutes les semaines,
+            tous les mois), jour (jour de semaine, ou 1 à 28 du mois), heure (Europe/Paris), période glissante
+            (veille, 7 jours, semaine précédente, 30 jours, mois précédent, mois en cours), mode de date, source, produit,
+            données corrigées ou brutes, détail anonymisé, destinataires (administrateurs et managers actifs ayant un
+            email), dernier jour d'envoi, activation. 20 rapports et 20 destinataires au plus. Un rapport nouveau, modifié,
+            suspendu puis réactivé repart de maintenant : jamais d'échéance passée rejouée.
+          - Exécution : fonction planifiée exports-runner (toutes les 5 minutes). Une exécution par rapport et par
+            échéance (document cl_exportRuns/<rapport>_<échéance> créé en exclusivité : un second passage ne fait rien).
+            Une échéance manquée n'est rattrapée que dans les 24 h. « Exécuter maintenant » (administrateur) lance une
+            exécution hors échéance, tracée à son auteur. Mêmes calculs que les écrans (buildExport).
+          - Fichiers : toujours anonymisés (pseudonyme, ni nom, ni téléphone, ni email, ni adresse). L'administrateur reçoit
+            le fichier complet, chaque manager un fichier limité à son équipe (leads dont il est manager) et sans
+            dépenses. Déposés dans Firebase Storage (dossier cl_exports/<exécution>/), par le compte de service, sans
+            règle Storage côté navigateur ; supprimés après 30 jours (la ligne d'historique reste « Expiré »).
+          - Envoi : un LIEN par EmailJS (jamais le fichier), https://<site>/rapports/export/<exécution>?f=<fichier> ; la
+            page lit le fichier par la fonction exports-hub, qui vérifie la connexion et le droit (administrateur, ou
+            manager destinataire de CE fichier ; tout autre compte reçoit « introuvable »). Envoi en échec : 3 tentatives
+            au plus, 10 minutes d'écart, puis échec définitif visible dans l'historique avec la cause ; « Renvoyer »
+            (administrateur) remet les échecs à zéro. Destinataire inactif ou sans email : écarté et dit dans l'historique.
+          - Fuseau : les dates des exports sont désormais écrites en heure de Paris (aussi dans les exports à la demande),
+            pour que le serveur (UTC) et le navigateur affichent les mêmes jours.
+          - Vérifié par 74 tests (échéances, changements d'heure, périodes, idempotence, relances, purge, droits de
+            téléchargement, EmailJS simulé) et par un essai sur les données réelles de DEV avec stockage et envoi simulés
+            (fichiers « direction » et « leads » : 33 leads pour l'administrateur, 16 pour le manager, aucune donnée
+            personnelle détectée, essais supprimés). NON vérifié : un envoi réel EmailJS, l'écriture réelle dans
+            Storage, les écrans dans le navigateur.
+          - À FAIRE avant usage (Netlify > Variables d'environnement, jamais dans le dépôt) : EMAILJS_PRIVATE_KEY (clé
+            privée du compte), et soit EMAILJS_SERVICE_ID / EMAILJS_TEMPLATE_ID / EMAILJS_PUBLIC_KEY, soit les trois
+            VITE_EMAILJS_* déjà définies (service_0rdz0ol, template_zmbbe5r, clé publique) ; SITE_URL si l'adresse du CRM
+            diffère de l'adresse principale Netlify. Dans le compte EmailJS : activer « Autoriser l'API pour les
+            applications non navigateur », et régler le champ « To Email » du modèle sur {{to_email}}. Le modèle peut
+            afficher {{subject}}, {{message}} (texte complet avec le lien), {{link}}, {{to_name}}, {{report_name}},
+            {{period}}, {{rows}}, {{generated_at}}. Variables confirmées : le nom exact des variables du modèle
+            existant n'est pas connu, plusieurs alias sont envoyés (to_email / email / user_email, message / body...).
+          - Limites : lecture de 5 000 leads au plus par exécution (signalé dans l'historique) ; fichier renvoyé à
+            l'écran par la fonction (limite de réponse Netlify d'environ 6 Mo) ; quota mensuel EmailJS selon le plan.
+            Pas d'adresse email libre : destinataires = utilisateurs du CRM. Pas de pièce jointe (décision : lien).
 
 PHASE 6 — Sections 23 et 24                                                                 [PARTIEL]
   [FAIT]  Hub d'intégrations (§24.10, figs. 40 à 42), menu Intégrations (administrateur), cinq onglets :
@@ -583,7 +608,9 @@ PHASE 6 — Sections 23 et 24                                                   
             source, correspondance de champs, dernières réceptions et erreurs par source ; le secret n'est jamais affiché.
           Lecture par une fonction serveur (administrateur seulement) : la donnée brute et les transmissions ne sont pas
           listables depuis le navigateur par les règles Firestore. Journal et reprise vérifiés sur la base de DEV par
-          script (10/10) ; écrans non vérifiés sur le site déployé.
+          script (10/10) ; sur le site déployé (22 octobre) : les cinq onglets s'ouvrent sans erreur, le journal et les
+          erreurs lisent les vraies traces (dont deux refus anciens de la base de DEV, repérés « critiques » et reprenables).
+          Non vérifié sur le site : le clic « Relancer maintenant » (la reprise n'a été exécutée que par script).
   [PARTIEL] Hub : lecture bornée aux 400 dernières données brutes et 300 dernières transmissions (annoncée à l'écran) ;
           pas de durée par opération ni de nombre de tentatives de réception (une seule) ; le retour des statuts du
           CRM principal n'a pas de trace propre (seul le planificateur est suivi) ; pas de tentatives d'un envoi externe
@@ -674,8 +701,8 @@ principal…) restent à confirmer par écrit.
   3. (fait) Retour des statuts du CRM principal (§24.8), installations et facturations dans les tableaux de campagne
      et de télépro, verrous de conversion réglables, rapports Direction et Campagnes.
   4. (fait) Motifs et listes administrables (§21.6) ; constructeur de qualification conditionnelle (fig. 27).
-  5. Rapports restants : exports programmés (planification, dépôt dans Storage, envoi EmailJS : proposition détaillée en
-     phase 5, à confirmer), rentabilité ; les exports à la demande sont faits. Puis communications (SMS, email, WhatsApp).
+  5. Rapports restants : rentabilité ; les exports à la demande et programmés sont faits (reste à renseigner les
+     variables EmailJS dans Netlify et à tester un envoi réel). Puis communications (SMS, email, WhatsApp).
   6. Partie de la vente à distance qui dépend de prestataires : contrat PDF versionné, signature électronique,
      financement. À lancer quand les modèles juridiques et les prestataires sont choisis.
   7. Recette avec de vrais leads (en dernier, avec l'équipe) : brancher Pabbly (2e étape d'envoi), vérifier la file
@@ -695,7 +722,7 @@ recette sur la base de DEV.
 
   cd Lead
   npm run dev                       application + fonctions sur http://localhost:5180
-  npm test                          les 1888 tests
+  npm test                          les 1966 tests
   node scripts/send-test-leads.mjs --url http://localhost:5180 --secret <CRM_SHARED_SECRET> --count 5
                                     envoie de faux leads (option --scenario mix pour les cas limites)
   node scripts/test-file-tampon.mjs [--keep]

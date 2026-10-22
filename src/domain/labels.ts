@@ -53,6 +53,23 @@ export const DISTRIBUTION_LABELS: Record<DistributionState, string> = {
   not_applicable: '—',
 };
 
+/** Pourquoi un lead attend dans la file tampon. Un code d'exclusion de télépro (« non connecté »…) est repris tel quel s'il est la seule raison. */
+export const BUFFER_REASON_LABELS: Record<string, string> = {
+  no_candidate: 'aucun télépro éligible',
+  duplicate_review: 'doublon à examiner',
+  campaign_not_active: 'campagne non active',
+  auto_distribution_off: 'distribution automatique désactivée',
+};
+
+/** Phrase lisible du motif de file tampon, jamais le code brut. */
+export function bufferReasonText(code: string | null | undefined): string {
+  if (!code) return 'aucun télépro disponible';
+  const known = BUFFER_REASON_LABELS[code];
+  if (known) return known;
+  const exclusion = (EXCLUSION_LABELS as Record<string, string>)[code];
+  return exclusion ? `aucun télépro éligible : ${exclusion.toLowerCase()}` : code;
+}
+
 /** Pourquoi un télépro est exclu d'une attribution (journal, simulation). */
 export const EXCLUSION_LABELS: Record<ExclusionCode, string> = {
   account_inactive: 'Compte inactif',

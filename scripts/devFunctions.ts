@@ -24,6 +24,7 @@ const ROUTES: Record<string, string> = {
   '/api/lead-qualification': 'lead-qualification',
   '/api/import-leads': 'import-leads',
   '/api/integrations-hub': 'integrations-hub',
+  '/api/exports-hub': 'exports-hub',
   '/api/scheduler-run': 'scheduler-run',
   '/api/portfolio': 'portfolio',
 };

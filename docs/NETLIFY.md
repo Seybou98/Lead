@@ -154,6 +154,32 @@ Fonction `netlify/functions/integrations-hub.ts`, adresse `/api/integrations-hub
   (`cl_idempotency/replay_<id>`), marquée `replayedAt/replayedBy/replayLeadId`, tracée dans l'audit.
 - Codes : 200 · 400 · 401 · 403 · 404 · 405 · 409 (déjà reprise ou en cours) · 422 (toujours refusée) · 500.
 
+## Rapports programmés (exports par email)
+Deux fonctions : `netlify/functions/exports-runner.ts` (PLANIFIÉE, toutes les 5 minutes, `[functions."exports-runner"]` dans
+`netlify.toml`) et `netlify/functions/exports-hub.ts` (`/api/exports-hub`, jeton Firebase). Logique : `functions/src/exportRunner.ts`,
+`mailer.ts`, `exportsHubHttp.ts` ; règles : `src/domain/reports/schedule.ts`.
+- **Réglage** : document `cl_settings/exports` (écrit par l'administrateur depuis Rapports > Exports > Rapports programmés, tracé
+  dans `cl_audit`). **Exécutions** : collection `cl_exportRuns`, écrite et lue par le serveur seul (aucune règle Firestore à publier).
+- **Fichiers** : Firebase Storage, dossier `cl_exports/<exécution>/`, écrits par le compte de service (bucket :
+  `FIREBASE_STORAGE_BUCKET`, défaut `<projet>.firebasestorage.app`). Aucune règle Storage côté navigateur : le téléchargement passe
+  par `exports-hub`. Purge après 30 jours.
+- **Email** : EmailJS, API REST (`POST https://api.emailjs.com/api/v1.0/email/send`), un LIEN vers `/rapports/export/<exécution>`,
+  jamais le fichier. Variables d'environnement Netlify :
+  - `EMAILJS_PRIVATE_KEY` (obligatoire, secret : jamais dans le dépôt, jamais préfixée `VITE_`) ;
+  - `EMAILJS_SERVICE_ID`, `EMAILJS_TEMPLATE_ID`, `EMAILJS_PUBLIC_KEY`, ou à défaut `VITE_EMAILJS_SERVICE`, `VITE_EMAILJS_TEMPLATE`,
+    `VITE_EMAILJS_USER` ;
+  - `SITE_URL` (adresse du CRM dans le lien ; défaut : `URL`, fournie par Netlify).
+  Dans le compte EmailJS : activer « Autoriser l'API pour les applications non navigateur » ; champ « To Email » du modèle =
+  `{{to_email}}`. Paramètres envoyés au modèle : `to_email`, `email`, `user_email`, `to_name`, `subject`, `message`, `link`,
+  `download_url`, `report_name`, `report_type`, `period`, `rows`, `format`, `generated_at`, `expires_in_days`…
+- **Actions** de `exports-hub` : `{ action: 'runs' }` (administrateur et managers), `{ action: 'download', runId, file }`
+  (`file` = `all` ou l'identifiant du manager ; administrateur, ou manager destinataire de ce fichier), `{ action: 'run', scheduleId }`
+  et `{ action: 'resend', runId }` (administrateur). Codes : 200 · 400 · 401 · 403 · 404 · 405 · 409 · 410 (fichier supprimé) · 422 · 500.
+- **Garanties** : une exécution par rapport et par échéance (création exclusive du document) ; échéance manquée rattrapée sous 24 h
+  seulement ; envoi retenté 3 fois (10 min d'écart) ; fichiers toujours anonymisés ; un manager ne reçoit que son équipe.
+- **En développement** il n'y a aucune planification : « Exécuter maintenant » (administrateur) génère une exécution tout de suite.
+  La planification n'existe qu'une fois le site déployé (branche de production).
+
 ## Planificateur (traitements automatiques)
 Deux fonctions : `netlify/functions/scheduler.ts` (PLANIFIÉE, toutes les 5 minutes, déclarée dans `netlify.toml`,
 section `[functions."scheduler"]`) et `netlify/functions/scheduler-run.ts` (`/api/scheduler-run`, jeton Firebase d'un

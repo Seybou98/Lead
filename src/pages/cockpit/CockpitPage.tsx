@@ -5,6 +5,7 @@ import { cn } from '../../lib/utils';
 import { useAuth } from '../../auth/AuthProvider';
 import type { Role } from '../../domain/enums';
 import { buildCockpit, PERIOD_LABELS, sinceLabel, type Cockpit, type LeadIssue, type Period } from '../../domain/cockpit/cockpit';
+import { bufferReasonText } from '../../domain/labels';
 import type { LeadListItem } from '../../domain/leads/leadList';
 import { useCockpitData, type CockpitData } from './useCockpitData';
 import { ManagerNotifications } from './ManagerNotifications';
@@ -13,13 +14,6 @@ import { sendConversionAction } from '../../lib/conversionApi';
 
 type Kpi = 'danger' | 'callbacks' | 'docs' | 'sales';
 type Panel = { kind: 'list'; kpi: Kpi } | { kind: 'buffer' } | { kind: 'lead'; leadId: string };
-
-const BUFFER_REASONS: Record<string, string> = {
-  no_candidate: 'aucun télépro éligible',
-  duplicate_review: 'doublon à examiner',
-  campaign_not_active: 'campagne non active',
-  auto_distribution_off: 'distribution automatique désactivée',
-};
 
 const hm = (ms: number) => new Date(ms).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
@@ -100,7 +94,7 @@ export function CockpitView({ data, role }: { data: CockpitData; role: Role }) {
     lead: l,
     sinceMs: l.receivedAtMs,
     severity: data.nowMs - l.receivedAtMs > 15 * 60_000 ? 'critical' : 'high',
-    reason: l.bufferReason ? `En attente d'attribution (${BUFFER_REASONS[l.bufferReason] ?? l.bufferReason})` : "En attente d'attribution",
+    reason: l.bufferReason ? `En attente d'attribution (${bufferReasonText(l.bufferReason)})` : "En attente d'attribution",
   }));
   const panelLead: LeadListItem | null = panel?.kind === 'lead' ? (byId.get(panel.leadId) ?? null) : null;
 

@@ -9,34 +9,13 @@ import { buildExport, canExportIdentifying, DEFAULT_LEAD_COLUMNS, detailLeads, E
 import { errorMessage, logReportExport } from '../../lib/adminApi';
 import { Switch } from '../settings/settingsUi';
 import { addExportHistory, readExportHistory, type ExportLogEntry } from './exportHistory';
+import { printHtml } from './fileActions';
 import type { ReportsData } from './useReportsData';
-
-/** Impression d'un document HTML (« Enregistrer au format PDF » du navigateur) sans ouvrir de fenêtre : un cadre invisible. */
-function printHtml(html: string): void {
-  const frame = document.createElement('iframe');
-  frame.setAttribute('aria-hidden', 'true');
-  frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
-  document.body.appendChild(frame);
-  const doc = frame.contentDocument;
-  if (!doc || !frame.contentWindow) {
-    frame.remove();
-    throw new Error('Impression indisponible dans ce navigateur.');
-  }
-  doc.open();
-  doc.write(html);
-  doc.close();
-  const win = frame.contentWindow;
-  window.setTimeout(() => {
-    win.focus();
-    win.print();
-    window.setTimeout(() => frame.remove(), 60_000);
-  }, 200);
-}
 
 /**
  * Exports à la demande (§22.10, fig. 34). Un export restitue les filtres, les colonnes et le mode de date visibles à sa
  * création. Le détail des leads est anonymisé par défaut ; les données directement identifiantes demandent une
- * permission distincte (administrateur) et sont tracées. Pas de planification ni d'envoi automatique en V1.
+ * permission distincte (administrateur) et sont tracées. La planification et l'envoi par lien sont dans ScheduledView.
  */
 export function ExportsView({ data, filters, now }: { data: ReportsData; filters: ReportFilters; now: number }) {
   const { user } = useAuth();
@@ -172,7 +151,7 @@ export function ExportsView({ data, filters, now }: { data: ReportsData; filters
         )}
         <div className="mt-4 space-y-2 rounded-lg bg-blue-50 px-3 py-2.5 text-xs text-blue-900">
           <p className="flex items-start gap-1.5"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" /> Les exports de données directement identifiantes demandent une permission distincte (administrateur) et sont tracés dans le journal d’audit.</p>
-          <p>Aucun fichier n’est conservé côté serveur : cette liste n’existe que dans ce navigateur. La planification, l’envoi par email et l’export Excel natif ou par API ne sont pas disponibles en V1 (aucun canal d’envoi) ; le CSV s’ouvre directement dans Excel.</p>
+          <p>Un export à la demande n’est pas conservé côté serveur : cette liste n’existe que dans ce navigateur. Pour recevoir un rapport à intervalle régulier (lien par email, fichier conservé 30 jours), utilisez l’onglet « Rapports programmés ». Le CSV s’ouvre directement dans Excel ; l’export Excel natif et l’API ne sont pas disponibles en V1.</p>
         </div>
       </section>
     </div>

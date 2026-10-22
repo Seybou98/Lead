@@ -9,6 +9,8 @@ import type { Role } from '../../src/domain/enums';
 import { ingestLead, type IngestResult } from './ingest';
 
 export const MAX_ROWS_PER_BATCH = 20;
+/** Une fonction a un délai : au-delà de ce temps, le lot s'arrête et rend ce qui est traité ; l'appelant renvoie la suite. */
+export const TIME_BUDGET_MS = 12_000;
 const MAX_KEYS = 40;
 const MAX_VALUE = 500;
 
@@ -29,7 +31,7 @@ export type ImportRowResult =
   | { row: number; ok: false; code: string; reason: string };
 
 export type ImportOutcome =
-  | { ok: true; replay: boolean; results: ImportRowResult[]; summary: { created: number; attached: number; rejected: number } }
+  | { ok: true; replay: boolean; results: ImportRowResult[]; /** Lignes traitées, de la première du lot : moins que demandé si le temps imparti est écoulé. */ processed: number; summary: { created: number; attached: number; rejected: number } }
   | { ok: false; code: 'forbidden' | 'invalid'; message: string };
 
 const isObj = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -57,7 +59,7 @@ const toRowResult = (row: number, r: IngestResult): ImportRowResult =>
         : { row, ok: true, kind: 'replay', leadId: r.leadId }
     : { row, ok: false, code: r.code, reason: r.reason };
 
-export async function importLeads(db: Firestore, args: ImportArgs, deps: { ingest: typeof ingestLead } = { ingest: ingestLead }): Promise<ImportOutcome> {
+export async function importLeads(db: Firestore, args: ImportArgs, deps: { ingest: typeof ingestLead; clock?: () => number; budgetMs?: number } = { ingest: ingestLead }): Promise<ImportOutcome> {
   if (args.role !== 'admin' && args.role !== 'manager') return { ok: false, code: 'forbidden', message: "Seul un manager ou un administrateur peut importer ou saisir un lead." };
   if (!Array.isArray(args.rows) || args.rows.length === 0) return { ok: false, code: 'invalid', message: 'Aucune ligne à traiter.' };
   if (args.rows.length > MAX_ROWS_PER_BATCH) return { ok: false, code: 'invalid', message: `${MAX_ROWS_PER_BATCH} lignes au plus par lot.` };
@@ -69,11 +71,15 @@ export async function importLeads(db: Firestore, args: ImportArgs, deps: { inges
     // Un autre utilisateur ne peut pas rejouer le lot de quelqu'un d'autre.
     if (idem.get('uid') !== args.uid) return { ok: false, code: 'invalid', message: 'Identifiant de lot déjà utilisé.' };
     const results = (idem.get('results') as ImportRowResult[] | undefined) ?? [];
-    return { ok: true, replay: true, results, summary: summarize(results) };
+    return { ok: true, replay: true, results, processed: results.length, summary: summarize(results) };
   }
 
   const results: ImportRowResult[] = [];
+  const clock = deps.clock ?? Date.now;
+  const started = clock();
   for (let i = 0; i < args.rows.length; i++) {
+    // Au moins une ligne par appel ; ensuite, on s'arrête avant d'atteindre le délai de la fonction.
+    if (i > 0 && clock() - started > (deps.budgetMs ?? TIME_BUDGET_MS)) break;
     const row = args.startRow + i;
     const payload = sanitizeRow(args.rows[i]);
     if (!payload) {
@@ -94,8 +100,8 @@ export async function importLeads(db: Firestore, args: ImportArgs, deps: { inges
   const at = new Date(args.nowMs);
   await idemRef.set({ uid: args.uid, results, createdAt: at });
   const audit = db.collection(COL.audit).doc(`import_${args.batchId}_${args.startRow}`.slice(0, 200));
-  await audit.set({ id: audit.id, at, actorId: args.uid, action: args.channel === 'manual' ? 'lead.manual_create' : 'leads.import', entityType: 'lead_batch', entityId: args.batchId, before: null, after: { startRow: args.startRow, rows: args.rows.length, ...summary, sourceId: args.sourceId }, reason: null });
-  return { ok: true, replay: false, results, summary };
+  await audit.set({ id: audit.id, at, actorId: args.uid, action: args.channel === 'manual' ? 'lead.manual_create' : 'leads.import', entityType: 'lead_batch', entityId: args.batchId, before: null, after: { startRow: args.startRow, rows: results.length, ...summary, sourceId: args.sourceId }, reason: null });
+  return { ok: true, replay: false, results, processed: results.length, summary };
 }
 
 function summarize(results: readonly ImportRowResult[]): { created: number; attached: number; rejected: number } {

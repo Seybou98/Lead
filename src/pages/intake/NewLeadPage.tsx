@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, UserPlus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { checkRows } from '../../domain/ingest/csv';
+import { bufferReasonText } from '../../domain/labels';
 import { newBatchId, sendImportBatch, type ImportRowResult } from '../../lib/importApi';
 import { inputCls } from '../settings/settingsUi';
 import { useIntakeOptions } from './useIntakeOptions';
@@ -58,7 +59,7 @@ export function NewLeadPage() {
             <>
               <p className="flex items-center gap-2 font-semibold text-emerald-800"><CheckCircle2 className="h-5 w-5" /> {result.kind === 'created' ? 'Lead créé' : 'Ce contact existe déjà'}</p>
               <p className="mt-1 text-sm text-emerald-900">
-                {result.kind === 'created' ? (result.assignmentState === 'assigned' ? 'Il a été attribué à un télépro, son compteur de prise en charge est lancé.' : `Aucun télépro disponible : il est dans la file tampon${result.bufferReason ? ` (${result.bufferReason})` : ''}, où il reste chronométré.`) : 'Une nouvelle interaction a été ajoutée à la fiche existante : aucun second lead n’a été créé.'}
+                {result.kind === 'created' ? (result.assignmentState === 'assigned' ? 'Il a été attribué à un télépro, son compteur de prise en charge est lancé.' : `Il est dans la file tampon (${bufferReasonText(result.bufferReason)}), où il reste chronométré et réévalué.`) : 'Une nouvelle interaction a été ajoutée à la fiche existante : aucun second lead n’a été créé.'}
               </p>
               <Link to={`/leads/${result.leadId}`} className="mt-3 inline-block rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700">Ouvrir la fiche</Link>
             </>

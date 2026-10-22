@@ -26,6 +26,8 @@ export const COL = {
   audit: 'cl_audit',
   notifications: 'cl_notifications',
   integrationLog: 'cl_integrationLog',
+  /** Exécutions des rapports programmés : écrites et lues par le serveur seul (aucune règle client). */
+  exportRuns: 'cl_exportRuns',
   idempotency: 'cl_idempotency',
 
   // Lots de transferts de portefeuille (propriétaire d'origine, retour des transferts temporaires)

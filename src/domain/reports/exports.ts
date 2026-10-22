@@ -48,7 +48,9 @@ export interface LeadColumn {
   get: (l: LeadListItem, c: ExportContext) => string | number;
 }
 
-const dateOf = (ms: number | null | undefined): string => (ms ? new Date(ms).toLocaleDateString('fr-FR') : '');
+// Fuseau de l'entreprise explicite : un export généré par le serveur (UTC) doit afficher les mêmes jours que dans le navigateur.
+const TZ = 'Europe/Paris';
+const dateOf = (ms: number | null | undefined): string => (ms ? new Date(ms).toLocaleDateString('fr-FR', { timeZone: TZ }) : '');
 const yesNo = (b: boolean): string => (b ? 'oui' : '');
 
 export const LEAD_COLUMNS: readonly LeadColumn[] = [
@@ -164,7 +166,7 @@ export interface BuiltExport {
   summary: { label: string; value: string }[];
 }
 
-const dayText = (ms: number) => new Date(ms).toLocaleDateString('fr-FR');
+const dayText = (ms: number) => new Date(ms).toLocaleDateString('fr-FR', { timeZone: TZ });
 
 export function filterSummary(f: ReportFilters, input: Pick<ExportInput, 'names' | 'reportCampaigns'>, raw: boolean): { label: string; value: string }[] {
   return [
@@ -236,7 +238,7 @@ export function buildExport(input: ExportInput, o: ExportOptions): BuiltExport {
   const head: (string | number)[][] = [
     ['Rapport', title],
     ...summary.map((s) => [s.label, s.value]),
-    ['Généré le', new Date(input.nowMs).toLocaleString('fr-FR')],
+    ['Généré le', new Date(input.nowMs).toLocaleString('fr-FR', { timeZone: TZ })],
     ...(wantDetail ? [['Détail des leads', choice.pseudonymize ? 'Anonymisé (pseudonyme, sans coordonnées)' : 'Avec données personnelles'], ['Colonnes', choice.columns.map((c) => c.label).join(', ')]] : []),
     [],
   ];

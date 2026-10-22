@@ -38,6 +38,7 @@ import { MyDayPage } from './pages/myday/MyDayPage';
 import { IntegrationsPage } from './pages/transmission/IntegrationsPage';
 import { TransmissionPage } from './pages/transmission/TransmissionPage';
 import { ReportsPage } from './pages/reports/ReportsPage';
+import { ExportDownloadPage } from './pages/reports/ExportDownloadPage';
 import { DossiersPage } from './pages/dossiers/DossiersPage';
 import { DossierPage } from './pages/dossiers/DossierPage';
 import { SalesPage } from './pages/sales/SalesPage';
@@ -87,6 +88,7 @@ export default function App() {
         <Route path="/leads/nouveau" element={<ManagerOnly><NewLeadPage /></ManagerOnly>} />
         <Route path="/leads/:leadId" element={<LeadFilePage listPath="/leads" />} />
         <Route path="/rapports" element={<ReportsPage />} />
+        <Route path="/rapports/export/:runId" element={<ManagerOnly><ExportDownloadPage /></ManagerOnly>} />
 
         {/* Communs */}
         <Route path="/documents" element={<DocumentsPage />} />

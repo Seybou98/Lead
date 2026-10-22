@@ -8,6 +8,7 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { parseServiceAccount } from '../../functions/src/serviceAccount';
 import { verifyFirebaseIdToken, type VerifiedToken } from '../../functions/src/idToken';
 import type { StorageLike } from '../../functions/src/transmission';
+import type { ExportStorage } from '../../functions/src/exportRunner';
 
 let db: Firestore | undefined;
 /** Identifiant du projet Firebase, connu dès l'initialisation (sert à vérifier l'émetteur des jetons). */
@@ -74,6 +75,37 @@ export async function getStorageAdapter(): Promise<StorageLike | null> {
         const token = randomUUID();
         await dest.setMetadata({ metadata: { firebaseStorageDownloadTokens: token } });
         return { url: `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(destPath)}?alt=media&token=${token}` };
+      },
+    };
+  } catch (e) {
+    console.error('storage indisponible', e);
+    return null;
+  }
+}
+
+/**
+ * Fichiers des rapports programmés dans Firebase Storage (dossier `cl_exports/`), lus et écrits par le serveur seul : aucune
+ * règle Storage côté navigateur, le téléchargement passe par la fonction `exports-hub` qui vérifie la connexion et les droits.
+ * Rend null si Storage est indisponible (l'exécution le signale).
+ */
+export async function getExportStorage(): Promise<ExportStorage | null> {
+  ensureApp();
+  try {
+    const { getStorage } = await import('firebase-admin/storage');
+    const bucket = getStorage().bucket(process.env.FIREBASE_STORAGE_BUCKET?.trim() || `${projectId || getApp().options.projectId}.firebasestorage.app`);
+    return {
+      async put(path, content, mime) {
+        await bucket.file(path).save(content, { contentType: mime, resumable: false });
+      },
+      async get(path) {
+        const file = bucket.file(path);
+        const [exists] = await file.exists();
+        if (!exists) return null;
+        const [buf] = await file.download();
+        return buf.toString('utf8');
+      },
+      async remove(path) {
+        await bucket.file(path).delete({ ignoreNotFound: true });
       },
     };
   } catch (e) {
