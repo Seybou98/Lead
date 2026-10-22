@@ -196,6 +196,8 @@ export interface DocLead {
   /** Relances déjà faites (décisions comprises). */
   followUpCount: number;
   promisedAtMs: number | null;
+  /** Vente engagée depuis l'appel : en « montage en cours », les relances documentaires continuent. */
+  directSale?: boolean;
 }
 
 export interface DocContext {
@@ -470,6 +472,13 @@ export function planDocumentAction(input: DocumentActionInput, ctx: DocContext):
 
   if (forcedAction !== undefined) {
     nextAction = forcedAction;
+  } else if (status === 'file_building' && lead.directSale) {
+    // Vente engagée depuis l'appel : l'offre reste la priorité du télépro, les relances documentaires courent en parallèle (board Documents).
+    nextAction = mkAction('build_file', 'P1', nowMs, 'Vente engagée : construire l’offre');
+    if (summary.state !== 'complete') {
+      const step = nextFollowUpStep({ requestAtMs, lastFollowUpAtMs, done: followUpCount, rules });
+      if (step) nextFollowUpAtMs = step.dueAtMs;
+    }
   } else if (status === 'file_ready_to_build') {
     nextAction = mkAction('build_file', 'P3', nowMs, 'Dossier complet : passer au montage');
   } else if (status === 'awaiting_documents' || status === 'missing_info') {
@@ -495,7 +504,7 @@ export function planDocumentAction(input: DocumentActionInput, ctx: DocContext):
     }
   }
   if (nextAction && nextFollowUpAtMs === null && nextAction.type !== 'build_file') nextFollowUpAtMs = nextAction.dueAtMs;
-  if (closed || status === 'file_building') nextFollowUpAtMs = null;
+  if (closed || (status === 'file_building' && !lead.directSale)) nextFollowUpAtMs = null;
 
   if (status !== lead.status) {
     events.push({

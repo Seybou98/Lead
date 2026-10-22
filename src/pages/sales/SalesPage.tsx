@@ -21,6 +21,7 @@ import {
   type Tone,
 } from '../../domain/sales/board';
 import { buildSaleReminderMessage } from '../../domain/sales/track';
+import { buildEngagedSales } from '../../domain/sales/engaged';
 import { sendConversionAction } from '../../lib/conversionApi';
 import { Modal } from '../../components/ui/Modal';
 import { Feedback } from '../settings/settingsUi';
@@ -170,6 +171,7 @@ export function SalesView({ rows, loading, error, truncated, uid, role, nowMs }:
   const products = useMemo(() => saleProducts(rows), [rows]);
   const board = useMemo(() => buildSaleBoard(rows, { search, product, payment, age, mineOnly, uid, nowMs }), [rows, search, product, payment, age, mineOnly, uid, nowMs]);
   const filtered = !!(search || product || payment || age || mineOnly);
+  const engaged = useMemo(() => buildEngagedSales(rows, { nowMs, mineOnly, uid, search }), [rows, nowMs, mineOnly, uid, search]);
   const empty = SALE_COLUMNS.every((c) => board.columns[c.key].length === 0);
   // Relancer : le propriétaire de la vente, son manager ou un administrateur ; la liste d'un manager est déjà bornée à son périmètre.
   const canRemind = (r: LeadRow) => role === 'admin' || role === 'manager' || r.ownerId === uid;
@@ -241,6 +243,35 @@ export function SalesView({ rows, loading, error, truncated, uid, role, nowMs }:
           );
         })}
       </div>
+
+      {engaged.length > 0 && (
+        <section aria-label="Ventes engagées" className="mt-4 rounded-xl border border-blue-200 bg-blue-50/40">
+          <h2 className="px-4 pt-3 text-sm font-bold uppercase tracking-wide text-blue-700">Ventes engagées ({engaged.length})</h2>
+          <p className="px-4 text-xs text-slate-600">Le client a accepté pendant l’appel ; ce ne sont pas encore des ventes. La vente est créée quand le dossier est monté et les pièces obligatoires conformes.</p>
+          <ul className="grid gap-3 p-3 md:grid-cols-2 xl:grid-cols-3">
+            {engaged.map(({ row: r, info }) => (
+              <li key={r.id} className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-slate-900">{r.fullName || 'Contact sans nom'}</p>
+                    <p className="truncate text-xs text-slate-500">{r.productCode ?? 'Produit non renseigné'} · engagée il y a {sinceLabel(info.sinceMs, nowMs)}</p>
+                  </div>
+                  <span className={cn('whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium', info.readyToCreate ? PILL.green : info.late ? PILL.amber : PILL.blue)}>
+                    {info.readyToCreate ? 'Prêt à créer la vente' : info.late ? 'En retard' : 'En cours'}
+                  </span>
+                </div>
+                <div className="mt-2 space-y-1.5">
+                  <StateRow icon={<FolderOpen className="h-3.5 w-3.5" />} label="Documents" text={info.missingDocs === null ? 'Non demandés' : info.missingDocs === 0 ? 'Toutes conformes' : `${info.missingDocs} à rendre conforme(s)`} tone={info.missingDocs === 0 ? 'green' : info.missingDocs === null ? 'grey' : 'amber'} />
+                  <StateRow icon={<FileText className="h-3.5 w-3.5" />} label="Prochaine action" text={r.nextAction?.reason ?? '—'} tone="grey" />
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <button type="button" onClick={() => navigate(`/dossiers/${r.id}`)} className="rounded-md bg-blue-600 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-white hover:bg-blue-700">Ouvrir le montage</button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <p className="mt-4 flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
         <Info className="h-4 w-4 flex-shrink-0 text-blue-600" /> Une vente est sécurisée uniquement après signature et confirmation du paiement ou du financement.

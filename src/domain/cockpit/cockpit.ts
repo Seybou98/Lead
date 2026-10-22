@@ -12,6 +12,7 @@ import { buildDayQueue } from '../leads/myDay';
 import type { DistributionState, UserRow } from '../admin/userRows';
 import { OPERATIONAL_STATUS_LABELS } from '../labels';
 import { isAlertHidden, type AlertKey } from './alertStates';
+import { engagedInfo, isEngagedSale } from '../sales/engaged';
 
 const MIN = 60_000;
 const DAY = 24 * 60 * MIN;
@@ -160,6 +161,14 @@ export const isSaleSecured = (l: Pick<LeadListItem, 'commercialState' | 'financi
 function saleIssues(items: readonly LeadListItem[], nowMs: number): LeadIssue[] {
   const out: LeadIssue[] = [];
   for (const l of items) {
+    // Vente engagée depuis l'appel, dossier encore incomplet au-delà du délai : le client attend, la vente n'est pas créée.
+    if (isEngagedSale(l)) {
+      const info = engagedInfo(l, nowMs);
+      if (info.late && !hidden(l, 'sale', info.sinceMs, nowMs)) {
+        out.push({ lead: l, sinceMs: info.sinceMs, severity: 'watch', reason: info.missingDocs ? `Vente engagée, ${info.missingDocs} pièce(s) obligatoire(s) non conforme(s)` : 'Vente engagée : dossier à compléter' });
+      }
+      continue;
+    }
     if (l.excluded || !l.conversion) continue;
     if (l.commercialState === 'cancelled' || l.commercialState === 'retracted') continue;
     if (isSaleSecured(l)) continue;

@@ -249,6 +249,8 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
   useEffect(() => setDocs((cur) => { const ok = new Set(applicable.map((d) => d.code)); return [...new Set([...cur.filter((c) => ok.has(c)), ...applicable.filter((d) => d.mandatory).map((d) => d.code)])]; }), [applicable]);
   // ── Conclure maintenant (§23.1) ──
   const [saleNote, setSaleNote] = useState('');
+  // Demander les documents en même temps : le client les envoie pendant que l'offre se construit (cochée par défaut).
+  const [alsoDocs, setAlsoDocs] = useState(true);
   const [docChannel, setDocChannel] = useState<DocumentChannelKey | ''>('');
   const [docPromised, setDocPromised] = useState(false);
   const [docDate, setDocDate] = useState(soon.date);
@@ -297,7 +299,7 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
       case 'request_documents':
         return { kind: 'request_documents', documents: docs, channel: docChannel as DocumentChannelKey, promisedAtMs: docPromised ? at(docDate, docTime) : null, note: docNote, situations };
       case 'close_now':
-        return { kind: 'close_now', note: saleNote };
+        return { kind: 'close_now', note: saleNote, ...(alsoDocs ? { documents: { documents: docs, channel: docChannel as DocumentChannelKey, promisedAtMs: docPromised ? at(docDate, docTime) : null, note: docNote, situations } } : {}) };
       case 'close_not_interested':
         return { kind: 'close_not_interested', motive: niMotive as RefusalMotive, comment: niComment, followUp: niFollow, recycleAtMs: niFollow === 'recycle' ? at(niDate, '09:00') : null, opposition: niOpposition };
       case 'close_ineligible':
@@ -443,12 +445,16 @@ export function QualificationPanel({ lead, durationSeconds, endedAtMs, nowMs, re
               <label className="mt-4 block text-sm"><span className="font-medium text-slate-700">Note (facultatif)</span>
                 <input aria-label="Note de la vente engagée" value={saleNote} maxLength={500} onChange={(e) => setSaleNote(e.target.value)} placeholder="Ce que le client a accepté, ce qu’il faut retenir…" className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
               </label>
-              {feedback}
+              <label className="mt-4 flex items-start gap-2 text-sm text-slate-800">
+                <input type="checkbox" checked={alsoDocs} onChange={(e) => setAlsoDocs(e.target.checked)} className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600" />
+                <span><strong>Demander aussi les documents maintenant</strong><span className="block text-xs text-slate-500">Le client envoie ses pièces pendant que vous construisez l’offre : la vente se crée dès que les pièces obligatoires sont conformes.</span></span>
+              </label>
+              {!alsoDocs && feedback}
             </div>
           )}
 
           {/* Documents : formulaire intégré, comme sur la fig. 5 */}
-          {choice === 'request_documents' && modal === null && (
+          {(choice === 'request_documents' || (choice === 'close_now' && alsoDocs)) && modal === null && (
             <div className="mt-6 border-t border-slate-100 pt-5">
               <div className="flex items-center gap-2.5">
                 <FileText className="h-6 w-6 fill-emerald-600 text-white" strokeWidth={1.75} />

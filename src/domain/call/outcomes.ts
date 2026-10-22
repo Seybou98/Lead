@@ -186,7 +186,7 @@ export type CallOutcomeInput =
     }
   | { kind: 'request_documents'; documents: string[]; channel: DocumentChannelKey; promisedAtMs: number | null; note?: string; /** Situations du client cochées par le télépro (checklist.ts) : elles décident des pièces conditionnelles. */ situations?: string[] }
   /** §23.1 : le client accepte l'offre pendant l'appel ; crée une vente ENGAGÉE (pas encore une vente) et ouvre le montage, sans passer par « En attente de documents ». */
-  | { kind: 'close_now'; note?: string }
+  | { kind: 'close_now'; note?: string; /** Demande des documents en même temps (mêmes champs et mêmes contrôles qu'une demande de documents). */ documents?: { documents: string[]; channel: DocumentChannelKey; promisedAtMs: number | null; note?: string; situations?: string[] } }
   | { kind: 'close_not_interested'; motive: RefusalMotive; comment: string; followUp: RefusalFollowUp; recycleAtMs?: number | null; opposition: boolean }
   | {
       kind: 'close_ineligible';

@@ -105,6 +105,7 @@ export async function applyDocumentAction(db: Firestore, args: DocumentsArgs): P
         lastFollowUpAtMs: toMs(lead.documents?.lastFollowUpAt),
         followUpCount: Number(lead.documents?.followUpCount ?? 0),
         promisedAtMs: toMs(lead.documents?.promisedAt),
+        directSale: lead.directSale === true,
       },
       docs,
       actorId: args.uid,

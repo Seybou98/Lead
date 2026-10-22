@@ -37,7 +37,7 @@ Ce qui reste : la marge brute (coût d'achat),
 les communications (SMS, email, WhatsApp), la partie de la vente à distance qui dépend de prestataires (contrat PDF, signature électronique,
 financement), les règles Storage, la mise en production, puis le Lot 6 (hors V1).
 
-Qualité : 2177 tests unitaires (117 fichiers) ; typecheck de l'application, des fonctions Netlify et des
+Qualité : 2193 tests unitaires (118 fichiers) ; typecheck de l'application, des fonctions Netlify et des
 fonctions Firebase ; build de production OK ; Lead compile, se construit et se teste seul, copié hors du projet.
 Recettes réelles sur la base de DEV : 28/28 (fonctions serveur), 34/34 (montage et vente), 29/29 (transmission
 avec Storage et IGN réels), 31/31 (données transmises et suivi de la vente), 16/16 (retour des statuts), 4/4 (verrous de conversion réglés), 13/13 (file tampon et réattribution
@@ -363,9 +363,17 @@ PHASE 2 — Lot 2, exécution                                                   
           « Vente engagée depuis l'appel » rappelle l'étape dans le montage. Même planificateur côté écran et côté
           serveur (idempotent, historisé) ; un lead clos ou déjà converti ne peut pas conclure. 6 tests. NON vérifié
           dans le navigateur.
-          Limites : le montage reste celui du §11 (identité, projet, aides, offre et financement, vérifications) et NON
-          l'assistant en quatre écrans du §23.2 ; la création de la vente exige toujours les pièces obligatoires
-          conformes (les documents se demandent en parallèle) ; Floa, financement par organisme, document contractuel
+          DOCUMENTS EN PARALLÈLE : la tuile propose « Demander aussi les documents maintenant » (cochée par défaut, mêmes
+          champs et mêmes contrôles qu'une demande de documents) ; les relances courent alors dans l'écran Documents
+          pendant le montage, sans retirer « construire l'offre » de la file du télépro. Les règles de conversion ne
+          changent pas : la vente n'est créée que si les pièces obligatoires sont conformes.
+          VENTES ENGAGÉES : liste dédiée dans l'espace Ventes (hors colonnes, jamais comptées comme ventes), avec pièces
+          restant à rendre conformes, temps écoulé, prochaine action et badge « Prêt à créer la vente » dès que la
+          dernière pièce obligatoire est conforme ; point d'attention du cockpit (« Vente à sécuriser », reportable ou
+          clôturable) quand l'engagement a plus de 3 jours avec un dossier incomplet. 16 tests de plus.
+          Limites : le délai de 3 jours n'est pas encore réglable ; le montage reste celui du §11 (identité, projet,
+          aides, offre et financement, vérifications) et NON l'assistant en quatre écrans du §23.2 ; la création de la
+          vente sans pièces conformes n'est pas autorisée (décision à prendre, elle changerait les règles) ; Floa, financement par organisme, document contractuel
           versionné et signature électronique : voir « prestataires externes » (phase 4).
   [PARTIEL] Fig. 10 : la « relance exceptionnelle » et les preuves / fichiers des figs. 11-12 ne sont pas faits.
   [FAIT]  Recyclage automatique (entrée en recyclage après le délai, période creuse, archivage après N cycles) :
@@ -857,7 +865,7 @@ recette sur la base de DEV.
 
   cd Lead
   npm run dev                       application + fonctions sur http://localhost:5180
-  npm test                          les 2177 tests
+  npm test                          les 2193 tests
   node scripts/send-test-leads.mjs --url http://localhost:5180 --secret <CRM_SHARED_SECRET> --count 5
                                     envoie de faux leads (option --scenario mix pour les cas limites)
   node scripts/test-file-tampon.mjs [--keep]

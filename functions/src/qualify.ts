@@ -93,7 +93,7 @@ export async function qualifyCall(db: Firestore, args: QualifyArgs): Promise<Qua
 
     // Pièces à demander : checklist du produit du lead (cl_checklists), sinon celle par défaut, sinon la liste d'origine.
     let planRules = rules;
-    if (args.input.kind === 'request_documents') {
+    if (args.input.kind === 'request_documents' || (args.input.kind === 'close_now' && args.input.documents)) {
       const key = checklistKey(lead.productCode);
       const [own, def] = await Promise.all([tx.get(db.collection(COL.checklists).doc(key)), tx.get(db.collection(COL.checklists).doc('default'))]);
       planRules = { ...rules, documentTypes: resolveChecklist(lead.productCode, { [key]: own.data(), default: def.data() }).items };

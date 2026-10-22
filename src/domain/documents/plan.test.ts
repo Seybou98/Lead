@@ -329,3 +329,30 @@ describe('message de relance', () => {
     expect(buildReminderMessage('', [row('identity', 'conform')])).toMatch(/^Bonjour,\n\nNous avons bien reçu/);
   });
 });
+
+describe('vente engagée depuis l’appel : documents en parallèle du montage', () => {
+  const direct = (over: Partial<DocContext['lead']> = {}) => ctx({ lead: { status: 'file_building', directSale: true, ...over } as DocContext['lead'] });
+  it('une pièce reçue ne retire pas l’offre de la file : « construire l’offre » reste la première action', () => {
+    const p = ok({ kind: 'receive', code: 'identity' }, direct());
+    expect(p.status).toBe('file_building');
+    expect(p.nextAction).toMatchObject({ type: 'build_file', priority: 'P1' });
+  });
+  it('la relance reste planifiée pour l’écran Documents tant que les pièces ne sont pas toutes conformes', () => {
+    const p = ok({ kind: 'receive', code: 'identity' }, direct());
+    expect(p.leadDocuments.nextFollowUpAtMs).not.toBeNull();
+    expect(p.leadDocuments.nextFollowUpAtMs as number).toBeGreaterThanOrEqual(NOW);
+  });
+  it('dossier complet : plus de relance, le lead reste en montage (la vente se crée quand le montage est prêt)', () => {
+    const complete = CHECKLIST.map((r) => ({ ...r, status: r.code === 'identity' ? ('received' as const) : ('conform' as const) }));
+    const p = ok({ kind: 'check', code: 'identity', verdict: 'conform' }, ctx({ docs: complete, lead: { status: 'file_building', directSale: true } as DocContext['lead'] }));
+    expect(p.summary.state).toBe('complete');
+    expect(p.status).toBe('file_building');
+    expect(p.leadDocuments.nextFollowUpAtMs).toBeNull();
+  });
+  it('un montage ordinaire (pas de vente engagée) garde son comportement : aucune relance, aucune action', () => {
+    const p = ok({ kind: 'receive', code: 'identity' }, ctx({ lead: { status: 'file_building' } as DocContext['lead'] }));
+    expect(p.nextAction).toBeNull();
+    expect(p.leadDocuments.nextFollowUpAtMs).toBeNull();
+  });
+});
+

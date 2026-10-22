@@ -50,4 +50,33 @@ describe('« Conclure maintenant » dans « Comment s’est terminé l’appel ?
     expect(toListItem('L1', { ...doc, directSale: true })?.directSale).toBe(true);
     expect(toListItem('L1', doc)?.directSale).toBeUndefined();
   });
+  it('documents demandés en même temps : mêmes contrôles qu’une demande de documents, lead toujours en montage', () => {
+    const ctx = { lead: { id: 'L1', status: 'new' as const, ownerId: 'u1', productCode: 'PAC', nr: { attempt: 0, cycle: 1 }, nextActionId: null }, actorId: 'u1', actorRole: 'telepro' as const, nowMs: NOW, requestId: 'r1', durationSeconds: 10, rules: DEFAULT_CALL_RULES };
+    const ok = planCallOutcome({ kind: 'close_now', documents: { documents: ['identity', 'tax_notice'], channel: 'email', promisedAtMs: null } }, ctx);
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    expect(ok.plan.status).toBe('file_building');
+    expect(ok.plan.directSale).toBe(true);
+    expect(ok.plan.documents?.types.map((t) => t.code)).toEqual(['identity', 'tax_notice']);
+    expect(ok.plan.documents?.nextFollowUpAtMs).toBeGreaterThan(NOW);
+    expect(ok.plan.nextAction).toMatchObject({ type: 'build_file', priority: 'P1' });
+    expect(ok.plan.summary).toContain('Première relance');
+    // Mêmes refus que « Demander les documents » : aucune pièce, canal absent, pièce inconnue.
+    for (const bad of [{ documents: [], channel: 'email' }, { documents: ['identity'], channel: 'pigeon' }, { documents: ['zzz'], channel: 'email' }]) {
+      const r = planCallOutcome({ kind: 'close_now', documents: { ...bad, promisedAtMs: null } } as never, ctx);
+      expect(r.ok).toBe(false);
+    }
+  });
+  it('la demande de documents seule se comporte comme avant (refactorisation sans effet)', () => {
+    const ctx = { lead: { id: 'L1', status: 'new' as const, ownerId: 'u1', productCode: 'PAC', nr: { attempt: 0, cycle: 1 }, nextActionId: null }, actorId: 'u1', actorRole: 'telepro' as const, nowMs: NOW, requestId: 'r1', durationSeconds: 10, rules: DEFAULT_CALL_RULES };
+    const r = planCallOutcome({ kind: 'request_documents', documents: ['identity'], channel: 'whatsapp', promisedAtMs: null }, ctx);
+    expect(r.ok && r.plan.status).toBe('awaiting_documents');
+    expect(r.ok && r.plan.directSale).toBeUndefined();
+  });
+  it('panneau : la case « Demander aussi les documents » est cochée par défaut et affiche le formulaire de pièces', () => {
+    const h = panel('close_now');
+    expect(h).toContain('Demander aussi les documents maintenant');
+    expect(h).toContain('Documents à demander');
+    expect(h).toContain('Documents à demander');
+  });
 });

@@ -271,6 +271,32 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
   let summary = '';
   const meta: Record<string, unknown> = { outcome: input.kind };
 
+  /**
+   * Demande de documents (§10, §21.4), commune à « Demander les documents » et à « Conclure maintenant » : pièces conditionnelles
+   * selon la situation du client, canal, date promise, première relance. Rend null (et remplit `errors`) si la saisie est refusée.
+   */
+  const documentRequest = (src: { documents: string[]; channel: DocumentChannelKey; promisedAtMs: number | null; note?: string; situations?: string[] }) => {
+    const situations = Array.isArray(src.situations) ? src.situations.filter((s): s is string => typeof s === 'string') : [];
+    if (situations.some((s) => !(SITUATIONS as readonly string[]).includes(s))) errors.situations = 'Une des situations du client est inconnue.';
+    const known = new Map(applicableItems(rules.documentTypes, situations).map((d) => [d.code, d]));
+    const codes = [...new Set(Array.isArray(src.documents) ? src.documents : [])];
+    if (codes.length === 0) errors.documents = 'Sélectionnez au moins une pièce à demander.';
+    else if (codes.some((c) => !known.has(c))) errors.documents = 'Une des pièces demandées est inconnue.';
+    if (!has(DOCUMENT_CHANNELS, src.channel)) errors.channel = "Choisissez le canal d'envoi convenu avec le client.";
+    if (src.promisedAtMs !== null && src.promisedAtMs !== undefined) checkWhen(errors, 'promisedAtMs', src.promisedAtMs, nowMs, 'Date promise', 60 * DAY);
+    if (Object.keys(errors).length) return null;
+    const types = codes.map((c) => known.get(c)!);
+    const promised = typeof src.promisedAtMs === 'number' ? src.promisedAtMs : null;
+    // Une heure promise remplace la relance générique (§10.5) ; sinon première relance à J+1, en horaires.
+    const followAt = promised !== null ? promised + rules.promisedMarginMinutes * MIN : nextWorkingTime(rules.schedule, nowMs + rules.documentFollowUpDays * DAY);
+    if (followAt === null) {
+      errors.schedule = "Aucun créneau de travail n'est configuré : la relance ne peut pas être calculée.";
+      return null;
+    }
+    const summary = `${types.length} pièce(s) demandée(s) par ${DOCUMENT_CHANNELS[src.channel]}. ${promised !== null ? `Contrôle ${formatWhen(followAt, nowMs, tz)}` : `Première relance ${formatWhen(followAt, nowMs, tz)}`}.`;
+    return { types, codes, channel: src.channel, promised, followAt, situations, note: text(src.note, 300) || null, summary };
+  };
+
   switch (input.kind) {
     case 'no_answer': {
       const { attempt, cycle } = currentNrAttempt(lead);
@@ -349,48 +375,42 @@ export function planCallOutcome(input: CallOutcomeInput, ctx: QualifyContext): P
     }
 
     case 'request_documents': {
-      // Pièces conditionnelles : seules celles dont la situation du client est cochée sont demandables (§21.4).
-      const situations = Array.isArray(input.situations) ? input.situations.filter((s): s is string => typeof s === 'string') : [];
-      if (situations.some((s) => !(SITUATIONS as readonly string[]).includes(s))) errors.situations = 'Une des situations du client est inconnue.';
-      const known = new Map(applicableItems(rules.documentTypes, situations).map((d) => [d.code, d]));
-      const codes = [...new Set(Array.isArray(input.documents) ? input.documents : [])];
-      if (codes.length === 0) errors.documents = 'Sélectionnez au moins une pièce à demander.';
-      else if (codes.some((c) => !known.has(c))) errors.documents = 'Une des pièces demandées est inconnue.';
-      if (!has(DOCUMENT_CHANNELS, input.channel)) errors.channel = "Choisissez le canal d'envoi convenu avec le client.";
-      if (input.promisedAtMs !== null && input.promisedAtMs !== undefined) checkWhen(errors, 'promisedAtMs', input.promisedAtMs, nowMs, 'Date promise', 60 * DAY);
-      if (Object.keys(errors).length) return fail();
+      const req = documentRequest(input);
+      if (!req) return fail();
       status = 'awaiting_documents';
-      note = text(input.note, 300) || null;
-      const types = codes.map((c) => known.get(c)!);
-      const promised = typeof input.promisedAtMs === 'number' ? input.promisedAtMs : null;
-      // Une heure promise remplace la relance générique (§10.5) ; sinon première relance à J+1, en horaires.
-      const followAt = promised !== null
-        ? promised + rules.promisedMarginMinutes * MIN
-        : nextWorkingTime(rules.schedule, nowMs + rules.documentFollowUpDays * DAY);
-      if (followAt === null) {
-        errors.schedule = "Aucun créneau de travail n'est configuré : la relance ne peut pas être calculée.";
-        return fail();
-      }
-      nextAction = promised !== null
-        ? action('promised_docs_missing', 'P2', followAt, 'Documents promis non reçus')
-        : action('document_followup', 'P2', followAt, `Relancer les ${types.length} pièce(s) demandée(s)`);
-      documents = { types, channel: input.channel, promisedAtMs: promised, nextFollowUpAtMs: followAt };
-      meta.documents = codes;
-      meta.channel = input.channel;
-      if (situations.length > 0) meta.situations = situations;
-      summary = `${types.length} pièce(s) demandée(s) par ${DOCUMENT_CHANNELS[input.channel]}. ${promised !== null ? `Contrôle ${formatWhen(followAt, nowMs, tz)}` : `Première relance ${formatWhen(followAt, nowMs, tz)}`}.`;
+      note = req.note;
+      nextAction = req.promised !== null
+        ? action('promised_docs_missing', 'P2', req.followAt, 'Documents promis non reçus')
+        : action('document_followup', 'P2', req.followAt, `Relancer les ${req.types.length} pièce(s) demandée(s)`);
+      documents = { types: req.types, channel: req.channel, promisedAtMs: req.promised, nextFollowUpAtMs: req.followAt };
+      meta.documents = req.codes;
+      meta.channel = req.channel;
+      if (req.situations.length > 0) meta.situations = req.situations;
+      summary = req.summary;
       break;
     }
 
     case 'close_now': {
       // Une vente engagée n'est PAS une vente : aucun statut commercial n'est posé tant que le dossier n'est pas monté et la vente créée
       // (les rapports ne comptent que les ventes créées). Le lead passe en « montage en cours », sans documents préalables (§23).
+      // Les documents peuvent être demandés EN MÊME TEMPS : le client les envoie pendant que l'offre se construit.
+      let req: ReturnType<typeof documentRequest> = null;
+      if (input.documents) {
+        req = documentRequest(input.documents);
+        if (!req) return fail();
+      }
       note = text(input.note, 500) || null;
       status = 'file_building';
       directSale = true;
       nextAction = action('build_file', 'P1', nowMs, 'Vente engagée : construire l’offre (offre, règlement, vérification, signature)');
       meta.directSale = true;
-      summary = 'Vente engagée. Construisez l’offre : le lead est en montage, les documents se demandent en parallèle.';
+      if (req) {
+        documents = { types: req.types, channel: req.channel, promisedAtMs: req.promised, nextFollowUpAtMs: req.followAt };
+        meta.documents = req.codes;
+        meta.channel = req.channel;
+        if (req.situations.length > 0) meta.situations = req.situations;
+      }
+      summary = req ? `Vente engagée. ${req.summary} Construisez l’offre pendant que le client envoie ses pièces.` : 'Vente engagée. Construisez l’offre : le lead est en montage, les documents se demandent en parallèle.';
       break;
     }
 

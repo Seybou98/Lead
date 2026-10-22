@@ -258,6 +258,21 @@ describe('qualifyCall — autres résultats', () => {
     expect((db.data.get('cl_profiles/u1') as { load: Doc }).load.newLeads).toBe(2);
   });
 
+  it('conclure maintenant avec documents : pièces attendues et relance enregistrées, lead en montage, offre en première action', async () => {
+    const db = seed();
+    const r = await run(db, args({ input: { kind: 'close_now', documents: { documents: ['identity', 'tax_notice'], channel: 'email', promisedAtMs: null } } }));
+    expect(r).toMatchObject({ ok: true, status: 'file_building' });
+    expect(lead(db)).toMatchObject({ status: 'file_building', directSale: true });
+    expect(lead(db).documents).toMatchObject({ state: 'requested', expected: 2, mandatory: 2 });
+    expect(db.data.get('cl_leads/L1/documents/identity')).toMatchObject({ status: 'expected', mandatory: true, channel: 'email' });
+    expect(lead(db).nextAction).toMatchObject({ type: 'build_file', priority: 'P1' });
+  });
+  it('conclure maintenant avec une pièce inconnue : refusé, rien n’est écrit', async () => {
+    const db = seed();
+    const r = await run(db, args({ input: { kind: 'close_now', documents: { documents: ['zzz'], channel: 'email', promisedAtMs: null } } }));
+    expect(r).toMatchObject({ ok: false });
+    expect(lead(db)).toMatchObject({ status: 'new' });
+  });
   it('intéressé : température et compteur « intéressés »', async () => {
     const db = seed();
     await run(db, args({ input: { kind: 'interested', temperature: 'hot', reason: 'planning', nextAction: 'call', nextActionAtMs: NOW + 86_400_000, comment: 'Très motivé' } }));
