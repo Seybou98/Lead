@@ -22,6 +22,8 @@ const ROUTES: Record<string, string> = {
   '/api/lead-conversion': 'lead-conversion',
   '/api/reassign-lead': 'reassign-lead',
   '/api/lead-qualification': 'lead-qualification',
+  '/api/import-leads': 'import-leads',
+  '/api/integrations-hub': 'integrations-hub',
   '/api/scheduler-run': 'scheduler-run',
   '/api/portfolio': 'portfolio',
 };

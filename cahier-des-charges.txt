@@ -37,11 +37,25 @@ Ce qui reste : les rapports de rentabilité et les exports programmés (planific
 les communications (SMS, email, WhatsApp), la partie de la vente à distance qui dépend de prestataires (contrat PDF, signature électronique,
 financement), le hub d'intégrations, les règles Storage, la mise en production, puis le Lot 6 (hors V1).
 
-Qualité : 1774 tests unitaires (85 fichiers) ; typecheck de l'application, des fonctions Netlify et des
+Qualité : 1888 tests unitaires (92 fichiers) ; typecheck de l'application, des fonctions Netlify et des
 fonctions Firebase ; build de production OK ; Lead compile, se construit et se teste seul, copié hors du projet.
 Recettes réelles sur la base de DEV : 28/28 (fonctions serveur), 34/34 (montage et vente), 29/29 (transmission
 avec Storage et IGN réels), 31/31 (données transmises et suivi de la vente), 16/16 (retour des statuts), 4/4 (verrous de conversion réglés), 13/13 (file tampon et réattribution
 sur le site déployé).
+
+Vérifié le 22 octobre sur le site déployé (compte administrateur, navigateur automatisé, base de DEV) : ouverture sans erreur de
+Paramètres (cartes Qualification, Objectifs & alertes KPI, Motifs & listes), des six onglets de Rapports (Direction,
+Campagnes, Télépros, Documents, Qualité, Exports), de Dossiers, Ventes, Transmission et de la liste des leads. Parcours
+réalisés de bout en bout : constructeur de qualification (champs, condition, test, brouillon, publication v1), remplissage
+sur la fiche d'un lead (champ conditionnel, enregistrement serveur, rechargement, historique), objectif mensuel
+(enregistrement, jauge dans Direction, colonnes « Objectif »), journal de versions (formulaires, objectifs), export CSV de
+la liste des leads (anonymisé). Non vérifié : blocage de la vente par la qualification sur un vrai dossier, enregistrement
+de la page Motifs, export de données personnelles (administrateur) et sa trace d'audit, impression PDF.
+Contrôle du catalogue (base de DEV, 22 octobre) : les produits du CRM principal ont bien une catégorie ; « PAC »,
+« PAC AIR/AIR » et « PAC AIR/EAU » y sont trois familles distinctes. Les leads de test dont le produit est « PAC AIR AIR »
+appartiennent donc à la famille « PAC AIR/AIR » (même clé de formulaire et de checklist : la casse, les accents et les
+séparateurs sont ignorés), pas à « PAC ». La réception d'un lead rapproche déjà le produit reçu de sa famille. Rien à
+corriger ; seul le test du 22 octobre visait la mauvaise famille.
 
 Les 6 lots du cahier :
   Lot 1  Socle         Utilisateurs, rôles, leads, API et import, doublons, attribution, historique   [PARTIEL]
@@ -80,6 +94,8 @@ d'intégrations, règles UX) sont reprises dans les phases ci-dessous.
       /api/portfolio          absences et transferts de portefeuille
       /api/lead-conversion    montage, validation manager, vente, transmission, suivi de la vente
       /api/lead-qualification réponses au formulaire de qualification d'un lead
+      /api/import-leads       import CSV et saisie manuelle de leads (manager, administrateur)
+      /api/integrations-hub   journal des échanges et reprise d'un lead refusé (administrateur)
       /api/scheduler-run      passage manuel du planificateur (le planificateur tourne aussi seul, toutes les 5 min)
   - Développement local : `npm run dev` suffit (un plugin de dev sert /api/* avec les mêmes fonctions).
   - Le CRM Leads se déploie SEUL : tout ce qui est repris du CRM principal est copié dans Lead/ (jamais importé).
@@ -117,7 +133,24 @@ PHASE 1 — Lot 1, socle                                                        
   [FAIT]  Outils de test : scripts/send-test-leads.mjs (faux leads), scripts/test-file-tampon.mjs (file tampon,
           réattribution, planificateur sur le site déployé), scripts/import-leads-ancien-crm.mjs (vrais leads de
           l'ancien CRM, lecture seule).
-  [À FAIRE] Import CSV, saisie manuelle d'un lead, connecteurs Meta / Google directs.
+  [FAIT]  Import CSV (§4.1, §24.2), Leads > « Importer un CSV » (manager, administrateur) : fichier (séparateur « ; », « , » ou
+          tabulation, UTF-8 ou Excel, 2 000 lignes et 5 Mo au plus), rapprochement des colonnes proposé automatiquement
+          (accents et casse ignorés, synonymes de la réception), valeurs communes (source, campagne, produit), contrôle
+          AVANT envoi avec les mêmes règles que la réception (téléphone et email normalisés, au moins un moyen de
+          contact, doublons dans le fichier signalés par ligne), import par lots de 10 lignes avec progression, rejeu
+          sans doublon après une coupure réseau, confirmation au-delà de 50 leads (chaque lead entre dans l'attribution
+          et déclenche son alerte), résultat ligne par ligne (créé, rattaché à un lead existant, refusé avec motif) et
+          téléchargement des lignes refusées pour les corriger. Chaque ligne suit LA MÊME réception que Pabbly : donnée
+          brute conservée (avec l'auteur, le lot et la ligne), doublons, attribution, file tampon, SLA ; un lot
+          est idempotent et tracé dans le journal d'audit. Vérifié sur la base de DEV par script (10/10 : création,
+          doublon rattaché, ligne sans contact refusée, rejeu du lot, droits, journal, reprise) ; écrans non vérifiés
+          sur le site déployé.
+  [FAIT]  Saisie manuelle d'un lead, Leads > « Nouveau lead » (manager, administrateur) : même réception, même résultat
+          (créé et attribué, ou en file tampon, ou rattaché à un contact existant, ou refusé avec le motif).
+  [À VALIDER] Import et saisie manuelle réservés aux managers et à l'administrateur ; le télépro ne crée pas de lead
+          (le cahier ne dit pas qui peut le faire). Pas de modèles de mapping enregistrés, pas d'import de dépenses ni
+          d'Excel natif.
+  [À FAIRE] Connecteurs Meta / Google directs.
   [À FAIRE] Brancher Pabbly sur le nouveau site : action de l'entreprise externe ou de vous dans Pabbly (2e étape
           d'envoi, ou remplacement de l'adresse). Non fait : rien n'arrive en continu dans le nouveau CRM tant
           que ce n'est pas fait ; les vrais leads actuels viennent de l'import.
@@ -528,10 +561,36 @@ PHASE 5 — Lot 5, pilotage et reporting                                        
           - Prérequis : nouvelle collection d'historique avec règles Firestore à publier ; compte EmailJS (plan, appel
             serveur, quota) ; décisions : lien ou pièce jointe, destinataires libres ou non.
 
-PHASE 6 — Sections 23 et 24                                                                 [À FAIRE]
-  [À FAIRE] Hub d'intégrations (fig. 40-44) : journal de synchronisation, erreurs et nouvelles tentatives,
-          connecteur Meta, écran de transmission vers le CRM principal (la transmission elle-même est faite, voir
-          la phase 4) ; messages et SMS / email automatiques ; reconnaissance automatique des documents (OCR).
+PHASE 6 — Sections 23 et 24                                                                 [PARTIEL]
+  [FAIT]  Hub d'intégrations (§24.10, figs. 40 à 42), menu Intégrations (administrateur), cinq onglets :
+          - Connecteurs (fig. 40) : état réel de chaque connecteur d'après les traces (opérationnel, attention, aucune
+            activité), dernière activité, volume sur 24 h, dernier échec ; « À surveiller » (erreurs regroupées par
+            connecteur et par cause, tentatives épuisées, planificateur arrêté depuis plus de 15 minutes, opérations
+            en attente depuis plus d'une heure). Les connecteurs qui n'existent pas en V1 (Meta, Google Ads, email, SMS,
+            WhatsApp, signature, financement) sont montrés « non connectés », jamais « opérationnels ».
+          - Journal des synchronisations (fig. 41) : réception des leads (par source), import, saisie manuelle,
+            transmission au CRM principal et reprises manuelles ; filtres période, connecteur, opération, statut et
+            recherche (lead, identifiant externe, trace) ; cartes (opérations, taux de réussite, en attente, en erreur) ;
+            détail de l'opération (identifiant de corrélation, tentatives, erreur, charge utile) ; export d'un
+            diagnostic CSV sans charge utile. Secrets, jetons et clés masqués partout (serveur, écran, export).
+          - Erreurs & reprises (fig. 42) : onglets « À traiter » et « Résolues », priorité (critique : tentatives
+            épuisées, plus d'un jour, ou CRM principal), catégorie d'erreur, synthèse du mois ; reprise d'un lead refusé
+            à la réception, avec correction du téléphone ou de l'email (la donnée d'origine reste intacte), une seule
+            reprise par donnée, tracée dans l'audit, marquée « résolue » ; reprise de plusieurs lignes à la fois. Une
+            transmission au CRM principal se reprend sur l'écran Transmission.
+          - Transmission au CRM principal (fig. 44) : voir la phase 4.
+          - Sources de leads : adresses de réception (/api/leads, /api/pabbly/leads), activation et suspension d'une
+            source, correspondance de champs, dernières réceptions et erreurs par source ; le secret n'est jamais affiché.
+          Lecture par une fonction serveur (administrateur seulement) : la donnée brute et les transmissions ne sont pas
+          listables depuis le navigateur par les règles Firestore. Journal et reprise vérifiés sur la base de DEV par
+          script (10/10) ; écrans non vérifiés sur le site déployé.
+  [PARTIEL] Hub : lecture bornée aux 400 dernières données brutes et 300 dernières transmissions (annoncée à l'écran) ;
+          pas de durée par opération ni de nombre de tentatives de réception (une seule) ; le retour des statuts du
+          CRM principal n'a pas de trace propre (seul le planificateur est suivi) ; pas de tentatives d'un envoi externe
+          (aucun envoi en V1) ; managers sans accès au hub (§24.11 leur ouvre les erreurs métier) ; pas d'alerte critique
+          envoyée aux administrateurs ni remontée dans le cockpit ; pas de « tester la connexion ».
+  [À FAIRE] Configuration d'un connecteur Meta Lead Ads (fig. 43 : connexion, sources, correspondance des champs, règles et
+          activation), messages et SMS / email automatiques, reconnaissance automatique des documents (OCR).
           Le Lot 6 est explicitement hors V1.
 
 
@@ -636,7 +695,7 @@ recette sur la base de DEV.
 
   cd Lead
   npm run dev                       application + fonctions sur http://localhost:5180
-  npm test                          les 1774 tests
+  npm test                          les 1888 tests
   node scripts/send-test-leads.mjs --url http://localhost:5180 --secret <CRM_SHARED_SECRET> --count 5
                                     envoie de faux leads (option --scenario mix pour les cas limites)
   node scripts/test-file-tampon.mjs [--keep]

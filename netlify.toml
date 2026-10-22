@@ -79,6 +79,20 @@
   status = 200
   force = true
 
+# Import CSV et saisie manuelle de leads (manager, administrateur) : jeton Firebase.
+[[redirects]]
+  from = "/api/import-leads"
+  to = "/.netlify/functions/import-leads"
+  status = 200
+  force = true
+
+# Hub d'intégrations : journal des échanges et reprise d'un lead refusé (administrateur) : jeton Firebase.
+[[redirects]]
+  from = "/api/integrations-hub"
+  to = "/.netlify/functions/integrations-hub"
+  status = 200
+  force = true
+
 # Déclenchement manuel du planificateur (administrateur) : jeton Firebase.
 [[redirects]]
   from = "/api/scheduler-run"

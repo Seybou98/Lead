@@ -167,6 +167,14 @@ export interface RawLead {
   /** Lead créé (ou rattaché) à partir de ce brut. */
   leadId: string | null;
   processingState: 'received' | 'processed' | 'rejected';
+  /** Import ou saisie manuelle : utilisateur, lot et ligne d'origine. */
+  actorId?: string;
+  batchId?: string;
+  row?: number;
+  /** Reprise depuis le hub d'intégrations : qui, quand, et le lead obtenu. */
+  replayedAt?: Timestamp;
+  replayedBy?: string;
+  replayLeadId?: string;
   rejectionCode?: string;
   rejectionReason?: string;
 }

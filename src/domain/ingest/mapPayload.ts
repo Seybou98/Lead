@@ -29,7 +29,7 @@ export interface MappedLead {
 }
 
 /** Champ normalisé → noms acceptés dans le payload (le premier présent l'emporte). */
-const SYNONYMS: Record<string, string[]> = {
+export const SYNONYMS: Record<string, string[]> = {
   fullName: ['fullName', 'full_name', 'name', 'nom_complet'],
   firstName: ['firstName', 'first_name', 'prenom', 'Prénom', 'Prenom'],
   lastName: ['lastName', 'last_name', 'nom', 'Nom'],

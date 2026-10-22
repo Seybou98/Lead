@@ -29,6 +29,11 @@ import { SettingsHome } from './pages/settings/SettingsHome';
 import { JournalPage } from './pages/journal/JournalPage';
 import { LeadsListPage } from './pages/leads/LeadsListPage';
 import { LeadFilePage } from './pages/leads/LeadFilePage';
+import { ImportLeadsPage } from './pages/intake/ImportLeadsPage';
+import { JournalPage as IntegrationJournalPage } from './pages/integrations/JournalPage';
+import { ErrorsPage } from './pages/integrations/ErrorsPage';
+import { SourcesPage } from './pages/integrations/SourcesPage';
+import { NewLeadPage } from './pages/intake/NewLeadPage';
 import { MyDayPage } from './pages/myday/MyDayPage';
 import { IntegrationsPage } from './pages/transmission/IntegrationsPage';
 import { TransmissionPage } from './pages/transmission/TransmissionPage';
@@ -78,6 +83,8 @@ export default function App() {
         <Route path="/cockpit" element={<CockpitPage />} />
         <Route path="/equipe" element={<TeamPage />} />
         <Route path="/leads" element={<LeadsListPage basePath="/leads" />} />
+        <Route path="/leads/import" element={<ManagerOnly><ImportLeadsPage /></ManagerOnly>} />
+        <Route path="/leads/nouveau" element={<ManagerOnly><NewLeadPage /></ManagerOnly>} />
         <Route path="/leads/:leadId" element={<LeadFilePage listPath="/leads" />} />
         <Route path="/rapports" element={<ReportsPage />} />
 
@@ -97,6 +104,9 @@ export default function App() {
         <Route path="/utilisateurs/:uid/absence" element={<ManagerOnly><AbsencePage /></ManagerOnly>} />
         <Route path="/utilisateurs/:uid/transfert" element={<ManagerOnly><TransferPage /></ManagerOnly>} />
         <Route path="/integrations" element={<IntegrationsPage />} />
+        <Route path="/integrations/journal" element={<IntegrationJournalPage />} />
+        <Route path="/integrations/erreurs" element={<ErrorsPage />} />
+        <Route path="/integrations/sources" element={<SourcesPage />} />
         <Route path="/integrations/transmission" element={<TransmissionPage />} />
         <Route path="/parametres" element={<SettingsHome />} />
         <Route path="/parametres/attribution" element={<AssignmentRulesPage />} />

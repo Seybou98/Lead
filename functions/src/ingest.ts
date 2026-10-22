@@ -33,6 +33,8 @@ export interface IngestArgs {
   sourceId: string | null;
   payload: unknown;
   nowMs: number;
+  /** Import ou saisie manuelle : qui, quel lot, quelle ligne (conservé sur la donnée brute pour le journal). */
+  meta?: { actorId: string; batchId?: string; row?: number };
 }
 
 export type IngestResult =
@@ -60,6 +62,7 @@ export async function ingestLead(db: Firestore, args: IngestArgs): Promise<Inges
     payloadJson: safeJson(args.payload),
     leadId: null,
     processingState: 'received',
+    ...(args.meta ? { actorId: args.meta.actorId, ...(args.meta.batchId ? { batchId: args.meta.batchId } : {}), ...(args.meta.row !== undefined ? { row: args.meta.row } : {}) } : {}),
   } satisfies Omit<RawLead, 'receivedAt'> & { receivedAt: Date });
 
   const reject = async (code: Extract<IngestResult, { kind: 'rejected' }>['code'], reason: string): Promise<IngestResult> => {

@@ -135,6 +135,25 @@ Fonction `netlify/functions/lead-qualification.ts`, adresse `/api/lead-qualifica
   depuis le navigateur (règle `cl_settings` existante : écriture administrateur).
 - Codes : 200 · 400 · 401 · 403 · 404 · 409 (lead clôturé, aucun formulaire publié) · 422 (réponse refusée) · 500.
 
+## Import CSV et saisie manuelle de leads
+Fonction `netlify/functions/import-leads.ts`, adresse `/api/import-leads` (jeton Firebase, même clé). Droit : manager ou administrateur.
+- Corps : `{ channel: 'import' | 'manual', sourceId?, batchId, startRow?, rows: [{...}] }`, 20 lignes au plus par lot (une seule pour
+  `manual`), corps de 200 Ko au plus. Chaque ligne passe par `ingestLead` : même réception que les autres sources. La donnée brute
+  garde `actorId`, `batchId` et `row`.
+- Un lot est idempotent (`cl_idempotency/import_<lot>_<ligne>`) : un rejeu rend les mêmes résultats sans rien ré-importer ; le lot
+  d'un autre utilisateur ne se rejoue pas. Une ligne en erreur n'interrompt pas les suivantes. Audit : `leads.import` ou `lead.manual_create`.
+- Codes : 200 · 400 · 401 · 403 · 405 · 413 (trop volumineux) · 422 (lot refusé) · 500.
+
+## Hub d'intégrations
+Fonction `netlify/functions/integrations-hub.ts`, adresse `/api/integrations-hub` (jeton Firebase, même clé). Droit : administrateur seulement.
+- `{ action: 'journal' }` : lit les 400 dernières données brutes (`cl_rawLeads`), les 300 dernières transmissions (`cl_conversions`) et les
+  reprises manuelles (`cl_audit`, action `integration.replay`) ; les charges utiles sont masquées côté serveur (clés `token`, `secret`,
+  `password`, `authorization`, `api key`, `signature`…).
+- `{ action: 'replay', rawLeadId, overrides?: { phone?, email? } }` : rejoue une donnée brute REFUSÉE (ou jamais traitée depuis plus de
+  5 minutes) avec les corrections demandées, sans modifier la donnée d'origine ; une seule reprise par donnée
+  (`cl_idempotency/replay_<id>`), marquée `replayedAt/replayedBy/replayLeadId`, tracée dans l'audit.
+- Codes : 200 · 400 · 401 · 403 · 404 · 405 · 409 (déjà reprise ou en cours) · 422 (toujours refusée) · 500.
+
 ## Planificateur (traitements automatiques)
 Deux fonctions : `netlify/functions/scheduler.ts` (PLANIFIÉE, toutes les 5 minutes, déclarée dans `netlify.toml`,
 section `[functions."scheduler"]`) et `netlify/functions/scheduler-run.ts` (`/api/scheduler-run`, jeton Firebase d'un

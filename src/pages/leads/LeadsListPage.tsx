@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, Search } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { AlertTriangle, FileUp, Search, UserPlus } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useAuth } from '../../auth/AuthProvider';
 import { LEAD_STATUSES, type Role } from '../../domain/enums';
@@ -95,8 +95,18 @@ export function LeadsListView({ data, role, basePath, nowOverride, initialTab }:
 
   return (
     <div className="w-full">
-      <h1 className="text-2xl font-semibold text-slate-900">{isTelepro ? 'Mes leads' : 'Leads'}</h1>
-      <p className="mt-1 text-slate-500">{isTelepro ? 'Les leads dont vous êtes propriétaire.' : 'Tous les leads de votre périmètre.'}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold text-slate-900">{isTelepro ? 'Mes leads' : 'Leads'}</h1>
+          <p className="mt-1 text-slate-500">{isTelepro ? 'Les leads dont vous êtes propriétaire.' : 'Tous les leads de votre périmètre.'}</p>
+        </div>
+        {!isTelepro && (
+          <div className="flex gap-2">
+            <Link to="/leads/import" className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"><FileUp className="h-4 w-4" /> Importer un CSV</Link>
+            <Link to="/leads/nouveau" className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"><UserPlus className="h-4 w-4" /> Nouveau lead</Link>
+          </div>
+        )}
+      </div>
 
       {data.error && <p role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{data.error}</p>}
       {data.truncated && (
